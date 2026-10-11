@@ -93,7 +93,7 @@
   // ====================================================================
   // 직원 관리
   // ====================================================================
-  var filter = { q: '', status: '', job: '' };
+  var filter = { q: '', status: '', job: '', tg: '' };
 
   function renderStaffTab() {
     var root = $('#tab-staff');
@@ -110,15 +110,18 @@
     var search = h('input', { type: 'text', placeholder: '이름·예명·휴대폰 검색', value: filter.q });
     var statusSel = h('select', null, option('', '상태 전체'), ['대기', '활동', '반려', '퇴사'].map(function (s) { return option(s, s, filter.status === s); }));
     var jobSel = h('select', null, option('', '직군 전체'), orgsOf('직군').map(function (o) { return option(o.name, o.name, filter.job === o.name); }));
+    var tgSel = h('select', null, option('', '텔레그램 전체'), option('linked', '연결됨', filter.tg === 'linked'), option('unlinked', '미연결', filter.tg === 'unlinked'));
     var tbody = h('tbody');
 
     function renderRows() {
-      filter.q = search.value; filter.status = statusSel.value; filter.job = jobSel.value;
+      filter.q = search.value; filter.status = statusSel.value; filter.job = jobSel.value; filter.tg = tgSel.value;
       var q = filter.q.trim().toLowerCase();
       var qd = onlyDigits(q);
       var rows = state.staff.filter(function (s) {
         if (filter.status && s.status !== filter.status) return false;
         if (filter.job && s.job !== filter.job) return false;
+        if (filter.tg === 'linked' && !s.telegramLinked) return false;
+        if (filter.tg === 'unlinked' && s.telegramLinked) return false;
         if (!q) return true;
         return s.name.toLowerCase().indexOf(q) >= 0 || s.nickname.toLowerCase().indexOf(q) >= 0 || (qd && s.phone.indexOf(qd) >= 0);
       }).sort(function (a, b) {
@@ -129,9 +132,9 @@
       if (!rows.length) tbody.appendChild(h('tr', null, h('td', { colspan: 6, class: 'muted' }, '해당하는 직원이 없습니다.')));
       rows.forEach(function (s) { tbody.appendChild(staffRow(s)); });
     }
-    [search, statusSel, jobSel].forEach(function (el) { el.addEventListener('input', renderRows); });
+    [search, statusSel, jobSel, tgSel].forEach(function (el) { el.addEventListener('input', renderRows); });
 
-    root.appendChild(h('div', { class: 'toolbar' }, search, statusSel, jobSel,
+    root.appendChild(h('div', { class: 'toolbar' }, search, statusSel, jobSel, tgSel,
       h('span', { class: 'muted', style: 'align-self:center' }, '총 ' + state.staff.length + '명')));
     root.appendChild(h('div', { class: 'table-wrap' }, h('table', null,
       h('thead', null, h('tr', null, ['성명(예명)', '휴대폰', '직군 / 소속', '상태', '가입일', '관리'].map(function (t) { return h('th', null, t); }))),
@@ -147,6 +150,7 @@
     if (s.status === '반려' && s.rejectReason) badges.push(' ', h('span', { class: 'muted' }, s.rejectReason));
     if (s.deviceChangePending) badges.push(' ', h('span', { class: 'badge warn' }, '기기변경 요청'));
     if (s.locked) badges.push(' ', h('span', { class: 'badge danger' }, 'PIN 잠김'));
+    if (s.status === '활동') badges.push(' ', h('span', { class: 'badge ' + (s.telegramLinked ? 'ok' : 'danger') }, s.telegramLinked ? '텔레그램 연결' : '텔레그램 미연결'));
 
     var btns = [];
     var act = function (label, fn, cls) {
