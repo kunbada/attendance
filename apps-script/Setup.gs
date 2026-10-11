@@ -148,7 +148,8 @@ function setTelegramWebhook() {
   var url = base + '?tg=' + props.getProperty('TELEGRAM_SECRET');
   var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/setWebhook', {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    payload: JSON.stringify({ url: url, allowed_updates: ['message', 'callback_query'] })
+    // drop_pending_updates: 응답이 302 라서 텔레그램에 쌓인 재전송 대기분을 비운다
+    payload: JSON.stringify({ url: url, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true })
   });
   Logger.log('setWebhook 결과: ' + res.getContentText());
 }
