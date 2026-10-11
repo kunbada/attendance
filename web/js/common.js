@@ -108,3 +108,13 @@ function field(label, input, hint) {
 function option(value, text, selected) {
   return h('option', { value: value, selected: !!selected }, text);
 }
+
+// 현재 위치 (정확도 우선, 캐시 사용 안 함). 실패하면 한국어 메시지의 Error
+function getPosition() {
+  return new Promise(function (resolve, reject) {
+    if (!navigator.geolocation) { reject(new Error('이 브라우저는 위치 기능을 지원하지 않습니다.')); return; }
+    navigator.geolocation.getCurrentPosition(resolve, function (err) {
+      reject(new Error(err.code === 1 ? '위치 권한이 거부되었습니다. 주소창 왼쪽 자물쇠에서 위치를 허용해 주세요.' : '위치를 확인하지 못했습니다. 실외나 창가에서 다시 시도해 주세요.'));
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  });
+}

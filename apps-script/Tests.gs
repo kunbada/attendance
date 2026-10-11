@@ -80,3 +80,67 @@ function test_adminLogin() {
   Logger.log(res.ok ? '로그인 성공 (비밀번호 변경 필요: ' + res.data.account.mustChangePassword + ')' : '실패: ' + res.error);
   if (res.ok) destroySession_(res.data.token);
 }
+
+// 2단계: QR 발급 → 출근 성공 / 중복 / 한 폰 두 직원 / 틀린 QR / 거리 초과 / 현황 조회
+// 오늘 이미 발급한 진짜 QR 이 있으면 테스트가 끝난 뒤 그대로 복원한다.
+function test_stage2() {
+  var tmpAdmin = newId_('A');
+  appendRow('계정', { 계정ID: tmpAdmin, 아이디: 'test_tmp_admin', 비밀번호해시: hashSecret_('unused1234'), 역할: '관리자', 이름: '임시', 실패횟수: 0, 사용여부: 'Y', 비번변경필요: 'N' });
+  var adminToken = createSession_('계정', tmpAdmin);
+  var savedQr = todayQrRow_();
+  var savedQrValues = savedQr ? JSON.parse(JSON.stringify(savedQr)) : null;
+  var ids = [newId_('S'), newId_('S')];
+  var devA = 'test-device-AAAA', devB = 'test-device-BBBB';
+  ids.forEach(function (id, i) {
+    appendRow('직원', { 직원ID: id, 성명: '테스트' + (i + 1), 휴대폰: '0100000000' + i, 직군: '상담사', 상태: '활동', PIN해시: hashSecret_('1234'), 실패횟수: 0, 기기키: i === 0 ? devA : devB, 가입일시: nowStr() });
+  });
+  var tokA = createSession_('직원', ids[0]), tokB = createSession_('직원', ids[1]);
+  var ok = true;
+  var check = function (label, res, wantOk, msgPart) {
+    var pass = testExpect_(label, res, wantOk) && (!msgPart || (res.error || '').indexOf(msgPart) >= 0);
+    if (!pass && msgPart) Logger.log('   (기대한 문구: ' + msgPart + ')');
+    ok = pass && ok;
+  };
+  try {
+    var base = { lat: 37.5000, lng: 127.0000 };
+    var issued = testCall_(adminToken, '', 'admin.issueQr', { lat: base.lat, lng: base.lng, accuracy: 12 });
+    check('QR 발급', issued, true);
+    var qr = issued.data.qr;
+    check('QR 형식', { ok: /^WN-ATT\|\d{4}-\d{2}-\d{2}\|[A-Z0-9]{16}$/.test(qr) }, true);
+    check('직원이 QR 발급 시도 → 거부', testCall_(tokA, devA, 'admin.issueQr', base), false);
+
+    var near = { qr: qr, lat: 37.5003, lng: 127.0003, accuracy: 10 }; // 약 45m
+    check('틀린 QR → 실패', testCall_(tokA, devA, 'attendance.checkin', Object.assign({}, near, { qr: 'WN-ATT|2000-01-01|XXXXXXXXXXXXXXXX' })), false, '오늘 QR이 아닙니다');
+    check('200m 밖 → 실패', testCall_(tokA, devA, 'attendance.checkin', { qr: qr, lat: 37.5035, lng: 127.0000, accuracy: 10 }), false, '떨어져 있습니다');
+    var good = testCall_(tokA, devA, 'attendance.checkin', near);
+    check('현장에서 출근 성공', good, true);
+    Logger.log('   거리 ' + (good.data && good.data.distance) + 'm, 시각 ' + (good.data && good.data.time));
+    check('같은 직원 두 번째 출근 → 거부', testCall_(tokA, devA, 'attendance.checkin', near), false, '이미 출근');
+    // 직원 2가 직원 1의 폰으로 (기기키를 도용하려면 자기 토큰 + 직원 1의 기기키는 일치하지 않아 이미 막힘)
+    check('다른 직원 토큰 + 남의 기기키 → 거부', testCall_(tokB, devA, 'attendance.checkin', near), false, '등록된 휴대폰이 아닙니다');
+    // 한 폰 두 직원: 직원 2의 등록 기기를 직원 1과 같게 만들어 판정 3을 직접 확인
+    updateRow('직원', findOne('직원', function (r) { return s_(r.직원ID) === ids[1]; })._row, { 기기키: devA });
+    check('한 폰으로 두 번째 직원 → 실패', testCall_(tokB, devA, 'attendance.checkin', near), false, '다른 직원이 출근');
+
+    var day = testCall_(adminToken, '', 'admin.attendance', { date: todayStr() });
+    check('일별 현황', day, true);
+    var presentIds = day.data.present.map(function (p) { return p.id; });
+    check('출근자 목록에 직원1', { ok: presentIds.indexOf(ids[0]) >= 0 && presentIds.indexOf(ids[1]) < 0 }, true);
+    check('실패 기록이 남음 (3건)', { ok: day.data.failures.filter(function (f) { return /테스트/.test(f.name); }).length === 3 }, true);
+    var mon = testCall_(adminToken, '', 'admin.attendance', { month: todayStr().slice(0, 7) });
+    check('월별 현황', mon, true);
+    check('직원 응답에 다른 직원 정보 없음', { ok: JSON.stringify(testCall_(tokA, devA, 'staff.me')).indexOf('테스트2') < 0 }, true);
+  } finally {
+    destroySession_(adminToken);
+    deleteRows('계정', filterRows('계정', function (a) { return s_(a.계정ID) === tmpAdmin; }).map(function (a) { return a._row; }));
+    ids.forEach(function (id) {
+      destroyUserSessions_('직원', id);
+      deleteRows('근태', filterRows('근태', function (r) { return s_(r.직원ID) === id; }).map(function (r) { return r._row; }));
+      deleteRows('직원', filterRows('직원', function (r) { return s_(r.직원ID) === id; }).map(function (r) { return r._row; }));
+    });
+    var cur = todayQrRow_();
+    if (savedQrValues) updateRow('QR발급', cur._row, savedQrValues);
+    else if (cur) deleteRows('QR발급', [cur._row]);
+  }
+  Logger.log(ok ? '=== 2단계 테스트 전체 통과 ===' : '=== 실패한 항목이 있습니다. 위 [실패] 줄을 확인하세요 ===');
+}

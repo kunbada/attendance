@@ -100,11 +100,45 @@
         <div class="stat"><span>오늘 출근</span><strong id="home-today"></strong></div>
         <div class="stat"><span>이번 달 출근일수</span><strong id="home-month"></strong></div>
       </div>
-      <p class="muted">출근·예약 기능은 다음 단계에서 추가됩니다.</p>
+      <button type="button" class="btn primary" id="btn-checkin" style="min-height:64px;font-size:20px;margin-bottom:12px">출근하기</button>
+      <p class="muted">예약 기능은 다음 단계에서 추가됩니다.</p>
       <button type="button" class="btn" id="btn-logout">로그아웃</button>
     </section>
 
+    <!-- 출근: QR 스캔 -->
+    <section id="screen-scan" class="screen hidden">
+      <div class="card">
+        <h2>출근 QR을 비추세요</h2>
+        <div id="qr-reader" style="width:100%"></div>
+        <p class="muted">현장에 붙어 있는 오늘 QR을 카메라에 맞춰 주세요.</p>
+        <button type="button" class="btn" id="btn-scan-cancel">취소</button>
+      </div>
+    </section>
+
+    <!-- 출근: 셀카 (관리자가 켠 경우만) -->
+    <section id="screen-selfie" class="screen hidden">
+      <div class="card">
+        <h2>셀카를 찍어 주세요</h2>
+        <p class="muted">얼굴이 나오게 앞면 카메라로 촬영합니다. 위치는 지금 확인 중입니다.</p>
+        <label class="btn primary" style="text-align:center;line-height:48px;cursor:pointer">셀카 촬영
+          <input id="selfie-input" type="file" accept="image/*" capture="user" style="display:none">
+        </label>
+      </div>
+    </section>
+
+    <!-- 출근: 결과 -->
+    <section id="screen-result" class="screen hidden">
+      <div class="card" style="text-align:center">
+        <div id="result-icon" style="font-size:56px"></div>
+        <h2 id="result-title"></h2>
+        <p id="result-detail"></p>
+        <button type="button" class="btn primary" id="btn-result-home">홈으로</button>
+      </div>
+    </section>
+
   </main>
+  <!-- QR 스캔 라이브러리 (버전 고정) -->
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
   <script src="js/common.js"></script>

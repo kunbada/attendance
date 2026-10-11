@@ -1,5 +1,5 @@
 // 관리자 전용 action: 직원 관리, 급여정보, 설정(조직·계정 포함)
-// 1단계 범위만 들어 있다. 대시보드·현황 집계는 이후 단계에서 추가.
+// 근태 현황은 Attendance.gs, 대시보드는 4단계에서 추가.
 
 function adminName_(ctx) {
   return s_(ctx.account.아이디);

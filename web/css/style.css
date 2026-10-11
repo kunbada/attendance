@@ -103,3 +103,16 @@ td .btn + .btn { margin-top: 0; margin-left: 4px; }
 #loading.show { display: flex; }
 .spinner { width: 40px; height: 40px; border: 4px solid #cbd5e1; border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* QR 인쇄: 'QR 생성' 탭의 QR 영역만 종이에 나온다 */
+.qr-big { text-align: center; }
+.qr-big .qr-box { padding: 20px; }
+.qr-big .qr-title { font-size: 20px; font-weight: 700; margin: 12px 0 0; }
+@media print {
+  body.print-qr .no-print { display: none !important; }
+  body.print-qr main { max-width: none; padding: 0; }
+  body.print-qr .card { border: 0; }
+}
+.summary { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.summary .card { margin: 0; min-width: 130px; text-align: center; }
+.summary .num { font-size: 28px; font-weight: 700; display: block; }

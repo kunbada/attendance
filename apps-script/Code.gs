@@ -35,6 +35,7 @@ function actions_() {
     'staff.login': { roles: ['public'], fn: staffLogin, write: true },
     'staff.requestDeviceChange': { roles: ['public'], fn: staffRequestDeviceChange, write: true },
     'staff.me': { roles: ['staff'], fn: staffMe },
+    'attendance.checkin': { roles: ['staff'], fn: attendanceCheckin, write: true },
 
     'account.login': { roles: ['public'], fn: accountLogin, write: true },
     'account.changePassword': { roles: ['desk', 'admin'], fn: accountChangePassword, write: true, allowMustChange: true },
@@ -49,6 +50,10 @@ function actions_() {
     'admin.approveDevice': { roles: ['admin'], fn: adminApproveDevice, write: true },
     'admin.payrollGet': { roles: ['admin'], fn: adminPayrollGet },
     'admin.payrollReveal': { roles: ['admin'], fn: adminPayrollReveal, write: true },
+
+    'admin.currentQr': { roles: ['admin'], fn: adminCurrentQr },
+    'admin.issueQr': { roles: ['admin'], fn: adminIssueQr, write: true },
+    'admin.attendance': { roles: ['admin'], fn: adminAttendance },
 
     'admin.settings': { roles: ['admin'], fn: adminSettings },
     'admin.saveSettings': { roles: ['admin'], fn: adminSaveSettings, write: true },

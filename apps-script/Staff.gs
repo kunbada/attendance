@@ -167,9 +167,10 @@ function staffMe(data, ctx) {
   return {
     staff: staffSelf_(ctx.staff),
     checkedInToday: !!todayRec,
-    checkedInAt: todayRec ? s_(todayRec.시각) : '',
+    checkedInAt: todayRec ? s_(todayRec.시각).slice(0, 5) : '',
     monthDays: Object.keys(days).length,
-    telegramLinked: !!s_(ctx.staff.텔레그램ID)
+    telegramLinked: !!s_(ctx.staff.텔레그램ID),
+    selfieRequired: getSettings_()['출근셀카사용'] === 'Y'
   };
 }
 
