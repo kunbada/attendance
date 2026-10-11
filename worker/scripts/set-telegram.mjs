@@ -1,9 +1,8 @@
 // 텔레그램 봇 토큰을 서버에 등록하고 웹훅을 연결한다. 터미널에서 직접 실행하세요:
 //   cd worker
 //   node scripts/set-telegram.mjs
-// 토큰은 화면에 보이지 않게 입력받고, 채팅·파일·git 어디에도 남기지 않는다 (Cloudflare 비밀 값으로만 저장).
-import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+// 토큰은 화면에 보이지 않게 입력받는다. 채팅·git 에는 남지 않고, 임시 파일(.telegram-token)은 서버에 올린 뒤 삭제한다.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -67,13 +66,9 @@ const me = await tg('getMe');
 if (!me.ok) { console.error('토큰이 올바르지 않습니다: ' + me.description); process.exit(1); }
 console.log('봇 확인: @' + me.result.username);
 
-const put = (name, value) => {
-  const r = spawnSync('npx', ['wrangler@4', 'secret', 'put', name], { cwd: root, input: value, shell: true, encoding: 'utf8' });
-  if (r.status !== 0) { console.error(r.stdout + r.stderr); process.exit(1); }
-};
-put('TELEGRAM_TOKEN', token);
-put('TELEGRAM_SECRET', vars.TELEGRAM_SECRET);
-console.log('토큰을 서버 비밀 값으로 저장했습니다.');
+// 서버 비밀 값 등록(wrangler)은 로그인 정보가 있는 환경에서 해야 해서, 토큰을 임시 파일에 두고 Claude가 올린 뒤 지운다
+writeFileSync(join(root, '.telegram-token'), token);
+console.log('토큰을 임시 저장했습니다. (서버에 올린 뒤 바로 지워집니다)');
 
 // drop_pending_updates: 이전에 쌓인 대기 업데이트를 비운다
 const hook = await tg('setWebhook', { url: workerUrl + '/?tg=' + vars.TELEGRAM_SECRET, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true });

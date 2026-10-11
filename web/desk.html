@@ -37,6 +37,16 @@
   </main>
 
   <main class="wide screen hidden" id="screen-app">
+    <div class="tabs" id="desk-tabs">
+      <button type="button" class="tab active" data-dtab="visit">방문 접수</button>
+      <button type="button" class="tab" data-dtab="reservations">예약 명단</button>
+      <button type="button" class="tab" data-dtab="staff">직원 검색</button>
+    </div>
+
+    <div id="dtab-reservations" class="hidden"></div>
+    <div id="dtab-staff" class="hidden"></div>
+
+    <div id="dtab-visit">
     <div class="desk-grid">
       <div class="card">
         <h2>고객 전화번호 뒤 5자리</h2>
@@ -49,6 +59,7 @@
         <div class="keypad" id="keypad"></div>
       </div>
       <div class="card" id="panel"></div>
+    </div>
     </div>
 
     <div class="card">

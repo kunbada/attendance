@@ -1,7 +1,7 @@
 // 관리자 전용 action: 직원 관리, 급여정보, 설정(조직·계정 포함)
 import { AppError, s, all, first, run, nowStr, newId, hashSecret, decryptText, getSettings, orgNameMap, writeLog } from './util.js';
 import { MAX_FAILS, checkPasswordPolicy, destroyUserSessions } from './auth.js';
-import { SALES_JOB, normalizePhone, resolveOrg, deviceInUse } from './staff.js';
+import { SALES_JOB, normalizePhone, resolveOrg, deviceInUse, checkGrade } from './staff.js';
 
 const adminName = (ctx) => ctx.account.login_id;
 
@@ -20,6 +20,7 @@ export async function adminStaffList(env) {
     staff: rows.map((r) => ({
       id: r.id, name: r.name, nickname: r.nickname, phone: r.phone, job: r.job,
       headId: r.head_id, headName: names[r.head_id] || '', teamId: r.team_id, teamName: names[r.team_id] || '',
+      grade: r.grade, canApprove: !!r.can_approve,
       status: r.status, rejectReason: r.reject_reason, joinedAt: r.joined_at, approvedAt: r.approved_at,
       deviceChangePending: !!r.device_change_request, telegramLinked: !!r.telegram_id, locked: r.fail_count >= MAX_FAILS
     }))
@@ -52,10 +53,14 @@ export async function adminUpdate(env, data, ctx) {
   if (nickname.length > 20) throw new AppError('예명은 20자 이내로 입력해 주세요.');
   const phone = normalizePhone(data.phone);
   if (await first(env, 'SELECT 1 FROM staff WHERE phone = ? AND id <> ?', phone, row.id)) throw new AppError('같은 휴대폰 번호의 직원이 이미 있습니다.');
-  const org = await resolveOrg(env, s(data.job), s(data.headId), s(data.teamId));
-  await run(env, 'UPDATE staff SET name = ?, nickname = ?, phone = ?, job = ?, head_id = ?, team_id = ? WHERE id = ?',
-    name, nickname, phone, org.job, org.headId, org.teamId, row.id);
-  await writeLog(env, adminName(ctx), '직원수정', row.id, name);
+  const grade = s(data.grade) || row.grade;
+  const org = await resolveOrg(env, s(data.job), s(data.headId), s(data.teamId), grade === '본부장');
+  checkGrade(grade, org);
+  // 승인 권한은 팀장·본부장에게만 줄 수 있다
+  const canApprove = grade !== '직원' && data.canApprove === true ? 1 : 0;
+  await run(env, 'UPDATE staff SET name = ?, nickname = ?, phone = ?, job = ?, head_id = ?, team_id = ?, grade = ?, can_approve = ? WHERE id = ?',
+    name, nickname, phone, org.job, org.headId, org.teamId, grade, canApprove, row.id);
+  await writeLog(env, adminName(ctx), '직원수정', row.id, name + (grade !== row.grade || canApprove !== row.can_approve ? ' / 직급 ' + grade + (canApprove ? '(승인권한)' : '') : ''));
   return {};
 }
 

@@ -10,13 +10,12 @@ function formatPhone(d) {
   return d.length === 11 ? d.slice(0, 3) + '-' + d.slice(3, 7) + '-' + d.slice(7) : d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6);
 }
 
-// 데스크 화면에 보여줄 직원 요약. 텔레그램 미연결이면 직접 연락하도록 휴대폰 번호를 함께 준다.
+// 데스크 화면에 보여줄 직원 요약. 데스크는 직원에게 직접 연락할 수 있도록 휴대폰 번호를 항상 본다.
 function deskStaffView(r, names) {
-  const linked = !!r.telegram_id;
   return {
-    id: r.id, name: r.name, nickname: r.nickname, job: r.job,
+    id: r.id, name: r.name, nickname: r.nickname, job: r.job, grade: r.grade,
     headName: names[r.head_id] || '', teamName: names[r.team_id] || '',
-    telegramLinked: linked, phone: linked ? '' : formatPhone(r.phone)
+    telegramLinked: !!r.telegram_id, phone: formatPhone(r.phone)
   };
 }
 
@@ -38,14 +37,49 @@ export async function deskLookup(env, data) {
   return { reservations: out };
 }
 
+// 직원 검색: 이름·예명·전화번호 일부·본부/팀 이름. 검색어가 비어 있으면 전체 목록 (본부 → 팀 → 이름 순)
 export async function deskSearchStaff(env, data) {
-  const q = s(data.q).trim().toLowerCase();
-  if (!q) return { staff: [] };
+  const q = s(data.q).trim().toLowerCase().replace(/[^0-9a-z가-힣 ]/g, '');
   const names = await orgNameMap(env);
-  const like = '%' + q.replace(/[%_\\]/g, '\\$&') + '%';
+  const conds = [`s.status = '활동'`];
+  const params = [];
+  if (q) {
+    const like = '%' + q + '%';
+    const digits = q.replace(/[^0-9]/g, '');
+    let c = 'lower(s.name) LIKE ? OR lower(s.nickname) LIKE ? OR lower(h.name) LIKE ? OR lower(t.name) LIKE ?';
+    params.push(like, like, like, like);
+    if (digits.length >= 2) { c += ' OR s.phone LIKE ?'; params.push('%' + digits + '%'); }
+    conds.push('(' + c + ')');
+  }
   const rows = await all(env,
-    `SELECT * FROM staff WHERE status = '활동' AND (lower(name) LIKE ? ESCAPE '\\' OR lower(nickname) LIKE ? ESCAPE '\\') LIMIT 20`, like, like);
+    `SELECT s.* FROM staff s LEFT JOIN orgs h ON h.id = s.head_id LEFT JOIN orgs t ON t.id = s.team_id
+     WHERE ${conds.join(' AND ')}
+     ORDER BY COALESCE(h.sort_order, 9999), h.name, COALESCE(t.sort_order, 9999), t.name, s.name LIMIT 500`, ...params);
   return { staff: rows.map((r) => deskStaffView(r, names)) };
+}
+
+// 날짜별 예약명단 (본부 → 팀 → 직원 순). 오늘의 '예정' 건은 바로 호출할 수 있다.
+export async function deskReservationList(env, data) {
+  const date = s(data.date) || todayStr();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError('날짜 형식이 올바르지 않습니다.');
+  const names = await orgNameMap(env);
+  const rows = await all(env,
+    `SELECT r.id AS rid, r.last5, r.gender, r.visit_date, r.status AS rstatus, r.memo, s.*
+     FROM reservations r LEFT JOIN staff s ON s.id = r.staff_id
+       LEFT JOIN orgs h ON h.id = s.head_id LEFT JOIN orgs t ON t.id = s.team_id
+     WHERE r.visit_date = ?
+     ORDER BY COALESCE(h.sort_order, 9999), h.name, COALESCE(t.sort_order, 9999), t.name, s.name, r.created_at LIMIT 1000`, date);
+  return {
+    date,
+    reservations: rows.map((r) => {
+      const status = effectiveStatus({ status: r.rstatus, visit_date: r.visit_date });
+      return {
+        id: r.rid, last5: r.last5, gender: r.gender, memo: r.memo, status,
+        staff: r.id ? deskStaffView(r, names) : null,
+        callable: status === '예정' && date === todayStr() && r.status === '활동'
+      };
+    })
+  };
 }
 
 export async function deskRegisterVisit(env, data, ctx) {
@@ -82,7 +116,7 @@ export async function deskRegisterVisit(env, data, ctx) {
     `INSERT INTO visits (id, visited_at, last5, gender, reservation_id, staff_id, kind, desk_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     visitId, now, last5, gender, reservation ? reservation.id : '', staff ? staff.id : '', kind, ctx.account.id);
 
-  const called = staff ? await sendCallMessage(env, staff, visitId, last5, gender) : false;
+  const called = staff ? await sendCallMessage(env, staff, visitId, last5, true) : false;
   if (called) await run(env, 'UPDATE visits SET called_at = ? WHERE id = ?', now, visitId);
 
   return {
@@ -101,7 +135,7 @@ export async function deskRecall(env, data) {
   if (!staff) throw new AppError('담당 직원이 없는 방문입니다.');
   if (visit.acked_at) throw new AppError('이미 확인된 호출입니다.');
   if (!staff.telegram_id) throw new AppError('텔레그램이 연결되지 않은 직원입니다. 전화로 연락해 주세요: ' + formatPhone(staff.phone));
-  if (!(await sendCallMessage(env, staff, visit.id, visit.last5, visit.gender))) {
+  if (!(await sendCallMessage(env, staff, visit.id, visit.last5))) {
     throw new AppError('호출을 보내지 못했습니다. 전화로 연락해 주세요: ' + formatPhone(staff.phone));
   }
   await run(env, 'UPDATE visits SET called_at = ? WHERE id = ?', nowStr(), visit.id);

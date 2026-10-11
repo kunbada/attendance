@@ -43,7 +43,16 @@ const webhook = (body, secret = SECRET) => fetch(BASE + '/?tg=' + secret, { meth
 const sql = (command) => {
   writeFileSync(join(root, '.test.sql'), command + ';');
   execFileSync('npx', ['wrangler@4', 'd1', 'execute', 'DB', '--local', '--file=.test.sql'], { cwd: root, shell: true, stdio: 'pipe', windowsHide: true });
+  return waitReady();
 };
+// DB 파일이 바뀌면 개발 서버가 잠깐 다시 시작되므로 응답할 때까지 기다린다
+async function waitReady() {
+  for (let i = 0; i < 40; i++) {
+    try { if ((await fetch(BASE)).ok) return; } catch (e) { /* 아직 재시작 중 */ }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 
 const rnd = () => String(Math.floor(Math.random() * 1e8)).padStart(8, '0');
 const uniq = rnd();
@@ -142,9 +151,9 @@ try {
   check('성공 시 시각·거리 반환', good && /^\d\d:\d\d$/.test(good.data.time) && good.data.distance < 100, good ? good.data.time + ' ' + good.data.distance + 'm' : '');
   expectErr('같은 직원 두 번째 출근 → 거부', await call('attendance.checkin', near, tokA3, A.dev), '이미 출근');
   // 한 폰 두 직원: API 로는 기기 중복 등록이 막혀 있으므로 DB 에서 직접 같은 기기로 맞춘다
-  sql(`UPDATE staff SET device_key = '${A.dev}' WHERE id = '${idB}'`);
+  await sql(`UPDATE staff SET device_key = '${A.dev}' WHERE id = '${idB}'`);
   expectErr('한 폰으로 두 번째 직원 → 실패', await call('attendance.checkin', near, tokB, A.dev), '다른 직원이 출근했습니다');
-  sql(`UPDATE staff SET device_key = '${B.dev}' WHERE id = '${idB}'`);
+  await sql(`UPDATE staff SET device_key = '${B.dev}' WHERE id = '${idB}'`);
   const day = await call('admin.attendance', { date: today }, admin);
   expectOk('일별 현황', day);
   check('출근자에 직원 A, 미출근자에 직원 B', day.data.present.some((p) => p.id === idA) && day.data.absent.some((p) => p.id === idB));
@@ -206,7 +215,7 @@ try {
   const mine = look.data.reservations.find((r) => r.gender === '남');
   const reg = await call('desk.registerVisit', { kind: '예약', reservationId: mine.id, last5: r5 }, desk);
   expectOk('예약 고객 호출', reg);
-  const call1 = sent.find((m) => m.method === 'sendMessage' && m.payload.text.includes('[호출] ' + r5));
+  const call1 = sent.find((m) => m.method === 'sendMessage' && m.payload.text.includes('[' + r5 + '] 고객 도착'));
   check('호출 메시지 + [확인] 버튼', !!call1 && call1.payload.chat_id === String(chat) && call1.payload.reply_markup.inline_keyboard[0][0].callback_data === 'ack:' + reg.data.visitId);
   expectErr('같은 예약 중복 접수 → 거부', await call('desk.registerVisit', { kind: '예약', reservationId: mine.id, last5: r5 }, desk), '이미 방문 처리');
   const status = async () => (await call('desk.todayVisits', {}, desk)).data.visits.find((v) => v.id === reg.data.visitId).status;
@@ -230,6 +239,111 @@ try {
   check('오늘 방문 목록 3건 이상', visitsToday.length >= 3);
   check('관리자 예약 현황', (await call('admin.reservations', { from: today, to: today }, admin)).data.reservations.length >= 3);
   check('관리자 방문 현황', (await call('admin.visits', { from: today, to: today }, admin)).data.visits.length >= 3);
+  // ===== 직급(팀장·본부장), 승인 권한, 호출 알림, 예약명단, 직원 검색 =====
+  const sales = (p, head, team) => base(p, { job: '영업', headId: head, teamId: team });
+  const L = person(11), M = person(12), O = person(13), X = person(14), H = person(15);
+  const signupSales = async (p, head, team) => {
+    expectOk('영업 직원 가입 ' + p.name, await call('staff.signup', sales(p, head, team), '', p.dev));
+    return (await call('admin.staffList', {}, admin)).data.staff.find((x) => x.phone === p.phone).id;
+  };
+  const idL = await signupSales(L, 'OH01', 'OT011');   // 1본부 1팀 (팀장 예정)
+  const idM = await signupSales(M, 'OH01', 'OT011');   // 1본부 1팀 직원
+  const idO = await signupSales(O, 'OH01', 'OT012');   // 1본부 2팀 직원
+  const idX = await signupSales(X, 'OH02', 'OT021');   // 2본부 직원
+  const idH = await signupSales(H, 'OH01', 'OT011');   // 1본부 (본부장 예정)
+  await call('admin.approve', { staffId: idL }, admin);
+  await call('admin.approve', { staffId: idH }, admin);
+  expectErr('상담사는 팀장 지정 불가', await call('admin.update', { staffId: idA, name: A.name, phone: A.phone, job: '상담사', grade: '팀장' }, admin), '영업');
+  expectErr('팀장 지정은 소속 팀 필요', await call('admin.update', { staffId: idH, name: H.name, phone: H.phone, job: '영업', headId: 'OH01', teamId: '', grade: '팀장' }, admin), '팀을 선택');
+  expectOk('팀장 지정 + 승인 권한', await call('admin.update', { staffId: idL, name: L.name, phone: L.phone, job: '영업', headId: 'OH01', teamId: 'OT011', grade: '팀장', canApprove: true }, admin));
+  expectOk('본부장 지정(팀 없이) + 승인 권한', await call('admin.update', { staffId: idH, name: H.name, phone: H.phone, job: '영업', headId: 'OH01', teamId: '', grade: '본부장', canApprove: true }, admin));
+  const listed = (await call('admin.staffList', {}, admin)).data.staff;
+  check('관리자 목록에 직급·권한 표시', listed.find((x) => x.id === idL).grade === '팀장' && listed.find((x) => x.id === idH).canApprove === true);
+  const tokL = (await call('staff.login', { phone: L.phone, pin: L.pin }, '', L.dev)).data.token;
+  const tokH = (await call('staff.login', { phone: H.phone, pin: H.pin }, '', H.dev)).data.token;
+  check('내 정보에 승인 권한 표시', (await call('staff.me', {}, tokL, L.dev)).data.canApprove === true);
+  const ids = (r) => r.data.pending.map((x) => x.id);
+  const lv1 = await call('leader.staffList', {}, tokL, L.dev);
+  check('팀장: 자기 팀 대기자(M)만 보임', lv1.ok && ids(lv1).includes(idM) && !ids(lv1).includes(idO) && !ids(lv1).includes(idX), lv1.ok ? ids(lv1).length + '명' : lv1.error);
+  expectErr('팀장: 다른 팀 직원 승인 불가', await call('leader.approve', { staffId: idO }, tokL, L.dev), '관리할 수 있는');
+  expectOk('팀장: 자기 팀 직원 승인', await call('leader.approve', { staffId: idM }, tokL, L.dev));
+  const lv2 = await call('leader.staffList', {}, tokH, H.dev);
+  check('본부장: 본부 안 대기자(O) 보이고 다른 본부(X)는 안 보임', ids(lv2).includes(idO) && !ids(lv2).includes(idX));
+  expectErr('본부장: 다른 본부 직원 승인 불가', await call('leader.approve', { staffId: idX }, tokH, H.dev), '관리할 수 있는');
+  expectErr('반려 사유 필수', await call('leader.reject', { staffId: idO, reason: '' }, tokH, H.dev), '사유');
+  expectOk('본부장: 승인', await call('leader.approve', { staffId: idO }, tokH, H.dev));
+  expectErr('관리자가 지정하지 않은 일반 직원은 승인 불가', await call('leader.staffList', {}, tokA3, A.dev), '권한', 'FORBIDDEN');
+  await call('admin.update', { staffId: idL, name: L.name, phone: L.phone, job: '영업', headId: 'OH01', teamId: 'OT011', grade: '팀장', canApprove: false }, admin);
+  expectErr('승인 권한을 뺀 팀장은 불가', await call('leader.staffList', {}, tokL, L.dev), '권한', 'FORBIDDEN');
+  await call('admin.update', { staffId: idL, name: L.name, phone: L.phone, job: '영업', headId: 'OH01', teamId: 'OT011', grade: '팀장', canApprove: true }, admin);
+
+  // 호출 알림: 담당 직원 + 담당 팀장·본부장
+  const chatOf = (n) => 800000 + Number(uniq.slice(0, 4)) * 10 + n;
+  const linkTelegram = async (p, id, n) => {
+    const t = (await call('staff.login', { phone: p.phone, pin: p.pin }, '', p.dev)).data.token;
+    const code = (await call('staff.telegramLink', {}, t, p.dev)).data.url.split('start=')[1];
+    await webhook({ update_id: Date.now() * 10 + n, message: { text: '/start ' + code, chat: { id: chatOf(n), type: 'private' } } });
+    return t;
+  };
+  const tokM = await linkTelegram(M, idM, 1);
+  await linkTelegram(L, idL, 2);
+  await linkTelegram(H, idH, 3);
+  const r5m = last5();
+  expectOk('직원 M 예약', await call('reservation.create', { last5: r5m, date: today, gender: '남' }, tokM, M.dev));
+  const lookM = await call('desk.lookup', { last5: r5m }, desk);
+  const sentBefore = sent.length;
+  const regM = await call('desk.registerVisit', { kind: '예약', reservationId: lookM.data.reservations[0].id, last5: r5m }, desk);
+  expectOk('M 호출', regM);
+  const batch = sent.slice(sentBefore).filter((m) => m.method === 'sendMessage');
+  const toM = batch.find((m) => m.payload.chat_id === String(chatOf(1)));
+  check('직원 메시지 형식: [호출] 1본부 1팀 이름님 [번호] 고객 도착 / 안내데스크로 와주세요.',
+    toM && toM.payload.text === '[호출] 1본부 1팀 ' + M.name + '님 [' + r5m + '] 고객 도착\n안내데스크로 와주세요.', toM ? toM.payload.text : '(없음)');
+  check('직원 메시지에 [확인] 버튼', toM && toM.payload.reply_markup.inline_keyboard[0][0].callback_data === 'ack:' + regM.data.visitId);
+  const toL = batch.find((m) => m.payload.chat_id === String(chatOf(2)));
+  const toH = batch.find((m) => m.payload.chat_id === String(chatOf(3)));
+  check('담당 팀장에게도 알림 (확인 버튼 없음)', toL && toL.payload.text.startsWith('[호출 알림] 1본부 1팀 ' + M.name + '님께 [' + r5m + ']') && !toL.payload.reply_markup, toL ? toL.payload.text : '(없음)');
+  check('담당 본부장에게도 알림', !!toH && toH.payload.text.startsWith('[호출 알림]'));
+  check('호출받은 직원에게는 정확히 한 통만 (알림과 중복 안 됨)', batch.filter((m) => m.payload.chat_id === String(chatOf(1))).length === 1);
+  const sentBeforeRecall = sent.length;
+  expectOk('재호출', await call('desk.recall', { visitId: regM.data.visitId }, desk));
+  const rec = sent.slice(sentBeforeRecall).filter((m) => m.method === 'sendMessage');
+  check('재호출은 직원에게만', rec.length === 1 && rec[0].payload.chat_id === String(chatOf(1)));
+
+  // 예약명단
+  const rl = await call('desk.reservationList', { date: today }, desk);
+  expectOk('예약명단 조회', rl);
+  const mine2 = rl.data.reservations.find((r) => r.last5 === r5m);
+  check('예약명단: 번호·본부/팀·직원명·전화번호 표시', mine2 && mine2.staff.name === M.name && mine2.staff.headName === '1본부' && mine2.staff.teamName === '1팀' && mine2.staff.phone.replace(/\D/g, '') === M.phone, mine2 ? mine2.staff.phone : '');
+  check('방문 처리된 예약은 호출 버튼 없음(callable=false)', mine2 && mine2.status === '방문' && mine2.callable === false);
+  const rl2 = rl.data.reservations.filter((r) => r.staff);
+  const hk = (r) => (r.staff.headName ? '0' + r.staff.headName : '1');  // 본부 없는 직군은 맨 뒤
+  check('예약명단은 본부 → 팀 순으로 정렬', rl2.every((r, i) => i === 0 || hk(rl2[i - 1]) <= hk(r)));
+  expectErr('날짜 형식 검사', await call('desk.reservationList', { date: '2026/10/1' }, desk), '날짜');
+  expectErr('직원은 예약명단 조회 불가', await call('desk.reservationList', { date: today }, tokA3, A.dev), '권한');
+
+  // 직원 검색
+  const all0 = await call('desk.searchStaff', { q: '' }, desk);
+  check('직원 전체 리스트 (활동 직원, 전화번호 포함)', all0.ok && all0.data.staff.length >= 5 && all0.data.staff.every((x) => /^010-/.test(x.phone)), all0.ok ? String(all0.data.staff.length) : all0.error);
+  const heads = all0.data.staff.map((x) => x.headName);
+  check('전체 리스트는 본부 → 팀 → 이름 순', heads.every((h, i) => i === 0 || (heads[i - 1] || '힣') <= (h || '힣') || (heads[i - 1] !== '' && h === '')));
+  check('이름으로 검색', (await call('desk.searchStaff', { q: M.name }, desk)).data.staff.some((x) => x.id === idM));
+  check('전화번호 일부(뒤 5자리)로 검색', (await call('desk.searchStaff', { q: M.phone.slice(-5) }, desk)).data.staff.some((x) => x.id === idM));
+  const byOrg = await call('desk.searchStaff', { q: '1본부' }, desk);
+  check('본부 이름으로 검색', byOrg.data.staff.length >= 3 && byOrg.data.staff.every((x) => x.headName === '1본부'));
+  check('검색 응답에 급여정보 없음', !/rrn|account|주민/.test(JSON.stringify(all0)));
+  const sentBeforeNamed = sent.length;
+  const byName = await call('desk.registerVisit', { kind: '지명', staffId: idO, last5: last5() }, desk);
+  expectOk('검색 후 호출(지명)', byName);
+  check('텔레그램 미연결 직원 지명은 호출 없이 번호 안내', byName.data.called === false && byName.data.notLinked === true && sent.length === sentBeforeNamed);
+
+  // 퇴사 처리: 팀장 → 자기 팀 직원, 본부장 → 팀장
+  expectErr('팀장: 본부장은 처리 불가', await call('leader.retire', { staffId: idH }, tokL, L.dev), '관리할 수 있는');
+  expectOk('팀장: 자기 팀 직원 퇴사 처리', await call('leader.retire', { staffId: idM }, tokL, L.dev));
+  expectErr('퇴사한 직원의 토큰은 무효', await call('staff.me', {}, tokM, M.dev), null, 'AUTH');
+  expectErr('이미 퇴사한 직원 재처리 불가', await call('leader.retire', { staffId: idM }, tokL, L.dev), '활동 중인');
+  expectOk('본부장: 소속 팀장 퇴사 처리', await call('leader.retire', { staffId: idL }, tokH, H.dev));
+  expectErr('본부장: 다른 본부 직원 퇴사 불가', await call('leader.retire', { staffId: idX }, tokH, H.dev), '관리할 수 있는');
+
   expectOk('퇴사 처리', await call('admin.retire', { staffId: idB }, admin));
   expectErr('퇴사 후 로그인 차단', await call('staff.login', { phone: B.phone, pin: B.pin }, '', B.dev), '로그인할 수 없는');
   expectErr('퇴사 후 기존 토큰 무효', await call('staff.me', {}, tokB, B.dev), null, 'AUTH');

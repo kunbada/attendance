@@ -30,11 +30,13 @@ export function activeOrgs(env) {
 }
 
 // 직군·본부·팀 선택이 유효한지 확인하고 저장할 값을 돌려준다
-export async function resolveOrg(env, job, headId, teamId) {
+// allowNoTeam: 본부장은 팀 없이 본부에만 소속될 수 있다
+export async function resolveOrg(env, job, headId, teamId, allowNoTeam = false) {
   const orgs = await activeOrgs(env);
   if (!orgs.some((o) => o.kind === '직군' && o.name === job)) throw new AppError('직군을 선택해 주세요.');
   if (job !== SALES_JOB) return { job, headId: '', teamId: '' };
   if (!orgs.some((o) => o.kind === '본부' && o.id === headId)) throw new AppError('본부를 선택해 주세요.');
+  if (allowNoTeam && !teamId) return { job, headId, teamId: '' };
   if (!orgs.some((o) => o.kind === '팀' && o.id === teamId && o.parent_id === headId)) throw new AppError('팀을 선택해 주세요.');
   return { job, headId, teamId };
 }
@@ -58,7 +60,17 @@ export async function checkPin(env, row, pin) {
   if (row.fail_count > 0) await run(env, 'UPDATE staff SET fail_count = 0 WHERE id = ?', row.id);
 }
 
-const staffSelf = (r) => ({ id: r.id, name: r.name, nickname: r.nickname, phone: r.phone, job: r.job, status: r.status });
+const staffSelf = (r) => ({ id: r.id, name: r.name, nickname: r.nickname, phone: r.phone, job: r.job, status: r.status, grade: r.grade });
+
+export const GRADES = ['직원', '팀장', '본부장'];
+
+// 팀장·본부장 지정이 소속과 맞는지 확인한다 (관리자 화면에서 지정할 때 사용)
+export function checkGrade(grade, org) {
+  if (!GRADES.includes(grade)) throw new AppError('직급 값이 올바르지 않습니다.');
+  if (grade !== '직원' && org.job !== SALES_JOB) throw new AppError('팀장·본부장은 "' + SALES_JOB + '" 직군만 지정할 수 있습니다.');
+  if (grade === '팀장' && !org.teamId) throw new AppError('팀장은 소속 팀이 있어야 합니다.');
+  if (grade === '본부장' && !org.headId) throw new AppError('본부장은 소속 본부가 있어야 합니다.');
+}
 
 // ---------- action ----------
 
@@ -164,6 +176,7 @@ export async function staffMe(env, data, ctx) {
     checkedInAt: todayRec ? todayRec.time.slice(0, 5) : '',
     monthDays: days ? days.n : 0,
     telegramLinked: !!ctx.staff.telegram_id,
+    canApprove: ctx.staff.grade !== '직원' && !!ctx.staff.can_approve,
     genderRequired: settings['예약중복기준'] === '뒤5자리+성별'
   };
 }

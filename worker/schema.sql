@@ -1,4 +1,5 @@
 -- D1 데이터베이스 구조. 여러 번 실행해도 안전하다 (IF NOT EXISTS).
+-- 이미 운영 중인 DB 는 migrations/ 폴더의 파일을 번호 순서대로 한 번씩 실행한다 (새로 만들 때는 이 파일만 실행하면 된다).
 -- 날짜·시각은 Asia/Seoul 기준 문자열: 날짜 'YYYY-MM-DD', 일시 'YYYY-MM-DD HH:MM:SS'.
 -- 상태·구분 값(대기/활동/예정/방문 …)은 화면과 같은 한국어 그대로 저장한다.
 
@@ -36,13 +37,16 @@ CREATE TABLE IF NOT EXISTS staff (
   telegram_link_code TEXT NOT NULL DEFAULT '',
   telegram_link_issued_at INTEGER NOT NULL DEFAULT 0,
   joined_at TEXT NOT NULL,
-  approved_at TEXT NOT NULL DEFAULT ''
+  approved_at TEXT NOT NULL DEFAULT '',
+  grade TEXT NOT NULL DEFAULT '직원',
+  can_approve INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_phone ON staff(phone);
 CREATE INDEX IF NOT EXISTS ix_staff_device ON staff(device_key);
 CREATE INDEX IF NOT EXISTS ix_staff_device_req ON staff(device_change_request);
 CREATE INDEX IF NOT EXISTS ix_staff_telegram ON staff(telegram_id);
 CREATE INDEX IF NOT EXISTS ix_staff_status ON staff(status);
+CREATE INDEX IF NOT EXISTS ix_staff_org ON staff(head_id, team_id);
 
 -- 주민번호·계좌번호는 암호화(AES-GCM)해서 저장한다. 관리자 action 에서만 읽는다.
 CREATE TABLE IF NOT EXISTS payroll (

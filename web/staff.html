@@ -102,12 +102,26 @@
       </div>
       <button type="button" class="btn primary" id="btn-checkin" style="min-height:64px;font-size:20px;margin-bottom:12px">출근하기</button>
       <button type="button" class="btn primary" id="btn-reserve" style="margin-bottom:12px">고객 방문 예약</button>
+      <button type="button" class="btn hidden" id="btn-approve" style="margin-bottom:12px">직원 승인 관리</button>
       <div class="card">
         <div class="stat"><span>텔레그램 호출 알림</span><strong id="tg-status"></strong></div>
         <p class="muted" id="tg-help">데스크에서 고객이 도착하면 텔레그램으로 호출을 받습니다.</p>
         <button type="button" class="btn" id="btn-telegram">텔레그램 연결</button>
       </div>
       <button type="button" class="btn" id="btn-logout">로그아웃</button>
+    </section>
+
+    <!-- 승인 관리 (관리자가 권한을 준 팀장·본부장만) -->
+    <section id="screen-approve" class="screen hidden">
+      <div class="card">
+        <h2>직원 승인 관리</h2>
+        <p class="muted" id="ap-scope"></p>
+        <h3>가입 승인 대기</h3>
+        <div id="ap-pending"></div>
+        <h3>소속 직원</h3>
+        <div id="ap-members"></div>
+      </div>
+      <button type="button" class="btn" id="btn-approve-back">← 홈으로</button>
     </section>
 
     <!-- 예약 -->

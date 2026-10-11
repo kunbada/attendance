@@ -10,8 +10,9 @@ import {
 } from './admin.js';
 import { adminCurrentQr, adminIssueQr, attendanceCheckin, adminAttendance } from './attendance.js';
 import { reservationCreate, reservationList, reservationUpdate, reservationCancel } from './reservation.js';
-import { deskLookup, deskSearchStaff, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit.js';
+import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit.js';
 import { staffTelegramLink, handleTelegram } from './telegram.js';
+import { leaderStaffList, leaderApprove, leaderReject, leaderRetire } from './leader.js';
 
 // roles: 이 action 을 부를 수 있는 역할 ('public' = 로그인 불필요, 'desk' 는 관리자도 가능)
 // allowMustChange: 비밀번호 변경 전에도 부를 수 있는 action
@@ -28,12 +29,18 @@ const ACTIONS = {
   'reservation.cancel': { roles: ['staff'], fn: reservationCancel },
   'attendance.checkin': { roles: ['staff'], fn: attendanceCheckin },
 
+  'leader.staffList': { roles: ['staff'], fn: leaderStaffList },
+  'leader.approve': { roles: ['staff'], fn: leaderApprove },
+  'leader.reject': { roles: ['staff'], fn: leaderReject },
+  'leader.retire': { roles: ['staff'], fn: leaderRetire },
+
   'account.login': { roles: ['public'], fn: accountLogin },
   'account.changePassword': { roles: ['desk', 'admin'], fn: accountChangePassword, allowMustChange: true },
   'auth.logout': { roles: ['staff', 'desk', 'admin'], fn: authLogout, allowMustChange: true },
 
   'desk.lookup': { roles: ['desk'], fn: deskLookup },
   'desk.searchStaff': { roles: ['desk'], fn: deskSearchStaff },
+  'desk.reservationList': { roles: ['desk'], fn: deskReservationList },
   'desk.registerVisit': { roles: ['desk'], fn: deskRegisterVisit },
   'desk.recall': { roles: ['desk'], fn: deskRecall },
   'desk.todayVisits': { roles: ['desk'], fn: deskTodayVisits },

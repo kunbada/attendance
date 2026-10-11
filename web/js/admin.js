@@ -187,7 +187,8 @@
     }
 
     return h('tr', null,
-      h('td', null, h('strong', null, s.name), s.nickname ? ' (' + s.nickname + ')' : ''),
+      h('td', null, h('strong', null, s.name), s.nickname ? ' (' + s.nickname + ')' : '',
+        s.grade && s.grade !== '직원' ? [' ', h('span', { class: 'badge ok' }, s.grade + (s.canApprove ? '·승인권한' : ''))] : null),
       h('td', null, fmtPhone(s.phone)),
       h('td', null, org),
       h('td', null, badges),
@@ -223,12 +224,20 @@
     var phone = h('input', { type: 'tel', value: fmtPhone(s.phone) });
     bindFormat(phone, formatPhone);
     var sel = orgSelectors(s.job, s.headId, s.teamId);
-    modal('직원 수정', h('div', null, field('성명', name), field('예명', nick), field('휴대폰', phone), field('직군', sel.jobSel), sel.box), [
+    var grade = h('select', null, ['직원', '팀장', '본부장'].map(function (g) { return option(g, g, g === (s.grade || '직원')); }));
+    var canApprove = h('input', { type: 'checkbox', checked: !!s.canApprove, style: 'width:22px;height:22px' });
+    var approveRow = h('label', { class: 'check' }, canApprove, ' 직원 가입 승인·퇴사 처리 권한 부여');
+    function syncGrade() { approveRow.classList.toggle('hidden', grade.value === '직원'); }
+    grade.addEventListener('change', syncGrade);
+    syncGrade();
+    modal('직원 수정', h('div', null, field('성명', name), field('예명', nick), field('휴대폰', phone), field('직군', sel.jobSel), sel.box,
+      field('직급', grade, '팀장은 소속 팀, 본부장은 소속 본부가 필요합니다. "영업" 직군만 지정할 수 있습니다.'), approveRow), [
       {
         label: '저장', primary: true, onClick: async function (close) {
           await Api.call('admin.update', {
             staffId: s.id, name: name.value, nickname: nick.value, phone: phone.value,
-            job: sel.jobSel.value, headId: sel.headSel.value, teamId: sel.teamSel.value
+            job: sel.jobSel.value, headId: sel.headSel.value, teamId: sel.teamSel.value,
+            grade: grade.value, canApprove: canApprove.checked
           });
           close(); await refreshStaff(); toast('저장했습니다.');
         }

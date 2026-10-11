@@ -108,7 +108,7 @@
 
   // 숫자판 대신 키보드로 입력해도 되게
   document.addEventListener('keydown', function (e) {
-    if ($('#screen-app').classList.contains('hidden') || /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || ''))) return;
+    if ($('#screen-app').classList.contains('hidden') || $('#dtab-visit').classList.contains('hidden') || /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || ''))) return;
     if (/^\d$/.test(e.key)) pressDigit(e.key);
     else if (e.key === 'Backspace') backspace();
   });
@@ -183,6 +183,7 @@
   }
 
   async function doSearch(text, box) {
+    if (!text.trim()) { box.innerHTML = ''; return; }
     var res = await Api.call('desk.searchStaff', { q: text });
     box.innerHTML = '';
     if (!res.staff.length) { box.appendChild(h('p', { class: 'muted' }, text.trim() ? '찾는 직원이 없습니다.' : '')); return; }
@@ -197,18 +198,21 @@
     });
   }
 
+  // 호출 결과 안내 (방문 접수·예약 명단·직원 검색 탭이 함께 쓴다)
+  function callResultNodes(res) {
+    if (res.kind === '담당없음') return [h('h2', null, '✅ 담당 없음으로 기록했습니다')];
+    if (res.called) {
+      return [h('h2', { style: 'color:var(--ok)' }, '✅ ' + res.staffName + ' 님을 호출했습니다'),
+        h('p', { class: 'muted' }, '직원이 텔레그램에서 [확인]을 누르면 아래 목록에 확인함으로 표시됩니다. 담당 팀장·본부장에게도 알렸습니다.')];
+    }
+    return [h('h2', { style: 'color:var(--danger)' }, '⚠ ' + res.staffName + ' 님께 호출을 보내지 못했습니다'),
+      h('p', null, res.notLinked ? '텔레그램이 연결되지 않은 직원입니다. 직접 연락해 주세요.' : '텔레그램 발송에 실패했습니다. 직접 연락해 주세요.'),
+      h('div', { class: 'bigphone' }, res.phone)];
+  }
+
   async function register(extra) {
     var res = await Api.call('desk.registerVisit', Object.assign({ last5: digits, gender: gender }, extra));
-    var items;
-    if (res.kind === '담당없음') {
-      items = [h('h2', null, '✅ "담당 없음"으로 기록했습니다')];
-    } else if (res.called) {
-      items = [h('h2', { style: 'color:var(--ok)' }, '✅ ' + res.staffName + ' 님을 호출했습니다'), h('p', { class: 'muted' }, '직원이 텔레그램에서 [확인]을 누르면 아래 목록에 "확인함"으로 표시됩니다.')];
-    } else {
-      items = [h('h2', { style: 'color:var(--danger)' }, '⚠ ' + res.staffName + ' 님께 호출을 보내지 못했습니다'),
-        h('p', null, res.notLinked ? '텔레그램이 연결되지 않은 직원입니다. 직접 연락해 주세요.' : '텔레그램 발송에 실패했습니다. 직접 연락해 주세요.'),
-        h('div', { class: 'bigphone' }, res.phone)];
-    }
+    var items = callResultNodes(res);
     var done = h('button', { type: 'button', class: 'btn primary' }, '다음 고객');
     done.addEventListener('click', resetInput);
     items.push(h('div', { class: 'panel-actions' }, done));
@@ -216,6 +220,152 @@
     renderDigits();
     panel(items);
     await loadVisits();
+  }
+
+  // ---------- 탭: 방문 접수 / 예약 명단 / 직원 검색 ----------
+  $$('#desk-tabs .tab').forEach(function (t) {
+    t.addEventListener('click', function () {
+      $$('#desk-tabs .tab').forEach(function (x) { x.classList.toggle('active', x === t); });
+      ['visit', 'reservations', 'staff'].forEach(function (k) { $('#dtab-' + k).classList.toggle('hidden', t.dataset.dtab !== k); });
+      if (t.dataset.dtab === 'reservations') runBusy(null, renderReservationsTab);
+      if (t.dataset.dtab === 'staff') runBusy(null, renderStaffTab);
+    });
+  });
+
+  function todayLocal() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+
+  var INPUT_STYLE = 'height:44px;border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit';
+  function tableOf(headers, bodyEl) {
+    return h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, headers.map(function (t) { return h('th', null, t); }))), bodyEl));
+  }
+  function shiftDate(date, days) {
+    var d = new Date(date + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+
+  // --- 예약 명단: 날짜별, 본부 → 팀 순. 번호·직원·전화번호 등으로 검색
+  var resState = { date: '', q: '', rows: [] };
+
+  async function renderReservationsTab() {
+    resState.date = resState.date || todayLocal();
+    var root = $('#dtab-reservations');
+    root.innerHTML = '';
+    var flash = h('div');
+    var dateIn = h('input', { type: 'date', value: resState.date, style: INPUT_STYLE });
+    var prev = h('button', { type: 'button', class: 'btn small' }, '◀ 전날');
+    var next = h('button', { type: 'button', class: 'btn small' }, '다음날 ▶');
+    var today = h('button', { type: 'button', class: 'btn small' }, '오늘');
+    var q = h('input', { type: 'text', placeholder: '검색: 예약번호(뒤5자리)·직원명·전화번호·본부·팀', value: resState.q, style: INPUT_STYLE + ';min-width:300px' });
+    var count = h('span', { class: 'muted' });
+    var body = h('tbody');
+
+    function renderRows() {
+      resState.q = q.value;
+      var key = q.value.trim().toLowerCase();
+      var keyDigits = key.replace(/[^0-9]/g, '');
+      var rows = resState.rows.filter(function (r) {
+        if (!key) return true;
+        var st = r.staff || {};
+        var hay = [r.last5, r.gender, r.status, st.name, st.nickname, st.headName, st.teamName, st.job].join(' ').toLowerCase();
+        return hay.indexOf(key) >= 0 || (keyDigits.length >= 2 && (st.phone || '').replace(/[^0-9]/g, '').indexOf(keyDigits) >= 0);
+      });
+      count.textContent = rows.length + '건 / 전체 ' + resState.rows.length + '건';
+      body.innerHTML = '';
+      if (!rows.length) body.appendChild(h('tr', null, h('td', { colspan: 9, class: 'muted' }, '예약이 없습니다.')));
+      rows.forEach(function (r) {
+        var st = r.staff;
+        var act = h('td');
+        if (r.callable) {
+          var b = h('button', { type: 'button', class: 'btn small primary' }, '호출');
+          b.addEventListener('click', function () {
+            runBusy(b, async function () {
+              var res = await Api.call('desk.registerVisit', { kind: '예약', reservationId: r.id, last5: r.last5, gender: r.gender });
+              flash.innerHTML = '';
+              flash.appendChild(h('div', { class: 'card' }, callResultNodes(res)));
+              await Promise.all([loadReservations(), loadVisits()]);
+            });
+          });
+          act.appendChild(b);
+        }
+        body.appendChild(h('tr', null,
+          h('td', null, h('strong', { style: 'font-size:18px' }, r.last5)), h('td', null, r.gender),
+          h('td', null, st ? st.headName : ''), h('td', null, st ? st.teamName : ''),
+          h('td', null, st ? st.name + (st.nickname ? ' (' + st.nickname + ')' : '') + (st.grade && st.grade !== '직원' ? ' ' + st.grade : '') : '(삭제된 직원)'),
+          h('td', null, st ? st.phone : ''), h('td', null, h('span', { class: 'badge ' + (r.status === '방문' ? 'ok' : r.status === '예정' ? 'warn' : '') }, r.status)),
+          h('td', { class: 'muted' }, r.memo || ''), act));
+      });
+    }
+
+    async function loadReservations() {
+      resState.date = dateIn.value || todayLocal();
+      var res = await Api.call('desk.reservationList', { date: resState.date });
+      resState.rows = res.reservations;
+      renderRows();
+    }
+
+    function goto(date) { dateIn.value = date; runBusy(null, loadReservations); }
+    dateIn.addEventListener('change', function () { runBusy(null, loadReservations); });
+    prev.addEventListener('click', function () { goto(shiftDate(dateIn.value || todayLocal(), -1)); });
+    next.addEventListener('click', function () { goto(shiftDate(dateIn.value || todayLocal(), 1)); });
+    today.addEventListener('click', function () { goto(todayLocal()); });
+    q.addEventListener('input', renderRows);
+
+    root.appendChild(flash);
+    root.appendChild(h('div', { class: 'card' }, h('h2', null, '예약 명단'),
+      h('div', { class: 'toolbar' }, prev, dateIn, next, today, q, count),
+      tableOf(['예약번호', '성별', '본부', '팀', '직원', '직원 전화번호', '상태', '메모', ''], body)));
+    await loadReservations();
+  }
+
+  // --- 직원 검색: 이름·예명·전화번호 일부·본부/팀. 비워 두면 전체(본부 → 팀 순). 검색 후 호출
+  async function renderStaffTab() {
+    var root = $('#dtab-staff');
+    root.innerHTML = '';
+    var flash = h('div');
+    var cust = h('input', { type: 'tel', inputMode: 'numeric', maxLength: 5, placeholder: '고객 뒤 5자리', style: INPUT_STYLE + ';width:160px;font-size:20px;font-weight:700' });
+    bindFormat(cust, onlyDigits);
+    var q = h('input', { type: 'text', placeholder: '검색: 이름·예명·전화번호 일부·본부·팀 (비우면 전체)', style: INPUT_STYLE + ';min-width:320px' });
+    var count = h('span', { class: 'muted' });
+    var body = h('tbody');
+    var timer;
+
+    async function load() {
+      var res = await Api.call('desk.searchStaff', { q: q.value });
+      count.textContent = res.staff.length + '명' + (res.staff.length >= 500 ? ' (최대 500명까지 표시)' : '');
+      body.innerHTML = '';
+      if (!res.staff.length) body.appendChild(h('tr', null, h('td', { colspan: 8, class: 'muted' }, '찾는 직원이 없습니다.')));
+      res.staff.forEach(function (st) {
+        var b = h('button', { type: 'button', class: 'btn small primary' }, '호출');
+        b.addEventListener('click', function () {
+          if (cust.value.length !== 5) { toast('먼저 위의 고객 뒤 5자리를 입력해 주세요.', true); cust.focus(); return; }
+          if (!confirm('뒤 ' + cust.value + ' 고객 도착: ' + st.name + ' 님을 호출할까요?')) return;
+          runBusy(b, async function () {
+            var out = await Api.call('desk.registerVisit', { kind: '지명', staffId: st.id, last5: cust.value });
+            flash.innerHTML = '';
+            flash.appendChild(h('div', { class: 'card' }, callResultNodes(out)));
+            cust.value = '';
+            await loadVisits();
+          });
+        });
+        body.appendChild(h('tr', null,
+          h('td', null, st.headName), h('td', null, st.teamName),
+          h('td', null, h('strong', null, st.name), st.nickname ? ' (' + st.nickname + ')' : ''),
+          h('td', null, st.grade && st.grade !== '직원' ? h('span', { class: 'badge ok' }, st.grade) : ''),
+          h('td', null, st.job), h('td', null, st.phone),
+          h('td', null, st.telegramLinked ? h('span', { class: 'badge ok' }, '연결') : h('span', { class: 'badge danger' }, '미연결')), h('td', null, b)));
+      });
+    }
+
+    q.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { runBusy(null, load); }, 250); });
+    root.appendChild(flash);
+    root.appendChild(h('div', { class: 'card' }, h('h2', null, '직원 검색'),
+      h('div', { class: 'toolbar' }, h('span', { class: 'field-label', style: 'align-self:center' }, '호출할 고객'), cust, q, count),
+      tableOf(['본부', '팀', '직원', '직급', '직군', '전화번호', '텔레그램', ''], body)));
+    await load();
   }
 
   // ---------- 오늘 방문 목록 ----------

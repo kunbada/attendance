@@ -36,6 +36,8 @@
     $('#home-today').textContent = me.checkedInToday ? '출근 ' + me.checkedInAt : '아직 출근 전';
     $('#home-month').textContent = me.monthDays + '일';
     genderRequired = me.genderRequired;
+    $('#btn-approve').classList.toggle('hidden', !me.canApprove);
+    $('#btn-approve').textContent = me.staff.grade + ' 직원 승인 관리';
     $('#tg-status').textContent = me.telegramLinked ? '연결됨' : '연결 안 됨';
     $('#tg-status').style.color = me.telegramLinked ? 'var(--ok)' : 'var(--danger)';
     $('#btn-telegram').textContent = me.telegramLinked ? '텔레그램 다시 연결' : '텔레그램 연결';
@@ -197,6 +199,52 @@
   $('#btn-checkin').addEventListener('click', function () { startCheckin(); });
   $('#btn-scan-cancel').addEventListener('click', async function () { await stopScanner(); show('home'); });
   $('#btn-result-home').addEventListener('click', function () { runBusy($('#btn-result-home'), showHome); });
+
+  // ---------- 승인 관리 (팀장·본부장) ----------
+  async function loadApprove() {
+    var res = await Api.call('leader.staffList');
+    $('#ap-scope').textContent = res.grade + ' · ' + res.scope + ' 소속 직원만 처리할 수 있습니다.';
+    function row(p, buttons) {
+      var meta = [p.job, p.headName + ' ' + p.teamName].filter(function (x) { return x.trim(); }).join(' · ');
+      return h('div', { class: 'stat', style: 'align-items:center;flex-wrap:wrap;gap:8px' },
+        h('div', null, h('strong', null, p.name), p.nickname ? ' (' + p.nickname + ')' : '',
+          p.grade !== '직원' ? [' ', h('span', { class: 'badge ok' }, p.grade)] : null,
+          h('div', { class: 'muted' }, meta + ' · ' + formatPhone(p.phone))),
+        h('div', null, buttons));
+    }
+    function act(label, cls, fn) {
+      var b = h('button', { type: 'button', class: 'btn small ' + cls }, label);
+      b.addEventListener('click', function () { runBusy(b, fn); });
+      return [b, ' '];
+    }
+    var pend = $('#ap-pending'), mem = $('#ap-members');
+    pend.innerHTML = ''; mem.innerHTML = '';
+    if (!res.pending.length) pend.appendChild(h('p', { class: 'muted' }, '대기 중인 가입 신청이 없습니다.'));
+    res.pending.forEach(function (p) {
+      pend.appendChild(row(p, [
+        act('승인', 'primary', async function () { await Api.call('leader.approve', { staffId: p.id }); toast(p.name + ' 승인 완료'); await loadApprove(); }),
+        act('반려', 'danger', async function () {
+          var reason = prompt(p.name + ' 반려 사유를 입력해 주세요.');
+          if (!reason || !reason.trim()) return;
+          await Api.call('leader.reject', { staffId: p.id, reason: reason.trim() });
+          await loadApprove();
+        })]));
+    });
+    if (!res.members.length) mem.appendChild(h('p', { class: 'muted' }, '소속 직원이 없습니다.'));
+    res.members.forEach(function (p) {
+      mem.appendChild(row(p, act('퇴사 처리', 'danger', async function () {
+        if (!confirm(p.name + ' 님을 퇴사 처리할까요? 로그인이 즉시 차단됩니다.')) return;
+        await Api.call('leader.retire', { staffId: p.id });
+        toast('퇴사 처리했습니다.');
+        await loadApprove();
+      })));
+    });
+  }
+
+  $('#btn-approve').addEventListener('click', function () {
+    runBusy($('#btn-approve'), async function () { await loadApprove(); show('approve'); });
+  });
+  $('#btn-approve-back').addEventListener('click', function () { runBusy($('#btn-approve-back'), showHome); });
 
   // ---------- 텔레그램 연결 ----------
   $('#btn-telegram').addEventListener('click', function () {

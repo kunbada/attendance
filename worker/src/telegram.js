@@ -1,5 +1,5 @@
 // 텔레그램 봇: 연결 코드 발급, 호출 발송, 웹훅(연결·[확인] 버튼) 처리
-import { AppError, s, first, run, nowStr, randomToken, safeEqual, getSettings, writeLog } from './util.js';
+import { AppError, s, all, first, run, nowStr, randomToken, safeEqual, getSettings, orgNameMap, writeLog } from './util.js';
 
 const CODE_LIFETIME_MS = 10 * 60 * 1000;
 
@@ -19,15 +19,39 @@ export async function telegramApi(env, method, payload) {
 
 export const hhmm = (dateTime) => s(dateTime).slice(11, 16);
 
+// 호출 메시지: "[호출] 1본부 1팀 홍길동님 [12345] 고객 도착". 본부·팀이 없는 직군은 조직을 뺀다.
+async function orgLabel(env, staff) {
+  const names = await orgNameMap(env);
+  return [names[staff.head_id], names[staff.team_id]].filter(Boolean).join(' ');
+}
+
 // 직원에게 호출 메시지 + [확인] 버튼을 보낸다. 성공 여부만 돌려준다.
-export async function sendCallMessage(env, staff, visitId, last5, gender) {
+// notifyLeaders: 처음 호출할 때만 담당 팀장·본부장에게도 알린다 (재호출 때는 직원에게만)
+export async function sendCallMessage(env, staff, visitId, last5, notifyLeaders = false) {
   if (!staff.telegram_id) return false;
-  const text = '[호출] ' + last5 + ' 고객' + (gender ? '(' + gender + ')' : '') + ' 도착\n안내데스크로 와주세요';
+  const org = await orgLabel(env, staff);
+  const who = (org ? org + ' ' : '') + staff.name + '님';
   const res = await telegramApi(env, 'sendMessage', {
-    chat_id: staff.telegram_id, text,
+    chat_id: staff.telegram_id,
+    text: '[호출] ' + who + ' [' + last5 + '] 고객 도착\n안내데스크로 와주세요.',
     reply_markup: { inline_keyboard: [[{ text: '확인', callback_data: 'ack:' + visitId }]] }
   });
+  if (notifyLeaders) await notifyLeadersOfCall(env, staff, who, last5);
   return !!res.ok;
+}
+
+// 담당 팀장·본부장(텔레그램 연결된 사람)에게 알림. 확인 버튼은 없다. 호출받은 본인에게는 중복으로 보내지 않는다.
+async function notifyLeadersOfCall(env, staff, who, last5) {
+  const leaders = await all(env,
+    `SELECT id, telegram_id FROM staff WHERE status = '활동' AND telegram_id <> '' AND id <> ?
+       AND ((grade = '팀장' AND team_id <> '' AND team_id = ?) OR (grade = '본부장' AND head_id <> '' AND head_id = ?))`,
+    staff.id, staff.team_id, staff.head_id);
+  const sentTo = new Set([staff.telegram_id]);
+  for (const l of leaders) {
+    if (sentTo.has(l.telegram_id)) continue;
+    sentTo.add(l.telegram_id);
+    await telegramApi(env, 'sendMessage', { chat_id: l.telegram_id, text: '[호출 알림] ' + who + '께 [' + last5 + '] 고객 도착 호출\n(안내데스크)' });
+  }
 }
 
 // ---------- 직원: 연결 ----------
