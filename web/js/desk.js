@@ -193,11 +193,12 @@
     res.staff.forEach(function (s) {
       var btn = h('button', { type: 'button', class: 'btn primary' }, '호출');
       btn.addEventListener('click', function () {
-        if (digits.length !== 5) { toast('먼저 고객 뒤 5자리를 입력해 주세요.', true); return; }
         runBusy(btn, function () { return register({ kind: '지명', staffId: s.id }); });
       });
       box.appendChild(h('div', { class: 'res-card' },
-        h('div', null, h('strong', { style: 'font-size:18px' }, staffLabel(s)), h('div', { class: 'muted' }, orgLabel(s) + (s.telegramLinked ? '' : ' · 텔레그램 미연결'))), btn));
+        h('div', null, h('strong', { style: 'font-size:18px' }, staffLabel(s)),
+          h('div', { class: 'muted' }, orgLabel(s) + (s.telegramLinked ? '' : ' · 텔레그램 미연결')),
+          h('div', { style: 'font-size:18px;font-weight:600;margin-top:2px' }, '📞 ' + s.phone)), btn));
     });
   }
 
