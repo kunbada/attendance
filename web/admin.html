@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>관리자</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="topbar admin">
+    <h1 id="siteName">관리자</h1>
+    <button type="button" class="btn small hidden" id="btn-logout">로그아웃</button>
+  </div>
+
+  <main>
+    <!-- 로그인 -->
+    <section id="screen-login" class="screen hidden">
+      <form id="form-login" class="card" autocomplete="off">
+        <h2>관리자 로그인</h2>
+        <label class="field"><span class="field-label">아이디</span><input id="login-id" type="text" required></label>
+        <label class="field"><span class="field-label">비밀번호</span><input id="login-pw" type="password" required></label>
+        <button type="submit" class="btn primary">로그인</button>
+      </form>
+    </section>
+
+    <!-- 첫 로그인 비밀번호 변경 -->
+    <section id="screen-changepw" class="screen hidden">
+      <form id="form-changepw" class="card" autocomplete="off">
+        <h2>비밀번호를 변경해 주세요</h2>
+        <p class="muted">초기·임시 비밀번호로는 다른 기능을 쓸 수 없습니다. 8자 이상, 영문과 숫자를 함께 써 주세요.</p>
+        <label class="field"><span class="field-label">현재 비밀번호</span><input id="cp-old" type="password" required></label>
+        <label class="field"><span class="field-label">새 비밀번호</span><input id="cp-new" type="password" required></label>
+        <label class="field"><span class="field-label">새 비밀번호 확인</span><input id="cp-new2" type="password" required></label>
+        <button type="submit" class="btn primary">변경</button>
+      </form>
+    </section>
+  </main>
+
+  <!-- 메인 -->
+  <main class="wide screen hidden" id="screen-app">
+    <div class="tabs">
+      <button type="button" class="tab active" data-tab="staff">직원 관리</button>
+      <button type="button" class="tab" data-tab="settings">설정</button>
+    </div>
+    <div id="tab-staff"></div>
+    <div id="tab-settings" class="hidden"></div>
+  </main>
+
+  <!-- QR 생성 라이브러리 (가입 링크용, 버전 고정) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>영업직원</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="topbar"><h1 id="siteName">근태·예약</h1></div>
+  <main>
+
+    <!-- 로그인 -->
+    <section id="screen-login" class="screen hidden">
+      <div class="card">
+        <h2>로그인</h2>
+        <form id="form-login" autocomplete="off">
+          <label class="field"><span class="field-label">휴대폰 번호</span>
+            <input id="login-phone" type="tel" inputmode="numeric" placeholder="010-0000-0000" required></label>
+          <label class="field"><span class="field-label">PIN (숫자 4자리)</span>
+            <input id="login-pin" type="password" inputmode="numeric" maxlength="4" required></label>
+          <button type="submit" class="btn primary">로그인</button>
+        </form>
+        <div id="login-device-help" class="hidden" style="margin-top:12px">
+          <p class="muted">휴대폰을 바꾸셨나요? 관리자 승인을 받으면 새 휴대폰으로 로그인할 수 있습니다.</p>
+          <a class="btn" href="#device" style="text-align:center;line-height:48px;text-decoration:none">기기 변경 요청</a>
+        </div>
+      </div>
+      <button type="button" class="linkbtn" onclick="location.hash='#signup'">처음이신가요? 가입 신청</button>
+    </section>
+
+    <!-- 가입 -->
+    <section id="screen-signup" class="screen hidden">
+      <form id="form-signup" class="card" autocomplete="off">
+        <h2>가입 신청</h2>
+        <label class="field"><span class="field-label">성명</span><input id="su-name" type="text" maxlength="20" required></label>
+        <label class="field"><span class="field-label">예명 (선택)</span><input id="su-nickname" type="text" maxlength="20"></label>
+        <label class="field"><span class="field-label">휴대폰 번호</span>
+          <input id="su-phone" type="tel" inputmode="numeric" placeholder="010-0000-0000" required></label>
+        <label class="field"><span class="field-label">직군</span><select id="su-job" required></select></label>
+        <div id="su-org" class="hidden">
+          <label class="field"><span class="field-label">본부</span><select id="su-head"></select></label>
+          <label class="field"><span class="field-label">팀</span><select id="su-team"></select></label>
+        </div>
+        <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+        <p class="muted">급여 지급을 위한 정보입니다. 관리자만 볼 수 있습니다.</p>
+        <label class="field"><span class="field-label">주민등록번호</span>
+          <input id="su-rrn" type="tel" inputmode="numeric" placeholder="000000-0000000" required></label>
+        <label class="field"><span class="field-label">은행</span><select id="su-bank" required></select></label>
+        <label class="field"><span class="field-label">계좌번호</span><input id="su-account" type="tel" inputmode="numeric" required></label>
+        <label class="field"><span class="field-label">예금주</span><input id="su-holder" type="text" maxlength="20" required></label>
+        <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+        <label class="field"><span class="field-label">PIN 만들기 (숫자 4자리)</span>
+          <input id="su-pin" type="password" inputmode="numeric" maxlength="4" required></label>
+        <label class="field"><span class="field-label">PIN 한 번 더</span>
+          <input id="su-pin2" type="password" inputmode="numeric" maxlength="4" required></label>
+        <div class="consent">
+          <strong>개인정보 수집·이용 동의 (임시 문구)</strong><br>
+          · 수집 항목: 성명, 예명, 휴대폰 번호, 주민등록번호, 계좌정보, 근무 위치(출근 시)<br>
+          · 이용 목적: 근태 확인, 급여 지급, 방문 고객 안내 업무<br>
+          · 보유 기간: 근무 종료 후 관련 법령이 정한 기간까지<br>
+          · 동의를 거부할 수 있으나, 거부하면 가입할 수 없습니다.
+        </div>
+        <label class="check"><input id="su-consent" type="checkbox"> 위 내용에 동의합니다 (필수)</label>
+        <button type="submit" class="btn primary">가입 신청</button>
+        <button type="button" class="linkbtn" onclick="location.hash='#login'">이미 가입했어요 → 로그인</button>
+      </form>
+    </section>
+
+    <section id="screen-signup-done" class="screen hidden">
+      <div class="card">
+        <h2>가입 신청이 접수되었습니다</h2>
+        <p>관리자 승인 후 로그인할 수 있습니다.</p>
+        <button type="button" class="btn" onclick="location.hash='#login'">로그인 화면으로</button>
+      </div>
+    </section>
+
+    <!-- 기기 변경 요청 -->
+    <section id="screen-device" class="screen hidden">
+      <form id="form-device" class="card" autocomplete="off">
+        <h2>기기 변경 요청</h2>
+        <p class="muted">새 휴대폰에서 본인 확인 후 요청하면, 관리자가 승인해야 이 휴대폰으로 로그인할 수 있습니다.</p>
+        <label class="field"><span class="field-label">휴대폰 번호</span>
+          <input id="dv-phone" type="tel" inputmode="numeric" placeholder="010-0000-0000" required></label>
+        <label class="field"><span class="field-label">PIN</span>
+          <input id="dv-pin" type="password" inputmode="numeric" maxlength="4" required></label>
+        <button type="submit" class="btn primary">변경 요청</button>
+        <button type="button" class="linkbtn" onclick="location.hash='#login'">← 로그인으로</button>
+      </form>
+    </section>
+
+    <!-- 홈 -->
+    <section id="screen-home" class="screen hidden">
+      <div class="card">
+        <h2 id="home-name"></h2>
+        <div class="stat"><span>직군</span><strong id="home-job"></strong></div>
+        <div class="stat"><span>오늘 출근</span><strong id="home-today"></strong></div>
+        <div class="stat"><span>이번 달 출근일수</span><strong id="home-month"></strong></div>
+      </div>
+      <p class="muted">출근·예약 기능은 다음 단계에서 추가됩니다.</p>
+      <button type="button" class="btn" id="btn-logout">로그아웃</button>
+    </section>
+
+  </main>
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/staff.js"></script>
+</body>
+</html>

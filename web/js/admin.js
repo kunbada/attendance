@@ -1,0 +1,383 @@
+// 관리자 화면: 로그인, 직원 관리, 설정(기본 설정·가입 링크·조직·데스크 계정)
+(function () {
+  Api.setScope('admin');
+  var state = { staff: [], orgs: [], settings: {}, accounts: [] };
+  var STATUS_ORDER = { '대기': 0, '활동': 1, '반려': 2, '퇴사': 3 };
+  var STATUS_BADGE = { '대기': 'warn', '활동': 'ok', '반려': 'danger', '퇴사': '' };
+
+  function show(name) {
+    $$('.screen').forEach(function (s) { s.classList.add('hidden'); });
+    $('#screen-' + name).classList.remove('hidden');
+    $('#btn-logout').classList.toggle('hidden', name === 'login');
+  }
+
+  // ---------- 로그인 ----------
+  $('#form-login').addEventListener('submit', function (e) {
+    e.preventDefault();
+    runBusy($('#form-login button[type=submit]'), async function () {
+      var res = await Api.call('account.login', { loginId: $('#login-id').value.trim(), password: $('#login-pw').value });
+      if (res.account.role !== '관리자') {
+        Api.setToken(res.token);
+        try { await Api.call('auth.logout'); } catch (err) { /* 무시 */ }
+        Api.setToken('');
+        throw new Error('관리자 계정이 아닙니다. 데스크 계정은 데스크 화면에서 로그인해 주세요.');
+      }
+      Api.setToken(res.token);
+      $('#login-pw').value = '';
+      if (res.account.mustChangePassword) show('changepw');
+      else await enterApp();
+    });
+  });
+
+  $('#form-changepw').addEventListener('submit', function (e) {
+    e.preventDefault();
+    runBusy($('#form-changepw button[type=submit]'), async function () {
+      if ($('#cp-new').value !== $('#cp-new2').value) throw new Error('새 비밀번호가 서로 다릅니다.');
+      await Api.call('account.changePassword', { oldPassword: $('#cp-old').value, newPassword: $('#cp-new').value });
+      $('#form-changepw').reset();
+      toast('비밀번호를 변경했습니다.');
+      await enterApp();
+    });
+  });
+
+  $('#btn-logout').addEventListener('click', function () {
+    runBusy($('#btn-logout'), async function () {
+      try { await Api.call('auth.logout'); } catch (e) { /* 이미 만료 */ }
+      Api.setToken('');
+      show('login');
+    });
+  });
+
+  async function enterApp() {
+    var orgs = await Api.call('public.orgs');
+    if (orgs.siteName) $('#siteName').textContent = orgs.siteName + ' · 관리자';
+    show('app');
+    await Promise.all([loadStaff(), loadOrgs()]);
+    renderStaffTab();
+  }
+
+  // 세션이 살아 있으면 바로 들어간다 (비밀번호 변경 대기 상태면 그 화면으로)
+  async function boot() {
+    if (!Api.getToken()) { show('login'); return; }
+    try { await enterApp(); }
+    catch (e) {
+      if (e.code === 'MUST_CHANGE_PW') show('changepw');
+      else { Api.setToken(''); show('login'); }
+    }
+  }
+
+  // ---------- 탭 ----------
+  $$('.tab').forEach(function (t) {
+    t.addEventListener('click', function () {
+      $$('.tab').forEach(function (x) { x.classList.toggle('active', x === t); });
+      $('#tab-staff').classList.toggle('hidden', t.dataset.tab !== 'staff');
+      $('#tab-settings').classList.toggle('hidden', t.dataset.tab !== 'settings');
+      if (t.dataset.tab === 'settings') runBusy(null, renderSettingsTab);
+      else runBusy(null, async function () { await loadStaff(); renderStaffTab(); });
+    });
+  });
+
+  async function loadStaff() { state.staff = (await Api.call('admin.staffList')).staff; }
+  async function loadOrgs() { state.orgs = (await Api.call('admin.orgs')).orgs; }
+
+  function orgsOf(kind) { return state.orgs.filter(function (o) { return o.kind === kind; }); }
+
+  // ====================================================================
+  // 직원 관리
+  // ====================================================================
+  var filter = { q: '', status: '', job: '' };
+
+  function renderStaffTab() {
+    var root = $('#tab-staff');
+    root.innerHTML = '';
+
+    var pendingCount = state.staff.filter(function (s) { return s.status === '대기'; }).length;
+    var deviceCount = state.staff.filter(function (s) { return s.deviceChangePending; }).length;
+    if (pendingCount || deviceCount) {
+      root.appendChild(h('div', { class: 'card' },
+        pendingCount ? h('div', null, '승인 대기 ', h('span', { class: 'badge warn' }, pendingCount + '명')) : null,
+        deviceCount ? h('div', null, '기기 변경 요청 ', h('span', { class: 'badge warn' }, deviceCount + '명')) : null));
+    }
+
+    var search = h('input', { type: 'text', placeholder: '이름·예명·휴대폰 검색', value: filter.q });
+    var statusSel = h('select', null, option('', '상태 전체'), ['대기', '활동', '반려', '퇴사'].map(function (s) { return option(s, s, filter.status === s); }));
+    var jobSel = h('select', null, option('', '직군 전체'), orgsOf('직군').map(function (o) { return option(o.name, o.name, filter.job === o.name); }));
+    var tbody = h('tbody');
+
+    function renderRows() {
+      filter.q = search.value; filter.status = statusSel.value; filter.job = jobSel.value;
+      var q = filter.q.trim().toLowerCase();
+      var qd = onlyDigits(q);
+      var rows = state.staff.filter(function (s) {
+        if (filter.status && s.status !== filter.status) return false;
+        if (filter.job && s.job !== filter.job) return false;
+        if (!q) return true;
+        return s.name.toLowerCase().indexOf(q) >= 0 || s.nickname.toLowerCase().indexOf(q) >= 0 || (qd && s.phone.indexOf(qd) >= 0);
+      }).sort(function (a, b) {
+        var d = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+        return d || a.name.localeCompare(b.name, 'ko');
+      });
+      tbody.innerHTML = '';
+      if (!rows.length) tbody.appendChild(h('tr', null, h('td', { colspan: 6, class: 'muted' }, '해당하는 직원이 없습니다.')));
+      rows.forEach(function (s) { tbody.appendChild(staffRow(s)); });
+    }
+    [search, statusSel, jobSel].forEach(function (el) { el.addEventListener('input', renderRows); });
+
+    root.appendChild(h('div', { class: 'toolbar' }, search, statusSel, jobSel,
+      h('span', { class: 'muted', style: 'align-self:center' }, '총 ' + state.staff.length + '명')));
+    root.appendChild(h('div', { class: 'table-wrap' }, h('table', null,
+      h('thead', null, h('tr', null, ['성명(예명)', '휴대폰', '직군 / 소속', '상태', '가입일', '관리'].map(function (t) { return h('th', null, t); }))),
+      tbody)));
+    renderRows();
+  }
+
+  function fmtPhone(p) { return formatPhone(p); }
+
+  function staffRow(s) {
+    var org = s.job + (s.headName ? ' / ' + s.headName + ' ' + s.teamName : '');
+    var badges = [h('span', { class: 'badge ' + STATUS_BADGE[s.status] }, s.status)];
+    if (s.status === '반려' && s.rejectReason) badges.push(' ', h('span', { class: 'muted' }, s.rejectReason));
+    if (s.deviceChangePending) badges.push(' ', h('span', { class: 'badge warn' }, '기기변경 요청'));
+    if (s.locked) badges.push(' ', h('span', { class: 'badge danger' }, 'PIN 잠김'));
+
+    var btns = [];
+    var act = function (label, fn, cls) {
+      var b = h('button', { type: 'button', class: 'btn small ' + (cls || '') }, label);
+      b.addEventListener('click', function () { runBusy(b, fn); });
+      btns.push(b, ' ');
+    };
+    if (s.status === '대기') {
+      act('승인', async function () { await Api.call('admin.approve', { staffId: s.id }); await refreshStaff(); toast(s.name + ' 승인 완료'); }, 'primary');
+      act('반려', async function () {
+        var reason = prompt(s.name + ' 반려 사유를 입력해 주세요.');
+        if (!reason || !reason.trim()) return;
+        await Api.call('admin.reject', { staffId: s.id, reason: reason.trim() });
+        await refreshStaff();
+      }, 'danger');
+    }
+    if (s.deviceChangePending) {
+      act('기기변경 승인', async function () {
+        if (!confirm(s.name + ' 님의 휴대폰을 새 기기로 교체할까요?\n(이전 휴대폰은 로그인할 수 없게 됩니다)')) return;
+        await Api.call('admin.approveDevice', { staffId: s.id });
+        await refreshStaff(); toast('기기 변경 승인 완료');
+      }, 'primary');
+    }
+    if (s.status !== '퇴사') {
+      act('수정', async function () { openEditStaff(s); });
+      act('PIN 초기화', async function () {
+        if (!confirm(s.name + ' 님의 PIN을 초기화할까요?\n새 PIN이 한 번만 표시됩니다.')) return;
+        var res = await Api.call('admin.resetPin', { staffId: s.id });
+        await refreshStaff();
+        modal('PIN 초기화 완료', h('div', null, h('p', null, s.name + ' 님의 새 PIN'), h('p', { style: 'font-size:32px;font-weight:700;letter-spacing:6px' }, res.pin),
+          h('p', { class: 'muted' }, '직원에게 전달해 주세요. 이 창을 닫으면 다시 볼 수 없습니다.')));
+      });
+    }
+    act('급여정보', async function () { await openPayroll(s); });
+    if (s.status === '활동') {
+      act('퇴사', async function () {
+        if (!confirm(s.name + ' 님을 퇴사 처리할까요?\n로그인이 즉시 차단됩니다.')) return;
+        await Api.call('admin.retire', { staffId: s.id });
+        await refreshStaff();
+      }, 'danger');
+    }
+
+    return h('tr', null,
+      h('td', null, h('strong', null, s.name), s.nickname ? ' (' + s.nickname + ')' : ''),
+      h('td', null, fmtPhone(s.phone)),
+      h('td', null, org),
+      h('td', null, badges),
+      h('td', { class: 'muted' }, (s.joinedAt || '').slice(0, 10)),
+      h('td', null, btns));
+  }
+
+  async function refreshStaff() { await loadStaff(); renderStaffTab(); }
+
+  // 직군 → 본부 → 팀 연쇄 선택 칸 만들기
+  function orgSelectors(job, headId, teamId) {
+    var jobSel = h('select', null, orgsOf('직군').filter(function (o) { return o.active || o.name === job; }).map(function (o) { return option(o.name, o.name, o.name === job); }));
+    var headSel = h('select', null, option('', '선택'), orgsOf('본부').filter(function (o) { return o.active; }).map(function (o) { return option(o.id, o.name, o.id === headId); }));
+    var teamSel = h('select');
+    var orgBox = h('div', null, field('본부', headSel), field('팀', teamSel));
+    function sync() {
+      orgBox.classList.toggle('hidden', jobSel.value !== '영업');
+      var keep = teamSel.value || teamId;
+      teamSel.innerHTML = '';
+      teamSel.appendChild(option('', '선택'));
+      orgsOf('팀').filter(function (t) { return t.active && t.parentId === headSel.value; })
+        .forEach(function (t) { teamSel.appendChild(option(t.id, t.name, t.id === keep)); });
+    }
+    jobSel.addEventListener('change', sync);
+    headSel.addEventListener('change', function () { teamId = ''; teamSel.value = ''; sync(); });
+    sync();
+    return { jobSel: jobSel, headSel: headSel, teamSel: teamSel, box: orgBox };
+  }
+
+  function openEditStaff(s) {
+    var name = h('input', { type: 'text', value: s.name, maxLength: 20 });
+    var nick = h('input', { type: 'text', value: s.nickname, maxLength: 20 });
+    var phone = h('input', { type: 'tel', value: fmtPhone(s.phone) });
+    bindFormat(phone, formatPhone);
+    var sel = orgSelectors(s.job, s.headId, s.teamId);
+    modal('직원 수정', h('div', null, field('성명', name), field('예명', nick), field('휴대폰', phone), field('직군', sel.jobSel), sel.box), [
+      {
+        label: '저장', primary: true, onClick: async function (close) {
+          await Api.call('admin.update', {
+            staffId: s.id, name: name.value, nickname: nick.value, phone: phone.value,
+            job: sel.jobSel.value, headId: sel.headSel.value, teamId: sel.teamSel.value
+          });
+          close(); await refreshStaff(); toast('저장했습니다.');
+        }
+      }]);
+  }
+
+  async function openPayroll(s) {
+    var p = await Api.call('admin.payrollGet', { staffId: s.id });
+    var rrn = h('strong', null, p.rrn);
+    var acct = h('strong', null, p.accountNo);
+    var revealBtn = h('button', { type: 'button', class: 'btn small danger' }, '원문 보기 (기록됨)');
+    revealBtn.addEventListener('click', function () {
+      if (!confirm('주민번호·계좌 원문을 표시합니다. 열람 기록이 남습니다. 계속할까요?')) return;
+      runBusy(revealBtn, async function () {
+        var r = await Api.call('admin.payrollReveal', { staffId: s.id });
+        rrn.textContent = r.rrn; acct.textContent = r.accountNo;
+        revealBtn.remove();
+      });
+    });
+    modal('급여정보 — ' + s.name, h('div', null,
+      h('div', { class: 'stat' }, h('span', null, '주민등록번호'), rrn),
+      h('div', { class: 'stat' }, h('span', null, '은행'), h('strong', null, p.bank)),
+      h('div', { class: 'stat' }, h('span', null, '계좌번호'), acct),
+      h('div', { class: 'stat' }, h('span', null, '예금주'), h('strong', null, p.holder)),
+      h('div', { class: 'stat' }, h('span', null, '동의일시'), h('span', null, p.consentAt)),
+      h('div', { style: 'margin-top:10px' }, revealBtn)));
+  }
+
+  // ====================================================================
+  // 설정
+  // ====================================================================
+  async function renderSettingsTab() {
+    var results = await Promise.all([Api.call('admin.settings'), Api.call('admin.accounts'), loadOrgs()]);
+    state.settings = results[0].settings;
+    state.accounts = results[1].accounts;
+    var root = $('#tab-settings');
+    root.innerHTML = '';
+    root.appendChild(basicSettingsCard());
+    root.appendChild(signupLinkCard());
+    root.appendChild(orgsCard());
+    root.appendChild(accountsCard());
+  }
+
+  function basicSettingsCard() {
+    var st = state.settings;
+    var site = h('input', { type: 'text', value: st['현장명'] || '', maxLength: 40 });
+    var dist = h('input', { type: 'number', value: st['GPS허용거리m'] || '200', min: 10, max: 5000 });
+    var dup = h('select', null, option('뒤5자리', '뒤5자리', st['예약중복기준'] === '뒤5자리'), option('뒤5자리+성별', '뒤5자리 + 성별', st['예약중복기준'] === '뒤5자리+성별'));
+    var selfie = h('select', null, option('N', '사용 안 함', st['출근셀카사용'] !== 'Y'), option('Y', '사용', st['출근셀카사용'] === 'Y'));
+    var bot = h('input', { type: 'text', value: st['텔레그램봇이름'] || '', placeholder: 'my_site_bot' });
+    var save = h('button', { type: 'button', class: 'btn primary', style: 'max-width:200px' }, '저장');
+    save.addEventListener('click', function () {
+      runBusy(save, async function () {
+        await Api.call('admin.saveSettings', { values: {
+          '현장명': site.value, 'GPS허용거리m': dist.value, '예약중복기준': dup.value, '출근셀카사용': selfie.value, '텔레그램봇이름': bot.value
+        } });
+        toast('설정을 저장했습니다.');
+        $('#siteName').textContent = (site.value || '관리자') + (site.value ? ' · 관리자' : '');
+      });
+    });
+    return h('div', { class: 'card' }, h('h2', null, '기본 설정'),
+      field('현장명', site), field('GPS 허용거리 (m)', dist, '출근 QR 기준점에서 이 거리 안에서만 출근 인정 (2단계에서 사용)'),
+      field('예약 중복 기준', dup, '3단계에서 사용'), field('출근 셀카', selfie, '2단계에서 사용'),
+      field('텔레그램 봇 이름', bot, '@ 없이. 3단계에서 사용'), save);
+  }
+
+  function signupLinkCard() {
+    var url = location.href.replace(/admin\.html.*$/, 'staff.html#signup');
+    var qrBox = h('div', { class: 'qr-box' });
+    var card = h('div', { class: 'card' }, h('h2', null, '가입 링크'),
+      h('p', { class: 'muted' }, '직원에게 이 QR이나 주소를 보내 주세요.'), qrBox,
+      h('p', null, h('code', { style: 'word-break:break-all' }, url)));
+    if (window.QRCode) new QRCode(qrBox, { text: url, width: 180, height: 180 });
+    else qrBox.textContent = 'QR 라이브러리를 불러오지 못했습니다. 위 주소를 직접 전달해 주세요.';
+    return card;
+  }
+
+  // ----- 조직 -----
+  function orgsCard() {
+    var card = h('div', { class: 'card' }, h('h2', null, '조직 (직군·본부·팀)'),
+      h('p', { class: 'muted' }, '"영업" 직군을 고른 직원만 본부→팀을 선택합니다. 순서는 숫자가 작을수록 위에 나옵니다.'));
+    ['직군', '본부', '팀'].forEach(function (kind) {
+      var list = orgsOf(kind);
+      var addBtn = h('button', { type: 'button', class: 'btn small' }, '+ ' + kind + ' 추가');
+      addBtn.addEventListener('click', function () { openOrgForm(kind, null); });
+      var tbody = h('tbody', null, list.map(function (o) {
+        var editBtn = h('button', { type: 'button', class: 'btn small' }, '수정');
+        editBtn.addEventListener('click', function () { openOrgForm(kind, o); });
+        var parent = kind === '팀' ? (state.orgs.filter(function (p) { return p.id === o.parentId; })[0] || {}).name : '';
+        return h('tr', null, h('td', null, o.name), kind === '팀' ? h('td', null, parent || '-') : null, h('td', null, o.order),
+          h('td', null, h('span', { class: 'badge ' + (o.active ? 'ok' : '') }, o.active ? '사용' : '중지')), h('td', null, editBtn));
+      }));
+      card.appendChild(h('h3', { style: 'margin:16px 0 8px' }, kind + ' ', addBtn));
+      card.appendChild(h('div', { class: 'table-wrap' }, h('table', null,
+        h('thead', null, h('tr', null, [h('th', null, '이름'), kind === '팀' ? h('th', null, '소속 본부') : null, h('th', null, '순서'), h('th', null, '상태'), h('th', null, '')])),
+        tbody)));
+    });
+    return card;
+  }
+
+  function openOrgForm(kind, org) {
+    var name = h('input', { type: 'text', value: org ? org.name : '', maxLength: 30 });
+    var order = h('input', { type: 'number', value: org ? org.order : orgsOf(kind).length + 1 });
+    var active = h('select', null, option('Y', '사용', !org || org.active), option('N', '사용 중지', org && !org.active));
+    var parent = null;
+    if (kind === '팀') {
+      parent = h('select', null, option('', '선택'), orgsOf('본부').map(function (o) { return option(o.id, o.name, org && org.parentId === o.id); }));
+    }
+    modal(kind + (org ? ' 수정' : ' 추가'), h('div', null, field('이름', name), parent ? field('소속 본부', parent) : null, field('순서', order), field('상태', active)), [
+      {
+        label: '저장', primary: true, onClick: async function (close) {
+          await Api.call('admin.saveOrg', {
+            id: org ? org.id : '', kind: kind, name: name.value, parentId: parent ? parent.value : '',
+            order: Number(order.value) || 0, active: active.value === 'Y'
+          });
+          close(); await renderSettingsTab(); toast('저장했습니다.');
+        }
+      }]);
+  }
+
+  // ----- 계정 -----
+  function accountsCard() {
+    var addBtn = h('button', { type: 'button', class: 'btn small' }, '+ 계정 추가');
+    addBtn.addEventListener('click', function () { openAccountForm(null); });
+    var tbody = h('tbody', null, state.accounts.map(function (a) {
+      var editBtn = h('button', { type: 'button', class: 'btn small' }, '수정 / 비밀번호 재설정');
+      editBtn.addEventListener('click', function () { openAccountForm(a); });
+      var badges = [h('span', { class: 'badge ' + (a.active ? 'ok' : '') }, a.active ? '사용' : '중지')];
+      if (a.locked) badges.push(' ', h('span', { class: 'badge danger' }, '잠김'));
+      return h('tr', null, h('td', null, a.loginId), h('td', null, a.name), h('td', null, a.role), h('td', null, badges), h('td', null, editBtn));
+    }));
+    return h('div', { class: 'card' }, h('h2', null, '계정 ', addBtn),
+      h('p', { class: 'muted' }, '관리자·데스크 계정입니다. 비밀번호를 새로 정하면 상대방이 첫 로그인 때 직접 바꾸게 되고, 잠김도 풀립니다.'),
+      h('div', { class: 'table-wrap' }, h('table', null,
+        h('thead', null, h('tr', null, ['아이디', '이름', '역할', '상태', ''].map(function (t) { return h('th', null, t); }))), tbody)));
+  }
+
+  function openAccountForm(a) {
+    var loginId = h('input', { type: 'text', value: a ? a.loginId : '', autocomplete: 'off' });
+    var name = h('input', { type: 'text', value: a ? a.name : '' });
+    var role = h('select', null, option('데스크', '데스크', !a || a.role === '데스크'), option('관리자', '관리자', a && a.role === '관리자'));
+    var pw = h('input', { type: 'text', autocomplete: 'off', placeholder: a ? '바꾸지 않으려면 비워 두세요' : '8자 이상, 영문+숫자' });
+    var active = h('select', null, option('Y', '사용', !a || a.active), option('N', '사용 중지', a && !a.active));
+    modal(a ? '계정 수정' : '계정 추가', h('div', null, field('아이디', loginId), field('이름', name), field('역할', role),
+      field(a ? '새 비밀번호 (선택)' : '임시 비밀번호', pw, '직접 전달해 주세요. 첫 로그인 때 바꾸게 됩니다.'), field('상태', active)), [
+      {
+        label: '저장', primary: true, onClick: async function (close) {
+          await Api.call('admin.saveAccount', {
+            id: a ? a.id : '', loginId: loginId.value, name: name.value, role: role.value, password: pw.value, active: active.value === 'Y'
+          });
+          close(); await renderSettingsTab(); toast('저장했습니다.');
+        }
+      }]);
+  }
+
+  runBusy(null, boot);
+})();
