@@ -4,6 +4,7 @@
   var BANKS = ['국민', '신한', '우리', '하나', '농협', '기업', 'SC제일', '카카오뱅크', '토스뱅크', '케이뱅크', '새마을금고', '우체국', '신협', '수협', '부산', '대구', '광주', '전북', '경남', '제주', '기타'];
   var orgs = null;
   var selfieRequired = false;
+  var genderRequired = false;
 
   function show(name) {
     $$('.screen').forEach(function (s) { s.classList.add('hidden'); });
@@ -36,6 +37,10 @@
     $('#home-today').textContent = me.checkedInToday ? '출근 ' + me.checkedInAt : '아직 출근 전';
     $('#home-month').textContent = me.monthDays + '일';
     selfieRequired = me.selfieRequired;
+    genderRequired = me.genderRequired;
+    $('#tg-status').textContent = me.telegramLinked ? '연결됨' : '연결 안 됨';
+    $('#tg-status').style.color = me.telegramLinked ? 'var(--ok)' : 'var(--danger)';
+    $('#btn-telegram').textContent = me.telegramLinked ? '텔레그램 다시 연결' : '텔레그램 연결';
     $('#btn-checkin').disabled = me.checkedInToday;
     $('#btn-checkin').textContent = me.checkedInToday ? '오늘 출근 완료' : '출근하기';
     show('home');
@@ -223,6 +228,93 @@
     runBusy(null, async function () {
       selfieData = await resizeToJpeg(file);
       await submitCheckin(scanHandled);
+    });
+  });
+
+  // ---------- 텔레그램 연결 ----------
+  $('#btn-telegram').addEventListener('click', function () {
+    var btn = $('#btn-telegram');
+    runBusy(btn, async function () {
+      var res = await Api.call('staff.telegramLink');
+      // 텔레그램 앱이 열린다. 봇 화면에서 [시작]을 누르면 연결 완료 → 이 화면으로 돌아와 새로고침
+      toast('텔레그램에서 [시작]을 누른 뒤, 이 화면으로 돌아와 주세요.');
+      window.location.href = res.url;
+    });
+  });
+
+  // ---------- 예약 ----------
+  var rvTab = '예정';
+
+  function todayLocal() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+
+  function openReserve() {
+    var date = $('#rv-date');
+    date.min = todayLocal();
+    if (!date.value) date.value = todayLocal();
+    $('#rv-gender-label').textContent = genderRequired ? '성별 (필수)' : '성별 (선택)';
+    $('#rv-gender').required = genderRequired;
+    show('reserve');
+    return loadReservations();
+  }
+
+  async function loadReservations() {
+    $$('#rv-tabs .tab').forEach(function (t) { t.classList.toggle('active', t.dataset.rtab === rvTab); });
+    var res = await Api.call('reservation.list', { tab: rvTab });
+    var box = $('#rv-list');
+    box.innerHTML = '';
+    if (!res.reservations.length) { box.appendChild(h('p', { class: 'muted' }, '예약이 없습니다.')); return; }
+    res.reservations.forEach(function (r) {
+      var meta = r.date + ' · 뒤 ' + r.last5 + (r.gender ? ' (' + r.gender + ')' : '');
+      var line = h('div', { class: 'stat', style: 'align-items:center;flex-wrap:wrap;gap:8px' },
+        h('div', null, h('strong', null, meta), r.memo ? h('div', { class: 'muted' }, r.memo) : null,
+          rvTab === '미방문·취소' ? h('span', { class: 'badge' }, r.status) : null));
+      if (r.status === '예정') {
+        var edit = h('button', { type: 'button', class: 'btn small' }, '수정');
+        edit.addEventListener('click', function () { editReservation(r); });
+        var cancel = h('button', { type: 'button', class: 'btn small danger' }, '취소');
+        cancel.addEventListener('click', function () {
+          if (!confirm('뒤 ' + r.last5 + ' 예약을 취소할까요?')) return;
+          runBusy(cancel, async function () { await Api.call('reservation.cancel', { id: r.id }); await loadReservations(); toast('취소했습니다.'); });
+        });
+        line.appendChild(h('div', null, edit, ' ', cancel));
+      }
+      box.appendChild(line);
+    });
+  }
+
+  function editReservation(r) {
+    var date = h('input', { type: 'date', value: r.date, min: todayLocal(), style: 'width:100%;height:48px;border:1px solid var(--line);border-radius:8px;padding:0 12px;font:inherit' });
+    var memo = h('input', { type: 'text', value: r.memo, maxLength: 100 });
+    modal('예약 수정 (뒤 ' + r.last5 + ')', h('div', null, field('방문 예정일', date), field('메모', memo)), [{
+      label: '저장', primary: true, onClick: async function (close) {
+        await Api.call('reservation.update', { id: r.id, date: date.value, memo: memo.value });
+        close(); await loadReservations(); toast('수정했습니다.');
+      }
+    }]);
+  }
+
+  bindFormat($('#rv-last5'), onlyDigits);
+  $('#btn-reserve').addEventListener('click', function () { runBusy($('#btn-reserve'), openReserve); });
+  $('#btn-reserve-back').addEventListener('click', function () { runBusy($('#btn-reserve-back'), showHome); });
+  $('#rv-tabs').addEventListener('click', function (e) {
+    var t = e.target.closest('.tab');
+    if (!t) return;
+    rvTab = t.dataset.rtab;
+    runBusy(null, loadReservations);
+  });
+  $('#form-reserve').addEventListener('submit', function (e) {
+    e.preventDefault();
+    runBusy($('#form-reserve button[type=submit]'), async function () {
+      await Api.call('reservation.create', {
+        last5: $('#rv-last5').value, date: $('#rv-date').value, gender: $('#rv-gender').value, memo: $('#rv-memo').value
+      });
+      $('#rv-last5').value = ''; $('#rv-memo').value = ''; $('#rv-gender').value = '';
+      toast('예약을 등록했습니다.');
+      rvTab = '예정';
+      await loadReservations();
     });
   });
 

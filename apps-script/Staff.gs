@@ -170,7 +170,8 @@ function staffMe(data, ctx) {
     checkedInAt: todayRec ? s_(todayRec.시각).slice(0, 5) : '',
     monthDays: Object.keys(days).length,
     telegramLinked: !!s_(ctx.staff.텔레그램ID),
-    selfieRequired: getSettings_()['출근셀카사용'] === 'Y'
+    selfieRequired: getSettings_()['출근셀카사용'] === 'Y',
+    genderRequired: getSettings_()['예약중복기준'] === '뒤5자리+성별'
   };
 }
 

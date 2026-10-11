@@ -8,6 +8,11 @@ function doPost(e) {
   var out;
   try {
     var req = JSON.parse(e.postData.contents);
+    if (req && req.update_id !== undefined) {
+      // 텔레그램 웹훅. 비밀값은 웹훅 주소의 ?tg= 로 받는다
+      handleTelegram_(req, s_(e.parameter && e.parameter.tg));
+      return json_({ ok: true });
+    }
     out = { ok: true, data: route_(req) };
   } catch (err) {
     if (err instanceof AppError) {
@@ -35,6 +40,11 @@ function actions_() {
     'staff.login': { roles: ['public'], fn: staffLogin, write: true },
     'staff.requestDeviceChange': { roles: ['public'], fn: staffRequestDeviceChange, write: true },
     'staff.me': { roles: ['staff'], fn: staffMe },
+    'staff.telegramLink': { roles: ['staff'], fn: staffTelegramLink, write: true },
+    'reservation.create': { roles: ['staff'], fn: reservationCreate, write: true },
+    'reservation.list': { roles: ['staff'], fn: reservationList },
+    'reservation.update': { roles: ['staff'], fn: reservationUpdate, write: true },
+    'reservation.cancel': { roles: ['staff'], fn: reservationCancel, write: true },
     'attendance.checkin': { roles: ['staff'], fn: attendanceCheckin, write: true },
 
     'account.login': { roles: ['public'], fn: accountLogin, write: true },
@@ -50,6 +60,14 @@ function actions_() {
     'admin.approveDevice': { roles: ['admin'], fn: adminApproveDevice, write: true },
     'admin.payrollGet': { roles: ['admin'], fn: adminPayrollGet },
     'admin.payrollReveal': { roles: ['admin'], fn: adminPayrollReveal, write: true },
+
+    'desk.lookup': { roles: ['desk'], fn: deskLookup },
+    'desk.searchStaff': { roles: ['desk'], fn: deskSearchStaff },
+    'desk.registerVisit': { roles: ['desk'], fn: deskRegisterVisit, write: true },
+    'desk.recall': { roles: ['desk'], fn: deskRecall, write: true },
+    'desk.todayVisits': { roles: ['desk'], fn: deskTodayVisits },
+    'admin.reservations': { roles: ['admin'], fn: adminReservations },
+    'admin.visits': { roles: ['admin'], fn: adminVisits },
 
     'admin.currentQr': { roles: ['admin'], fn: adminCurrentQr },
     'admin.issueQr': { roles: ['admin'], fn: adminIssueQr, write: true },

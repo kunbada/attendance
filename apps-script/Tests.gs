@@ -144,3 +144,123 @@ function test_stage2() {
   }
   Logger.log(ok ? '=== 2단계 테스트 전체 통과 ===' : '=== 실패한 항목이 있습니다. 위 [실패] 줄을 확인하세요 ===');
 }
+
+// 3단계: 예약 중복 규칙(두 가지 기준), 텔레그램 연결·호출·확인(가짜 텔레그램으로), 데스크 조회·방문 기록
+// 실제 텔레그램으로는 아무것도 보내지 않는다. 설정값은 끝나면 원래대로 복원된다.
+function test_stage3() {
+  var props = PropertiesService.getScriptProperties();
+  var hadSecret = !!props.getProperty('TELEGRAM_SECRET');
+  if (!hadSecret) props.setProperty('TELEGRAM_SECRET', 'testsecret');
+  var secret = props.getProperty('TELEGRAM_SECRET');
+  var settings = getSettings_();
+  var saved = { dup: settings['예약중복기준'], bot: settings['텔레그램봇이름'] };
+  var setSetting = function (k, v) {
+    var row = findOne('설정', function (r) { return s_(r.항목) === k; });
+    if (row) updateRow('설정', row._row, { 값: v }); else appendRow('설정', { 항목: k, 값: v });
+  };
+  var tmpDesk = newId_('A'), tmpAdmin = newId_('A');
+  appendRow('계정', { 계정ID: tmpDesk, 아이디: 'test_tmp_desk', 비밀번호해시: hashSecret_('unused1234'), 역할: '데스크', 이름: '임시데스크', 실패횟수: 0, 사용여부: 'Y', 비번변경필요: 'N' });
+  appendRow('계정', { 계정ID: tmpAdmin, 아이디: 'test_tmp_admin', 비밀번호해시: hashSecret_('unused1234'), 역할: '관리자', 이름: '임시', 실패횟수: 0, 사용여부: 'Y', 비번변경필요: 'N' });
+  var deskTok = createSession_('계정', tmpDesk), adminTok = createSession_('계정', tmpAdmin);
+  var ids = [newId_('S'), newId_('S')];
+  var devA = 'test-device-AAAA', devB = 'test-device-BBBB';
+  ids.forEach(function (id, i) {
+    appendRow('직원', { 직원ID: id, 성명: '테스트' + (i + 1), 예명: '별' + (i + 1), 휴대폰: '0100000000' + i, 직군: '상담사', 상태: '활동', PIN해시: hashSecret_('1234'), 실패횟수: 0, 기기키: i === 0 ? devA : devB, 가입일시: nowStr() });
+  });
+  var tokA = createSession_('직원', ids[0]), tokB = createSession_('직원', ids[1]);
+  var sent = [];
+  telegramStub_ = function (method, payload) { sent.push({ method: method, payload: payload }); return { ok: true }; };
+  var ok = true;
+  var check = function (label, res, wantOk, msgPart) {
+    var pass = testExpect_(label, res, wantOk) && (!msgPart || (res.error || '').indexOf(msgPart) >= 0);
+    if (!pass && msgPart) Logger.log('   (기대한 문구: ' + msgPart + ', 실제: ' + res.error + ')');
+    ok = pass && ok;
+  };
+  var webhook = function (body) {
+    doPost({ postData: { contents: JSON.stringify(body) }, parameter: { tg: secret } });
+  };
+  var today = todayStr();
+  var staffRow = function (id) { return findOne('직원', function (r) { return s_(r.직원ID) === id; }); };
+  try {
+    // --- 예약 중복 (뒤5자리 기준)
+    setSetting('예약중복기준', '뒤5자리');
+    var r1 = testCall_(tokA, devA, 'reservation.create', { last5: '12345', date: today, gender: '남', memo: '테스트' });
+    check('예약 등록', r1, true);
+    check('다른 직원이 같은 뒤5자리 → 차단', testCall_(tokB, devB, 'reservation.create', { last5: '12345', date: today, gender: '여' }), false, '이미 예약된 고객입니다.');
+    check('본인이 또 등록 → 내 예약 안내', testCall_(tokA, devA, 'reservation.create', { last5: '12345', date: today }), false, '이미 내 예약이 있습니다');
+    check('뒤5자리 형식 오류', testCall_(tokA, devA, 'reservation.create', { last5: '123', date: today }), false);
+    check('지난 날짜 → 거부', testCall_(tokA, devA, 'reservation.create', { last5: '22222', date: '2000-01-01' }), false);
+    // --- 예약 중복 (뒤5자리+성별 기준)
+    setSetting('예약중복기준', '뒤5자리+성별');
+    check('성별 기준: 성별 없으면 거부', testCall_(tokB, devB, 'reservation.create', { last5: '33333', date: today }), false, '성별');
+    check('성별 기준: 번호는 같고 성별이 다르면 허용', testCall_(tokB, devB, 'reservation.create', { last5: '12345', date: today, gender: '여' }), true);
+    check('성별 기준: 번호·성별 모두 같으면 차단', testCall_(tokB, devB, 'reservation.create', { last5: '12345', date: today, gender: '남' }), false, '이미 예약된 고객입니다.');
+    // --- 목록·수정·취소
+    var list = testCall_(tokA, devA, 'reservation.list', { tab: '예정' });
+    check('내 예약 목록', { ok: list.ok && list.data.reservations.length === 1 }, true);
+    check('남의 예약 취소 시도 → 거부', testCall_(tokB, devB, 'reservation.cancel', { id: r1.data.id }), false);
+    var r2 = testCall_(tokA, devA, 'reservation.create', { last5: '44444', date: today, gender: '여' });
+    check('예약 수정', testCall_(tokA, devA, 'reservation.update', { id: r2.data.id, date: today, memo: '변경' }), true);
+    check('예약 취소', testCall_(tokA, devA, 'reservation.cancel', { id: r2.data.id }), true);
+    check('취소 후 같은 번호 다시 등록 가능', testCall_(tokB, devB, 'reservation.create', { last5: '44444', date: today, gender: '여' }), true);
+
+    // --- 텔레그램 연결
+    setSetting('텔레그램봇이름', '');
+    check('봇 이름 없으면 연결 불가', testCall_(tokA, devA, 'staff.telegramLink'), false);
+    setSetting('텔레그램봇이름', 'test_bot');
+    var link = testCall_(tokA, devA, 'staff.telegramLink');
+    check('연결 링크 발급', link, true);
+    var code = link.ok ? link.data.url.split('start=')[1] : '';
+    doPost({ postData: { contents: JSON.stringify({ update_id: 1, message: { text: '/start ' + code, chat: { id: 777001, type: 'private' } } }) }, parameter: { tg: 'wrong' } });
+    check('틀린 비밀값의 웹훅은 무시', { ok: !s_(staffRow(ids[0]).텔레그램ID) }, true);
+    webhook({ update_id: 2, message: { text: '/start ' + code, chat: { id: 777001, type: 'private' } } });
+    check('웹훅으로 텔레그램 연결', { ok: s_(staffRow(ids[0]).텔레그램ID) === '777001' }, true);
+    check('연결 코드는 한 번만', { ok: !s_(staffRow(ids[0]).텔레그램연결코드) }, true);
+
+    // --- 데스크
+    check('직원 토큰으로 데스크 action → 거부', testCall_(tokA, devA, 'desk.lookup', { last5: '12345' }), false);
+    var look = testCall_(deskTok, '', 'desk.lookup', { last5: '12345' });
+    check('데스크 조회 (같은 번호 2건: 남/여)', { ok: look.ok && look.data.reservations.length === 2 }, true);
+    var mine = look.data.reservations.filter(function (x) { return x.gender === '남'; })[0];
+    check('성별로 좁혀 조회', { ok: testCall_(deskTok, '', 'desk.lookup', { last5: '12345', gender: '남' }).data.reservations.length === 1 }, true);
+    var reg = testCall_(deskTok, '', 'desk.registerVisit', { kind: '예약', reservationId: mine.id, last5: '12345' });
+    check('예약 고객 호출', reg, true);
+    check('호출 메시지가 텔레그램으로 나감', { ok: sent.some(function (m) { return m.method === 'sendMessage' && m.payload.chat_id === '777001' && m.payload.text.indexOf('[호출] 12345 고객(남)') === 0 && m.payload.reply_markup.inline_keyboard[0][0].callback_data === 'ack:' + reg.data.visitId; }) }, true);
+    check('같은 예약 중복 접수 → 거부', testCall_(deskTok, '', 'desk.registerVisit', { kind: '예약', reservationId: mine.id, last5: '12345' }), false, '이미 방문 처리');
+    var vis = function () { return testCall_(deskTok, '', 'desk.todayVisits').data.visits.filter(function (v) { return v.id === reg.data.visitId; })[0]; };
+    check('확인 전 상태는 호출함', { ok: vis().status === '호출함' }, true);
+    webhook({ update_id: 3, callback_query: { id: 'cb1', from: { id: 999999 }, data: 'ack:' + reg.data.visitId, message: { text: '[호출]', chat: { id: 777001 }, message_id: 5 } } });
+    check('다른 사람이 [확인]을 눌러도 무시', { ok: vis().status === '호출함' }, true);
+    webhook({ update_id: 4, callback_query: { id: 'cb2', from: { id: 777001 }, data: 'ack:' + reg.data.visitId, message: { text: '[호출] 12345 고객(남) 도착', chat: { id: 777001 }, message_id: 5 } } });
+    check('본인이 [확인] → 확인함', { ok: vis().status === '확인함' }, true);
+    check('메시지에 "확인됨"이 덧붙음', { ok: sent.some(function (m) { return m.method === 'editMessageText' && /확인됨 \d\d:\d\d$/.test(m.payload.text); }) }, true);
+    check('확인된 호출 재호출 → 거부', testCall_(deskTok, '', 'desk.recall', { visitId: reg.data.visitId }), false, '이미 확인');
+
+    // 텔레그램 미연결 직원 지명 → 번호 안내
+    var named = testCall_(deskTok, '', 'desk.registerVisit', { kind: '지명', staffId: ids[1], last5: '55555', gender: '여' });
+    check('미연결 직원 지명 → 호출 없이 번호 안내', { ok: named.ok && named.data.called === false && /^010-/.test(named.data.phone) }, true);
+    check('미연결 직원 재호출 → 전화 안내', testCall_(deskTok, '', 'desk.recall', { visitId: named.data.visitId }), false, '전화로');
+    var search = testCall_(deskTok, '', 'desk.searchStaff', { q: '별2' });
+    check('예명으로 직원 검색', { ok: search.ok && search.data.staff.length === 1 && search.data.staff[0].id === ids[1] }, true);
+    check('담당 없음 기록', testCall_(deskTok, '', 'desk.registerVisit', { kind: '담당없음', last5: '66666' }), true);
+    var today3 = testCall_(deskTok, '', 'desk.todayVisits').data.visits.filter(function (v) { return ['12345', '55555', '66666'].indexOf(v.last5) >= 0; });
+    check('오늘 방문 목록 3건', { ok: today3.length === 3 }, true);
+    check('관리자 예약 현황', testCall_(adminTok, '', 'admin.reservations', { from: today, to: today }), true);
+    check('관리자 방문 현황', testCall_(adminTok, '', 'admin.visits', { from: today, to: today }), true);
+    check('데스크 응답에 주민번호·계좌 없음', { ok: !/주민|rrn|accountNo/.test(JSON.stringify(look) + JSON.stringify(search)) }, true);
+  } finally {
+    telegramStub_ = null;
+    setSetting('예약중복기준', saved.dup || '뒤5자리');
+    setSetting('텔레그램봇이름', saved.bot || '');
+    if (!hadSecret) props.deleteProperty('TELEGRAM_SECRET');
+    [deskTok, adminTok].forEach(destroySession_);
+    deleteRows('계정', filterRows('계정', function (a) { return a.계정ID === tmpDesk || a.계정ID === tmpAdmin; }).map(function (a) { return a._row; }));
+    deleteRows('방문', filterRows('방문', function (r) { return ids.indexOf(s_(r.담당직원ID)) >= 0 || (s_(r.구분) === '담당없음' && s_(r.뒤5자리) === '66666'); }).map(function (r) { return r._row; }));
+    ids.forEach(function (id) {
+      destroyUserSessions_('직원', id);
+      deleteRows('예약', filterRows('예약', function (r) { return s_(r.직원ID) === id; }).map(function (r) { return r._row; }));
+      deleteRows('직원', filterRows('직원', function (r) { return s_(r.직원ID) === id; }).map(function (r) { return r._row; }));
+    });
+  }
+  Logger.log(ok ? '=== 3단계 테스트 전체 통과 ===' : '=== 실패한 항목이 있습니다. 위 [실패] 줄을 확인하세요 ===');
+}

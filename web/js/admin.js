@@ -71,6 +71,7 @@
     staff: async function () { await loadStaff(); renderStaffTab(); },
     qr: renderQrTab,
     attendance: renderAttendanceTab,
+    visits: renderVisitsTab,
     settings: renderSettingsTab
   };
   $$('.tab').forEach(function (t) {
@@ -394,6 +395,72 @@
       return h('tr', null, h('td', null, nameCell(p)), h('td', null, orgCell(p)), h('td', null, p.days.length + '일'),
         h('td', { class: 'muted' }, p.days.join(', ')));
     })));
+  }
+
+  // ====================================================================
+  // 예약·방문 현황
+  // ====================================================================
+  var visitFilter = { from: '', to: '', headId: '', teamId: '', staffId: '' };
+
+  async function renderVisitsTab() {
+    visitFilter.from = visitFilter.from || todayLocal().slice(0, 8) + '01';
+    visitFilter.to = visitFilter.to || todayLocal();
+    if (!state.staff.length) await loadStaff();
+    var root = $('#tab-visits');
+    root.innerHTML = '';
+    var from = h('input', { type: 'date', value: visitFilter.from, style: DATE_STYLE });
+    var to = h('input', { type: 'date', value: visitFilter.to, style: DATE_STYLE });
+    var head = h('select', null, option('', '본부 전체'), orgsOf('본부').map(function (o) { return option(o.id, o.name, o.id === visitFilter.headId); }));
+    var team = h('select');
+    var staffSel = h('select', null, option('', '직원 전체'), state.staff.filter(function (s) { return s.status !== '반려'; })
+      .sort(function (a, b) { return a.name.localeCompare(b.name, 'ko'); })
+      .map(function (s) { return option(s.id, s.name + (s.nickname ? ' (' + s.nickname + ')' : ''), s.id === visitFilter.staffId); }));
+    function syncTeams() {
+      team.innerHTML = '';
+      team.appendChild(option('', '팀 전체'));
+      orgsOf('팀').filter(function (t) { return !head.value || t.parentId === head.value; })
+        .forEach(function (t) { team.appendChild(option(t.id, t.name, t.id === visitFilter.teamId)); });
+    }
+    head.addEventListener('change', function () { visitFilter.teamId = ''; syncTeams(); });
+    syncTeams();
+    var go = h('button', { type: 'button', class: 'btn small primary' }, '조회');
+    var box = h('div');
+    go.addEventListener('click', function () {
+      visitFilter = { from: from.value, to: to.value, headId: head.value, teamId: team.value, staffId: staffSel.value };
+      runBusy(go, function () { return loadVisitsTab(box); });
+    });
+    root.appendChild(h('div', { class: 'card' }, h('h2', null, '조건'), h('div', { class: 'toolbar' }, from, '~', to, head, team, staffSel, go)));
+    root.appendChild(box);
+    await loadVisitsTab(box);
+  }
+
+  async function loadVisitsTab(box) {
+    var q = { from: visitFilter.from, to: visitFilter.to, headId: visitFilter.headId, teamId: visitFilter.teamId, staffId: visitFilter.staffId };
+    var results = await Promise.all([Api.call('admin.reservations', q), Api.call('admin.visits', q)]);
+    var rs = results[0].reservations, vs = results[1].visits;
+    box.innerHTML = '';
+
+    var resCsv = h('button', { type: 'button', class: 'btn small' }, 'CSV 다운로드');
+    resCsv.addEventListener('click', function () {
+      downloadCsv('예약_' + q.from + '_' + q.to + '.csv', [['방문예정일', '뒤5자리', '성별', '직원', '직군', '본부', '팀', '메모', '상태', '등록일시']].concat(
+        rs.map(function (r) { return [r.date, r.last5, r.gender, r.staff ? r.staff.name : '', r.staff ? r.staff.job : '', r.staff ? r.staff.headName : '', r.staff ? r.staff.teamName : '', r.memo, r.status, r.createdAt]; })));
+    });
+    box.appendChild(h('div', { class: 'card' }, h('h2', null, '예약 (' + rs.length + '건) '), h('div', { class: 'toolbar' }, resCsv),
+      simpleTable(['방문예정일', '뒤5자리', '성별', '직원', '소속', '메모', '상태'], rs.map(function (r) {
+        return h('tr', null, h('td', null, r.date), h('td', null, r.last5), h('td', null, r.gender), h('td', null, r.staff ? nameCell(r.staff) : '-'),
+          h('td', null, r.staff ? orgCell(r.staff) : ''), h('td', null, r.memo), h('td', null, r.status));
+      }))));
+
+    var visCsv = h('button', { type: 'button', class: 'btn small' }, 'CSV 다운로드');
+    visCsv.addEventListener('click', function () {
+      downloadCsv('방문_' + q.from + '_' + q.to + '.csv', [['방문일시', '뒤5자리', '성별', '구분', '담당직원', '직군', '본부', '팀', '호출일시', '확인일시']].concat(
+        vs.map(function (v) { return [v.at, v.last5, v.gender, v.kind, v.staff ? v.staff.name : '', v.staff ? v.staff.job : '', v.staff ? v.staff.headName : '', v.staff ? v.staff.teamName : '', v.calledAt, v.ackedAt]; })));
+    });
+    box.appendChild(h('div', { class: 'card' }, h('h2', null, '방문 (' + vs.length + '건) '), h('div', { class: 'toolbar' }, visCsv),
+      simpleTable(['방문일시', '뒤5자리', '성별', '구분', '담당직원', '호출', '확인'], vs.map(function (v) {
+        return h('tr', null, h('td', null, v.at), h('td', null, v.last5), h('td', null, v.gender), h('td', null, v.kind),
+          h('td', null, v.staff ? nameCell(v.staff) : '-'), h('td', null, v.calledAt.slice(11, 16)), h('td', null, v.ackedAt.slice(11, 16)));
+      }))));
   }
 
   // ====================================================================

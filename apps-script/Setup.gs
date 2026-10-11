@@ -134,3 +134,32 @@ function resetAdminPassword() {
   destroyUserSessions_('계정', s_(acc.계정ID));
   Logger.log('admin 새 비밀번호: ' + pw + '   (로그인하면 바로 바꾸게 됩니다)');
 }
+
+// ---------- 텔레그램 (3단계) ----------
+// 순서: 1) 스크립트 속성에 TELEGRAM_TOKEN 입력  2) (선택) WEBAPP_URL 입력  3) 이 함수 한 번 실행
+// 웹훅 주소 끝에 비밀값(?tg=...)을 붙여, 텔레그램이 아닌 곳에서 보낸 가짜 요청은 무시한다.
+function setTelegramWebhook() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('TELEGRAM_TOKEN');
+  if (!token) throw new Error('스크립트 속성 TELEGRAM_TOKEN 이 비어 있습니다. 배포가이드의 텔레그램 단계를 먼저 하세요.');
+  var base = props.getProperty('WEBAPP_URL') || ScriptApp.getService().getUrl();
+  if (!base || !/\/exec$/.test(base)) throw new Error('웹앱 주소(/exec 로 끝나는 URL)를 찾지 못했습니다. 스크립트 속성 WEBAPP_URL 에 배포 주소를 넣고 다시 실행하세요.');
+  if (!props.getProperty('TELEGRAM_SECRET')) props.setProperty('TELEGRAM_SECRET', Utilities.getUuid().replace(/-/g, ''));
+  var url = base + '?tg=' + props.getProperty('TELEGRAM_SECRET');
+  var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/setWebhook', {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    payload: JSON.stringify({ url: url, allowed_updates: ['message', 'callback_query'] })
+  });
+  Logger.log('setWebhook 결과: ' + res.getContentText());
+}
+
+// 봇이 잘 연결됐는지 확인 (봇 이름, 웹훅 상태). 토큰 값은 출력하지 않는다.
+function test_telegramInfo() {
+  var me = telegramApi_('getMe', {});
+  Logger.log(me.ok ? '봇 이름: @' + me.result.username + '  (설정 > 텔레그램 봇 이름에 이 값을 넣으세요)' : '봇 확인 실패: ' + me.description);
+  var info = telegramApi_('getWebhookInfo', {});
+  if (info.ok) {
+    Logger.log('웹훅 등록: ' + (info.result.url ? '됨' : '안 됨') + ' / 대기 중 업데이트: ' + info.result.pending_update_count);
+    if (info.result.last_error_message) Logger.log('마지막 오류: ' + info.result.last_error_message + ' (302 는 정상적으로 나올 수 있음)');
+  }
+}

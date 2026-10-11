@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>안내데스크</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="topbar admin">
+    <h1 id="siteName">안내데스크</h1>
+    <button type="button" class="btn small hidden" id="btn-logout">로그아웃</button>
+  </div>
+
+  <main>
+    <section id="screen-login" class="screen hidden">
+      <form id="form-login" class="card" autocomplete="off">
+        <h2>데스크 로그인</h2>
+        <label class="field"><span class="field-label">아이디</span><input id="login-id" type="text" required></label>
+        <label class="field"><span class="field-label">비밀번호</span><input id="login-pw" type="password" required></label>
+        <button type="submit" class="btn primary">로그인</button>
+      </form>
+    </section>
+
+    <section id="screen-changepw" class="screen hidden">
+      <form id="form-changepw" class="card" autocomplete="off">
+        <h2>비밀번호를 변경해 주세요</h2>
+        <p class="muted">임시 비밀번호로는 다른 기능을 쓸 수 없습니다. 8자 이상, 영문과 숫자를 함께 써 주세요.</p>
+        <label class="field"><span class="field-label">현재 비밀번호</span><input id="cp-old" type="password" required></label>
+        <label class="field"><span class="field-label">새 비밀번호</span><input id="cp-new" type="password" required></label>
+        <label class="field"><span class="field-label">새 비밀번호 확인</span><input id="cp-new2" type="password" required></label>
+        <button type="submit" class="btn primary">변경</button>
+      </form>
+    </section>
+  </main>
+
+  <main class="wide screen hidden" id="screen-app">
+    <div class="desk-grid">
+      <div class="card">
+        <h2>고객 전화번호 뒤 5자리</h2>
+        <div id="digits" class="digits"></div>
+        <div class="gender-row" id="gender-row">
+          <button type="button" class="btn" data-g="남">남</button>
+          <button type="button" class="btn" data-g="여">여</button>
+          <button type="button" class="btn active" data-g="">성별 무관</button>
+        </div>
+        <div class="keypad" id="keypad"></div>
+      </div>
+      <div class="card" id="panel"></div>
+    </div>
+
+    <div class="card">
+      <h2>오늘 방문 <span class="muted" id="refresh-note"></span></h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>시각</th><th>뒤5자리</th><th>구분</th><th>담당</th><th>상태</th><th></th></tr></thead>
+        <tbody id="visits"></tbody>
+      </table></div>
+    </div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/desk.js"></script>
+</body>
+</html>
