@@ -13,6 +13,7 @@ import { reservationCreate, reservationList, reservationUpdate, reservationCance
 import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit.js';
 import { staffTelegramLink, handleTelegram } from './telegram.js';
 import { leaderStaffList, leaderApprove, leaderReject, leaderRetire } from './leader.js';
+import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg } from './guestbook.js';
 
 // roles: 이 action 을 부를 수 있는 역할 ('public' = 로그인 불필요, 'desk' 는 관리자도 가능)
 // allowMustChange: 비밀번호 변경 전에도 부를 수 있는 action
@@ -36,11 +37,17 @@ const ACTIONS = {
 
   'account.login': { roles: ['public'], fn: accountLogin },
   'account.changePassword': { roles: ['desk', 'admin'], fn: accountChangePassword, allowMustChange: true },
-  'auth.logout': { roles: ['staff', 'desk', 'admin'], fn: authLogout, allowMustChange: true },
+  'auth.logout': { roles: ['staff', 'desk', 'admin', 'kiosk'], fn: authLogout, allowMustChange: true },
 
   'desk.lookup': { roles: ['desk'], fn: deskLookup },
   'desk.searchStaff': { roles: ['desk'], fn: deskSearchStaff },
   'desk.reservationList': { roles: ['desk'], fn: deskReservationList },
+  'desk.guestList': { roles: ['desk'], fn: deskGuestList },
+  'desk.guestSave': { roles: ['desk'], fn: deskGuestSave },
+  'desk.guestDelete': { roles: ['desk'], fn: deskGuestDelete },
+  'desk.guestCall': { roles: ['desk'], fn: deskGuestCall },
+  'desk.staffByOrg': { roles: ['desk'], fn: deskStaffByOrg },
+  'guest.submit': { roles: ['kiosk', 'desk'], fn: guestSubmit },
   'desk.registerVisit': { roles: ['desk'], fn: deskRegisterVisit },
   'desk.recall': { roles: ['desk'], fn: deskRecall },
   'desk.todayVisits': { roles: ['desk'], fn: deskTodayVisits },

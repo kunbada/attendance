@@ -3,7 +3,9 @@ import { AppError, s, all, first, run, nowStr, hashSecret, safeEqual, writeLog }
 
 export const MAX_FAILS = 5;
 // 직원은 매일 로그인하기 번거로우니 30일, 관리자·데스크는 공용 PC 가능성 때문에 12시간
+// 방명록 태블릿은 매번 로그인할 수 없으니 30일 (분실 시 관리자가 계정을 중지하면 즉시 무효)
 const LIFETIME_MS = { staff: 30 * 24 * 3600 * 1000, account: 12 * 3600 * 1000 };
+const KIOSK_LIFETIME_MS = 30 * 24 * 3600 * 1000;
 
 export function checkPasswordPolicy(pw) {
   if (pw.length < 8 || !/[A-Za-z]/.test(pw) || !/\d/.test(pw)) {
@@ -13,10 +15,10 @@ export function checkPasswordPolicy(pw) {
 
 // ---------- 세션 ----------
 
-export async function createSession(env, kind, userId) {
+export async function createSession(env, kind, userId, lifetimeMs = LIFETIME_MS[kind]) {
   if (Math.random() < 0.1) await run(env, 'DELETE FROM sessions WHERE expires_at < ?', Date.now()); // 만료 세션 정리
   const token = crypto.randomUUID();
-  await run(env, 'INSERT INTO sessions (token, kind, user_id, expires_at) VALUES (?, ?, ?, ?)', token, kind, userId, Date.now() + LIFETIME_MS[kind]);
+  await run(env, 'INSERT INTO sessions (token, kind, user_id, expires_at) VALUES (?, ?, ?, ?)', token, kind, userId, Date.now() + lifetimeMs);
   return token;
 }
 
@@ -52,7 +54,7 @@ export async function authenticate(env, req, roles) {
   } else {
     const account = await first(env, 'SELECT * FROM accounts WHERE id = ?', session.user_id);
     if (!account || !account.active) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
-    ctx.role = account.role === '관리자' ? 'admin' : 'desk';
+    ctx.role = account.role === '관리자' ? 'admin' : account.role === '방명록' ? 'kiosk' : 'desk';
     ctx.account = account;
   }
 
@@ -80,7 +82,7 @@ export async function accountLogin(env, data) {
   if (acc.fail_count > 0) await run(env, 'UPDATE accounts SET fail_count = 0 WHERE id = ?', acc.id);
 
   return {
-    token: await createSession(env, 'account', acc.id),
+    token: await createSession(env, 'account', acc.id, acc.role === '방명록' ? KIOSK_LIFETIME_MS : LIFETIME_MS.account),
     account: { name: acc.name, role: acc.role, mustChangePassword: !!acc.must_change_password }
   };
 }

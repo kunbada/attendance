@@ -336,6 +336,76 @@ try {
   expectOk('검색 후 호출(지명)', byName);
   check('텔레그램 미연결 직원 지명은 호출 없이 번호 안내', byName.data.called === false && byName.data.notLinked === true && sent.length === sentBeforeNamed);
 
+  // 직원 검색 호출: 고객 번호 없이도 호출
+  const sentNoNum = sent.length;
+  const noNum = await call('desk.registerVisit', { kind: '지명', staffId: idM }, desk);
+  expectOk('고객 번호 없이 지명 호출', noNum);
+  const noNumMsg = sent.slice(sentNoNum).find((m) => m.method === 'sendMessage' && m.payload.chat_id === String(chatOf(1)));
+  check('번호 없는 호출 메시지: [호출] 1본부 1팀 이름님 고객 도착', noNumMsg && noNumMsg.payload.text === '[호출] 1본부 1팀 ' + M.name + '님 고객 도착\n안내데스크로 와주세요.', noNumMsg ? noNumMsg.payload.text : '(없음)');
+  expectErr('번호를 입력했다면 형식 검사', await call('desk.registerVisit', { kind: '지명', staffId: idM, last5: '12' }, desk), '5자리');
+  expectErr('예약 호출은 번호 필수', await call('desk.registerVisit', { kind: '담당없음' }, desk), '5자리');
+
+  // 방명록: 태블릿(방명록 계정) 입력 → 데스크 확인·수정·담당 지정 → 호출
+  const kioskPw = 'Kiosk' + uniq.slice(0, 4) + 'z7';
+  expectOk('방명록 계정 추가', await call('admin.saveAccount', { loginId: 'kiosk' + uniq.slice(0, 4), name: '태블릿', role: '방명록', password: kioskPw, active: true }, admin));
+  const kLogin = await call('account.login', { loginId: 'kiosk' + uniq.slice(0, 4), password: kioskPw });
+  expectOk('방명록 계정 로그인 (비밀번호 변경 강제 없음)', kLogin);
+  check('방명록 계정은 변경 강제 없음', kLogin.data.account.mustChangePassword === false);
+  const kiosk = kLogin.data.token;
+  const gPhone = '010' + rnd();
+  expectErr('동의 없이 제출 불가', await call('guest.submit', { name: '고객A', phone: gPhone, gender: '남', companions: 0, consent: false }, kiosk), '동의');
+  expectErr('전화번호 형식 검사', await call('guest.submit', { name: '고객A', phone: '123', gender: '남', consent: true }, kiosk), '전화번호');
+  expectErr('성별 선택 필수', await call('guest.submit', { name: '고객A', phone: gPhone, consent: true }, kiosk), '성별');
+  expectOk('고객이 방명록 입력 (동반 2명)', await call('guest.submit', { name: '고객' + uniq, phone: gPhone, gender: '여', companions: 2, consent: true }, kiosk));
+  expectOk('같은 사람이 다시 눌러도 에러 없이 한 건만', await call('guest.submit', { name: '고객' + uniq, phone: gPhone, gender: '여', companions: 2, consent: true }, kiosk));
+  expectErr('방명록 계정은 데스크 기능 사용 불가', await call('desk.guestList', {}, kiosk), '권한', 'FORBIDDEN');
+  expectErr('방명록 계정은 관리자 기능 사용 불가', await call('admin.staffList', {}, kiosk), '권한', 'FORBIDDEN');
+  expectErr('직원은 방명록 제출 불가', await call('guest.submit', { name: 'x', phone: gPhone, gender: '남', consent: true }, tokA3, A.dev), '권한');
+  const gl = await call('desk.guestList', {}, desk);
+  const g1 = gl.ok && gl.data.guests.filter((g) => g.name === '고객' + uniq);
+  check('데스크 방명록: 한 건, 확인 필요, 동반 2명, 호출 불가', g1 && g1.length === 1 && g1[0].category === '확인 필요' && g1[0].party === '동반 2명' && g1[0].canCall === false && g1[0].consent === true, g1 && g1[0] ? g1[0].category + '/' + g1[0].party : gl.error);
+  expectErr('수정 전 호출 불가(담당자 없음)', await call('desk.guestCall', { id: g1[0].id }, desk), '담당자가 지정되지 않았습니다');
+  const orgStaff = await call('desk.staffByOrg', { headId: 'OH01', teamId: 'OT011' }, desk);
+  check('담당자 선택 목록: 팀 직원 + 본부장', orgStaff.ok && orgStaff.data.staff.some((x) => x.id === idM) && orgStaff.data.staff.some((x) => x.id === idH), orgStaff.ok ? String(orgStaff.data.staff.length) : orgStaff.error);
+  check('담당자 목록에 다른 본부 직원 없음', !orgStaff.data.staff.some((x) => x.id === idX));
+  const gBase = { id: g1[0].id, name: '고객' + uniq, phone: gPhone, gender: '여', companions: 2, consent: true };
+  expectErr('본부 선택 후 담당자 미선택 → 거부', await call('desk.guestSave', { ...gBase, headId: 'OH01', teamId: 'OT011' }, desk), '담당자');
+  expectErr('다른 본부 직원 선택 → 거부', await call('desk.guestSave', { ...gBase, headId: 'OH01', teamId: 'OT011', staffId: idX }, desk), '담당자가 아닙니다');
+  expectErr('본부 없이 팀만 → 거부', await call('desk.guestSave', { ...gBase, teamId: 'OT011' }, desk), '본부');
+  expectOk('담당 본부/팀/직원 지정', await call('desk.guestSave', { ...gBase, headId: 'OH01', teamId: 'OT011', staffId: idM }, desk));
+  const g2 = (await call('desk.guestList', {}, desk)).data.guests.find((g) => g.id === g1[0].id);
+  check('지정 후: 분양, 본부/팀/담당자 표시, 호출 가능', g2.category === '분양' && g2.headName === '1본부' && g2.teamName === '1팀' && g2.staffId === idM && g2.canCall === true && g2.reviewed === true);
+  const sentG = sent.length;
+  const gc = await call('desk.guestCall', { id: g1[0].id }, desk);
+  expectOk('방명록에서 호출', gc);
+  const gMsgs = sent.slice(sentG).filter((m) => m.method === 'sendMessage');
+  const gToM = gMsgs.find((m) => m.payload.chat_id === String(chatOf(1)));
+  check('호출 메시지에 고객 전화 뒤 5자리 사용', gToM && gToM.payload.text === '[호출] 1본부 1팀 ' + M.name + '님 [' + gPhone.slice(-5) + '] 고객 도착\n안내데스크로 와주세요.', gToM ? gToM.payload.text : '(없음)');
+  check('방명록 호출도 팀장·본부장에게 알림', gMsgs.some((m) => m.payload.chat_id === String(chatOf(2)) && m.payload.text.startsWith('[호출 알림]')) && gMsgs.some((m) => m.payload.chat_id === String(chatOf(3))));
+  const sentG2 = sent.length;
+  expectOk('다시 호출(재호출)', await call('desk.guestCall', { id: g1[0].id }, desk));
+  check('재호출은 직원에게만', sent.slice(sentG2).filter((m) => m.method === 'sendMessage').length === 1);
+  check('호출 상태가 방명록 목록에 표시', ['호출함', '미확인'].includes((await call('desk.guestList', {}, desk)).data.guests.find((g) => g.id === g1[0].id).callStatus));
+  await webhook({ update_id: Date.now() * 10 + 7, callback_query: { id: 'cbg', from: { id: chatOf(1) }, data: 'ack:' + gc.data.visitId, message: { text: '[호출] x', chat: { id: chatOf(1) }, message_id: 9 } } });
+  check('직원이 [확인] → 방명록 목록에 확인함', (await call('desk.guestList', {}, desk)).data.guests.find((g) => g.id === g1[0].id).callStatus === '확인함');
+  expectErr('확인된 호출은 다시 호출 불가', await call('desk.guestCall', { id: g1[0].id }, desk), '이미 확인');
+  check('방문 목록에 방명록 구분으로 기록', (await call('desk.todayVisits', {}, desk)).data.visits.some((v) => v.id === gc.data.visitId && v.kind === '방명록'));
+
+  const walkIn = await call('desk.guestSave', { name: '워킹고객', phone: '010' + rnd(), gender: '', companions: 0, consent: false }, desk);
+  expectOk('데스크가 직접 입력 (본부/팀 없음 = 워킹, 단독, 동의 안 함)', walkIn);
+  const g3 = (await call('desk.guestList', {}, desk)).data.guests.find((g) => g.id === walkIn.data.id);
+  check('워킹으로 분류, 단독, 동의 아님, 호출 불가', g3.category === '워킹' && g3.party === '단독' && g3.consent === false && g3.canCall === false && g3.source === '데스크');
+  const noStaff = await call('desk.guestSave', { id: walkIn.data.id, name: '워킹고객', phone: '010' + rnd(), companions: 1, headId: 'OH02', teamId: 'OT021', staffNone: true, consent: true }, desk);
+  expectOk('담당자 없음으로 저장', noStaff);
+  const g4 = (await call('desk.guestList', {}, desk)).data.guests.find((g) => g.id === walkIn.data.id);
+  check('본부/팀 있고 담당자 없음 → 분양, 호출 불가', g4.category === '분양' && g4.staffNone === true && g4.canCall === false && g4.consent === true);
+  expectErr('담당자 없는 건 호출 불가', await call('desk.guestCall', { id: walkIn.data.id }, desk), '담당자가 지정되지 않았습니다');
+  expectOk('방명록 삭제', await call('desk.guestDelete', { id: walkIn.data.id }, desk));
+  check('삭제 후 목록에 없음', !(await call('desk.guestList', {}, desk)).data.guests.some((g) => g.id === walkIn.data.id));
+  const yesterday = new Date(Date.now() + 9 * 3600e3 - 86400e3).toISOString().slice(0, 10);
+  check('다른 날짜 조회', (await call('desk.guestList', { date: yesterday }, desk)).ok);
+  expectErr('날짜 형식 검사', await call('desk.guestList', { date: 'abc' }, desk), '날짜');
+
   // 퇴사 처리: 팀장 → 자기 팀 직원, 본부장 → 팀장
   expectErr('팀장: 본부장은 처리 불가', await call('leader.retire', { staffId: idH }, tokL, L.dev), '관리할 수 있는');
   expectOk('팀장: 자기 팀 직원 퇴사 처리', await call('leader.retire', { staffId: idM }, tokL, L.dev));

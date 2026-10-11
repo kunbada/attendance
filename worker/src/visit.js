@@ -5,7 +5,7 @@ import { sendCallMessage, hhmm } from './telegram.js';
 
 const UNCONFIRMED_MIN = 3; // 호출 후 이 시간이 지나도 확인이 없으면 화면에서 빨간색
 
-function formatPhone(d) {
+export function formatPhone(d) {
   d = s(d);
   return d.length === 11 ? d.slice(0, 3) + '-' + d.slice(3, 7) + '-' + d.slice(7) : d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6);
 }
@@ -83,9 +83,10 @@ export async function deskReservationList(env, data) {
 }
 
 export async function deskRegisterVisit(env, data, ctx) {
-  let last5 = requireLast5(data.last5);
-  let gender = normGender(data.gender);
   const kind = s(data.kind);
+  // 직원을 지명해 부를 때는 고객 번호 없이도 호출할 수 있다 (번호를 입력했다면 형식은 확인)
+  let last5 = kind === '지명' && !s(data.last5).trim() ? '' : requireLast5(data.last5);
+  let gender = normGender(data.gender);
   let staff = null;
   let reservation = null;
 
@@ -142,7 +143,7 @@ export async function deskRecall(env, data) {
   return {};
 }
 
-function visitStatus(v, staff) {
+export function visitStatus(v, staff) {
   if (!staff) return '담당없음';
   if (v.acked_at) return '확인함';
   if (!v.called_at) return '미호출';

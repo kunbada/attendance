@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>방명록</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="kiosk">
+  <header class="kiosk-top"><h1 id="siteName">방문을 환영합니다</h1></header>
+
+  <main class="kiosk-main">
+    <!-- 태블릿 최초 1회: 방명록 계정으로 로그인 (직원용 정보는 이 계정으로 볼 수 없다) -->
+    <section id="screen-login" class="screen hidden">
+      <form id="form-login" class="card" autocomplete="off">
+        <h2>방명록 태블릿 설정</h2>
+        <p class="muted">관리자가 만든 <strong>방명록 계정</strong>으로 한 번만 로그인하면, 이 태블릿에서 계속 쓸 수 있습니다.</p>
+        <label class="field"><span class="field-label">아이디</span><input id="login-id" type="text" required></label>
+        <label class="field"><span class="field-label">비밀번호</span><input id="login-pw" type="password" required></label>
+        <button type="submit" class="btn primary">로그인</button>
+      </form>
+    </section>
+
+    <!-- 고객 입력 -->
+    <section id="screen-form" class="screen hidden">
+      <form id="form-guest" class="card kiosk-card" autocomplete="off">
+        <h2>방명록을 작성해 주세요</h2>
+
+        <label class="field"><span class="field-label">성명</span>
+          <input id="g-name" type="text" maxlength="20" autocomplete="off" required></label>
+
+        <label class="field"><span class="field-label">전화번호</span>
+          <input id="g-phone" type="tel" inputmode="numeric" placeholder="010-0000-0000" autocomplete="off" required></label>
+
+        <div class="field"><span class="field-label">성별</span>
+          <div class="choices" id="g-gender">
+            <button type="button" class="choice" data-v="남">남</button>
+            <button type="button" class="choice" data-v="여">여</button>
+          </div></div>
+
+        <div class="field"><span class="field-label">방문 형태</span>
+          <div class="choices" id="g-party">
+            <button type="button" class="choice active" data-v="단독">혼자 방문</button>
+            <button type="button" class="choice" data-v="동반">함께 방문</button>
+          </div>
+          <div id="g-companion-box" class="stepper hidden">
+            <span>함께 오신 분 (본인 제외)</span>
+            <button type="button" class="step" id="g-minus">−</button>
+            <strong id="g-companions">1</strong>
+            <button type="button" class="step" id="g-plus">＋</button>
+            <span>명</span>
+          </div></div>
+
+        <div class="consent kiosk-consent">
+          <strong>개인정보 수집·이용 동의 (임시 문구 — 운영 전 회사에서 확정)</strong><br>
+          · 수집 항목: 성명, 전화번호, 성별, 동반 인원<br>
+          · 이용 목적: 방문 상담 안내, 담당자 배정, 방문 통계<br>
+          · 보유 기간: 상담 종료 후 관련 법령 또는 회사 기준에 따른 기간까지<br>
+          · 동의를 거부할 수 있으나, 거부하시면 방명록을 작성하실 수 없습니다.
+        </div>
+        <button type="button" class="check kiosk-check" id="g-consent-btn"><span class="box" id="g-consent-box"></span> 위 내용에 동의합니다</button>
+
+        <button type="submit" class="btn primary kiosk-submit">제출</button>
+      </form>
+    </section>
+
+    <!-- 제출 완료 -->
+    <section id="screen-done" class="screen hidden">
+      <div class="card kiosk-done">
+        <div style="font-size:72px">✅</div>
+        <h2>감사합니다</h2>
+        <p>작성이 완료되었습니다.<br>안내데스크 직원이 곧 도와드리겠습니다.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/guest.js"></script>
+</body>
+</html>

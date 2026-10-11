@@ -135,3 +135,27 @@ td .btn + .btn { margin-top: 0; margin-left: 4px; }
 .st-확인함 { color: var(--ok); font-weight: 700; }
 .st-호출함 { color: var(--warn); font-weight: 700; }
 .st-미호출 { color: var(--danger); font-weight: 700; }
+
+/* 방명록 태블릿 (고객용: 크게, 터치하기 쉽게) */
+body.kiosk { background: #eef3fb; font-size: 20px; }
+.kiosk-top { background: var(--primary); color: #fff; text-align: center; padding: 18px 16px; user-select: none; -webkit-user-select: none; }
+.kiosk-top h1 { margin: 0; font-size: 26px; }
+.kiosk-main { max-width: 760px; margin: 0 auto; padding: 20px 16px 40px; }
+.kiosk-card h2 { font-size: 28px; text-align: center; margin-bottom: 20px; }
+.kiosk-card .field-label { font-size: 20px; margin-bottom: 8px; }
+.kiosk-card input[type=text], .kiosk-card input[type=tel] { height: 68px; font-size: 26px; padding: 0 16px; border-radius: 12px; }
+.choices { display: flex; gap: 12px; }
+.choice { flex: 1; min-height: 68px; font: inherit; font-size: 24px; font-weight: 700; border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--text); cursor: pointer; }
+.choice.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.stepper { display: flex; align-items: center; gap: 14px; margin-top: 14px; font-size: 22px; flex-wrap: wrap; }
+.stepper strong { font-size: 36px; min-width: 48px; text-align: center; }
+.step { width: 64px; height: 64px; font-size: 34px; font-weight: 700; border: 2px solid var(--line); border-radius: 50%; background: #fff; cursor: pointer; }
+.kiosk-consent { font-size: 17px; max-height: none; line-height: 1.6; }
+.kiosk-check { width: 100%; min-height: 72px; font: inherit; font-size: 22px; font-weight: 700; border: 2px solid var(--line); border-radius: 12px; background: #fff; text-align: left; padding: 0 16px; cursor: pointer; }
+.kiosk-check .box { display: inline-block; width: 36px; height: 36px; line-height: 32px; text-align: center; border: 2px solid var(--muted); border-radius: 8px; margin-right: 12px; font-size: 26px; color: #fff; vertical-align: middle; }
+.kiosk-check.on { border-color: var(--ok); }
+.kiosk-check.on .box { background: var(--ok); border-color: var(--ok); }
+.kiosk-submit { min-height: 80px; font-size: 28px; margin-top: 16px; }
+.kiosk-done { text-align: center; padding: 56px 16px; }
+.kiosk-done h2 { font-size: 36px; }
+.kiosk-done p { font-size: 24px; line-height: 1.6; }

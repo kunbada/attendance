@@ -229,7 +229,7 @@ export async function adminSaveAccount(env, data, ctx) {
   const active = data.active === false ? 0 : 1;
   if (!/^[A-Za-z0-9_.-]{3,20}$/.test(loginId)) throw new AppError('아이디는 영문·숫자·_ . - 3~20자로 입력해 주세요.');
   if (!name) throw new AppError('이름을 입력해 주세요.');
-  if (role !== '관리자' && role !== '데스크') throw new AppError('역할이 올바르지 않습니다.');
+  if (!['관리자', '데스크', '방명록'].includes(role)) throw new AppError('역할이 올바르지 않습니다.');
 
   let id = s(data.id);
   const current = id ? await first(env, 'SELECT * FROM accounts WHERE id = ?', id) : null;
@@ -244,8 +244,8 @@ export async function adminSaveAccount(env, data, ctx) {
 
   if (current) {
     if (password) {
-      await run(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ?, password_hash = ?, must_change_password = 1, fail_count = 0 WHERE id = ?',
-        loginId, name, role, active, await hashSecret(env, password), id);
+      await run(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ?, password_hash = ?, must_change_password = ?, fail_count = 0 WHERE id = ?',
+        loginId, name, role, active, await hashSecret(env, password), role === '방명록' ? 0 : 1, id); // 방명록 태블릿 계정은 비밀번호 변경 화면이 없어 강제하지 않는다
     } else {
       await run(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ? WHERE id = ?', loginId, name, role, active, id);
     }
@@ -253,8 +253,8 @@ export async function adminSaveAccount(env, data, ctx) {
     await writeLog(env, adminName(ctx), '계정수정', id, loginId);
   } else {
     id = newId('A');
-    await run(env, 'INSERT INTO accounts (id, login_id, password_hash, role, name, active, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
-      id, loginId, await hashSecret(env, password), role, name, active);
+    await run(env, 'INSERT INTO accounts (id, login_id, password_hash, role, name, active, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      id, loginId, await hashSecret(env, password), role, name, active, role === '방명록' ? 0 : 1);
     await writeLog(env, adminName(ctx), '계정추가', id, loginId);
   }
   return { id };

@@ -582,11 +582,11 @@
   function openAccountForm(a) {
     var loginId = h('input', { type: 'text', value: a ? a.loginId : '', autocomplete: 'off' });
     var name = h('input', { type: 'text', value: a ? a.name : '' });
-    var role = h('select', null, option('데스크', '데스크', !a || a.role === '데스크'), option('관리자', '관리자', a && a.role === '관리자'));
+    var role = h('select', null, option('데스크', '데스크', !a || a.role === '데스크'), option('방명록', '방명록 (고객 입력 태블릿 전용)', a && a.role === '방명록'), option('관리자', '관리자', a && a.role === '관리자'));
     var pw = h('input', { type: 'text', autocomplete: 'off', placeholder: a ? '바꾸지 않으려면 비워 두세요' : '8자 이상, 영문+숫자' });
     var active = h('select', null, option('Y', '사용', !a || a.active), option('N', '사용 중지', a && !a.active));
     modal(a ? '계정 수정' : '계정 추가', h('div', null, field('아이디', loginId), field('이름', name), field('역할', role),
-      field(a ? '새 비밀번호 (선택)' : '임시 비밀번호', pw, '직접 전달해 주세요. 첫 로그인 때 바꾸게 됩니다.'), field('상태', active)), [
+      field(a ? '새 비밀번호 (선택)' : '임시 비밀번호', pw, '직접 전달해 주세요. 관리자·데스크는 첫 로그인 때 바꾸게 됩니다. 방명록 태블릿 계정은 변경 없이 그대로 씁니다.'), field('상태', active)), [
       {
         label: '저장', primary: true, onClick: async function (close) {
           await Api.call('admin.saveAccount', {

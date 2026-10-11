@@ -19,6 +19,9 @@ export async function telegramApi(env, method, payload) {
 
 export const hhmm = (dateTime) => s(dateTime).slice(11, 16);
 
+// 고객 뒤 5자리가 있으면 " [12345]", 없으면 빈 문자열 (직원 검색으로 부를 때는 번호 없이도 호출한다)
+const customerTag = (last5) => (last5 ? ' [' + last5 + ']' : '');
+
 // 호출 메시지: "[호출] 1본부 1팀 홍길동님 [12345] 고객 도착". 본부·팀이 없는 직군은 조직을 뺀다.
 async function orgLabel(env, staff) {
   const names = await orgNameMap(env);
@@ -33,7 +36,7 @@ export async function sendCallMessage(env, staff, visitId, last5, notifyLeaders 
   const who = (org ? org + ' ' : '') + staff.name + '님';
   const res = await telegramApi(env, 'sendMessage', {
     chat_id: staff.telegram_id,
-    text: '[호출] ' + who + ' [' + last5 + '] 고객 도착\n안내데스크로 와주세요.',
+    text: '[호출] ' + who + customerTag(last5) + ' 고객 도착\n안내데스크로 와주세요.',
     reply_markup: { inline_keyboard: [[{ text: '확인', callback_data: 'ack:' + visitId }]] }
   });
   if (notifyLeaders) await notifyLeadersOfCall(env, staff, who, last5);
@@ -50,7 +53,7 @@ async function notifyLeadersOfCall(env, staff, who, last5) {
   for (const l of leaders) {
     if (sentTo.has(l.telegram_id)) continue;
     sentTo.add(l.telegram_id);
-    await telegramApi(env, 'sendMessage', { chat_id: l.telegram_id, text: '[호출 알림] ' + who + '께 [' + last5 + '] 고객 도착 호출\n(안내데스크)' });
+    await telegramApi(env, 'sendMessage', { chat_id: l.telegram_id, text: '[호출 알림] ' + who + '께' + customerTag(last5) + ' 고객 도착 호출\n(안내데스크)' });
   }
 }
 
