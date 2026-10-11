@@ -405,6 +405,33 @@ try {
   check('다른 날짜 조회', (await call('desk.guestList', { date: yesterday }, desk)).ok);
   expectErr('날짜 형식 검사', await call('desk.guestList', { date: 'abc' }, desk), '날짜');
 
+  // ===== 4단계: 대시보드, 방명록 통계·내보내기 =====
+  const dash = await call('admin.dashboard', {}, admin);
+  expectOk('대시보드', dash);
+  const d0 = dash.data;
+  check('오늘 카드: 출근·활동 인원·출근율', d0.today.attendance >= 1 && d0.today.activeStaff >= d0.today.attendance && d0.today.attendanceRate > 0, JSON.stringify([d0.today.attendance, d0.today.activeStaff, d0.today.attendanceRate]));
+  check('오늘 카드: 예약·방문·담당없음·방명록', d0.today.reservations >= 3 && d0.today.visits >= 3 && d0.today.noStaffVisits >= 1 && d0.today.guestTeams >= 1 && d0.today.guestPeople >= 3, JSON.stringify(d0.today));
+  check('최근 14일 추이 (오늘 값 반영)', d0.trend.length === 14 && d0.trend[13].date === today && d0.trend[13].attendance === d0.today.attendance && d0.trend[13].visits === d0.today.visits && d0.trend[13].guestPeople === d0.today.guestPeople);
+  check('본부·팀·직군별 출근율', d0.attendanceRate.byHead.some((x) => x.name === '1본부') && d0.attendanceRate.byTeam.some((x) => x.name === '1본부 1팀') && d0.attendanceRate.byJob.some((x) => x.name === '영업') && d0.attendanceRate.byJob.every((x) => x.rate >= 0 && x.rate <= 100));
+  check('직원별 예약·방문 TOP 10 (방문 많은 순)', d0.topStaff.length >= 1 && d0.topStaff.length <= 10 && d0.topStaff.every((t, i) => i === 0 || d0.topStaff[i - 1].visited >= t.visited));
+  check('예약 대비 방문율', d0.visitRate.reservations >= 1 && d0.visitRate.visited >= 1 && d0.visitRate.rate > 0 && d0.visitRate.rate <= 100, JSON.stringify(d0.visitRate));
+  expectErr('월 형식 검사', await call('admin.dashboard', { month: '2026-13' }, admin), '월 형식');
+  expectErr('대시보드는 관리자만', await call('admin.dashboard', {}, desk), '권한');
+  const gs = await call('admin.guestStats', { from: today, to: today }, admin);
+  expectOk('방명록 통계', gs);
+  const gt = gs.data.total;
+  check('방문 팀수·방문객수 구분 (동반 2명 건 → 3명)', gt.teams >= 1 && gt.people >= gt.teams + 2 && gt.groupTeams >= 1, JSON.stringify(gt));
+  check('분양/워킹/확인 필요 구분 합계', gt.assignedTeams + gt.walkInTeams + gt.pending === gt.teams);
+  check('성별 합계', gt.male + gt.female + gt.genderUnknown === gt.teams);
+  check('일별·본부/팀별 집계', gs.data.byDay.length >= 1 && gs.data.byDay[0].people >= gs.data.byDay[0].teams && Array.isArray(gs.data.byOrg));
+  const gb = await call('admin.guestbook', { from: today, to: today }, admin);
+  expectOk('방명록 내보내기 데이터', gb);
+  check('내보내기: 개인정보·분류·호출 상태 포함', gb.data.guests.length === gt.teams && gb.data.guests.some((g) => g.name === '고객' + uniq && g.phone.startsWith('010-') && g.category === '분양' && g.people === 3 && g.party === '동반' && g.consent === true && g.status === '확인함'));
+  expectErr('방명록 통계는 관리자만', await call('admin.guestStats', {}, desk), '권한');
+  expectErr('방명록 내보내기는 관리자만', await call('admin.guestbook', {}, kiosk), '권한');
+  expectErr('기간 검사 (시작일이 더 늦음)', await call('admin.guestStats', { from: '2026-12-31', to: '2026-01-01' }, admin), '시작일');
+  expectErr('날짜 형식 검사', await call('admin.guestbook', { from: 'x' }, admin), '날짜');
+
   // 퇴사 처리: 팀장 → 자기 팀 직원, 본부장 → 팀장
   expectErr('팀장: 본부장은 처리 불가', await call('leader.retire', { staffId: idH }, tokL, L.dev), '관리할 수 있는');
   expectOk('팀장: 자기 팀 직원 퇴사 처리', await call('leader.retire', { staffId: idM }, tokL, L.dev));

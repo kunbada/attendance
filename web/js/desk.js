@@ -319,7 +319,7 @@
     q.addEventListener('input', renderRows);
 
     root.appendChild(flash);
-    root.appendChild(h('div', { class: 'card' }, h('h2', null, '예약 명단'),
+    root.appendChild(h('div', { class: 'card' }, h('h2', null, '예약명단'),
       h('div', { class: 'toolbar' }, prev, dateIn, next, today, q, count),
       tableOf(['예약번호', '성별', '본부', '팀', '직원', '직원 전화번호', '상태', '메모', ''], body)));
     await loadReservations();
@@ -366,7 +366,7 @@
 
     q.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { runBusy(null, load); }, 250); });
     root.appendChild(flash);
-    root.appendChild(h('div', { class: 'card' }, h('h2', null, '직원 검색'),
+    root.appendChild(h('div', { class: 'card' }, h('h2', null, '직원검색'),
       h('div', { class: 'toolbar' }, h('span', { class: 'field-label', style: 'align-self:center' }, '호출할 고객'), cust, q, count),
       tableOf(['본부', '팀', '직원', '직급', '직군', '전화번호', '텔레그램', ''], body)));
     await load();

@@ -13,6 +13,7 @@ import { reservationCreate, reservationList, reservationUpdate, reservationCance
 import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit.js';
 import { staffTelegramLink, handleTelegram } from './telegram.js';
 import { leaderStaffList, leaderApprove, leaderReject, leaderRetire } from './leader.js';
+import { adminDashboard, adminGuestStats, adminGuestbook } from './stats.js';
 import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg } from './guestbook.js';
 
 // roles: 이 action 을 부를 수 있는 역할 ('public' = 로그인 불필요, 'desk' 는 관리자도 가능)
@@ -66,6 +67,9 @@ const ACTIONS = {
   'admin.attendance': { roles: ['admin'], fn: adminAttendance },
   'admin.reservations': { roles: ['admin'], fn: adminReservations },
   'admin.visits': { roles: ['admin'], fn: adminVisits },
+  'admin.dashboard': { roles: ['admin'], fn: adminDashboard },
+  'admin.guestStats': { roles: ['admin'], fn: adminGuestStats },
+  'admin.guestbook': { roles: ['admin'], fn: adminGuestbook },
   'admin.settings': { roles: ['admin'], fn: adminSettings },
   'admin.saveSettings': { roles: ['admin'], fn: adminSaveSettings },
   'admin.orgs': { roles: ['admin'], fn: adminOrgs },

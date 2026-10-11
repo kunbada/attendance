@@ -54,6 +54,7 @@
     show('app');
     await Promise.all([loadStaff(), loadOrgs()]);
     renderStaffTab();
+    await renderDashboardTab();
   }
 
   // 세션이 살아 있으면 바로 들어간다 (비밀번호 변경 대기 상태면 그 화면으로)
@@ -68,6 +69,8 @@
 
   // ---------- 탭 ----------
   var TAB_LOADERS = {
+    dashboard: renderDashboardTab,
+    guestbook: renderGuestbookTab,
     staff: async function () { await loadStaff(); renderStaffTab(); },
     qr: renderQrTab,
     attendance: renderAttendanceTab,
@@ -468,6 +471,162 @@
       simpleTable(['방문일시', '뒤5자리', '성별', '구분', '담당직원', '호출', '확인'], vs.map(function (v) {
         return h('tr', null, h('td', null, v.at), h('td', null, v.last5), h('td', null, v.gender), h('td', null, v.kind),
           h('td', null, v.staff ? nameCell(v.staff) : '-'), h('td', null, v.calledAt.slice(11, 16)), h('td', null, v.ackedAt.slice(11, 16)));
+      }))));
+  }
+
+  // ====================================================================
+  // 대시보드
+  // ====================================================================
+  var dashChart = null;
+  var dashMonth = '';
+
+  function statCard(label, value, sub) {
+    return h('div', { class: 'card' }, h('span', { class: 'num' }, value), label, sub ? h('div', { class: 'muted' }, sub) : null);
+  }
+
+  function rateTable(title, rows) {
+    return h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, title),
+      simpleTable(['구분', '출근 / 활동', '출근율'], rows.map(function (r) {
+        return h('tr', null, h('td', null, r.name), h('td', null, r.present + ' / ' + r.total),
+          h('td', { style: 'min-width:140px' }, h('div', { class: 'bar' }, h('span', { style: 'width:' + r.rate + '%' })), r.rate + '%'));
+      })));
+  }
+
+  async function renderDashboardTab() {
+    var root = $('#tab-dashboard');
+    var d = await Api.call('admin.dashboard', { month: dashMonth });
+    dashMonth = d.month;
+    root.innerHTML = '';
+    var t = d.today;
+
+    var monthIn = h('input', { type: 'month', value: d.month, style: DATE_STYLE });
+    var go = h('button', { type: 'button', class: 'btn small primary' }, '조회');
+    go.addEventListener('click', function () { dashMonth = monthIn.value; runBusy(go, renderDashboardTab); });
+    var reload = h('button', { type: 'button', class: 'btn small' }, '새로고침');
+    reload.addEventListener('click', function () { runBusy(reload, renderDashboardTab); });
+
+    root.appendChild(h('div', { class: 'toolbar' }, h('strong', null, t.date + ' 오늘 현황'), reload));
+    root.appendChild(h('div', { class: 'summary' },
+      statCard('오늘 출근', t.attendance + ' / ' + t.activeStaff, '출근율 ' + t.attendanceRate + '%'),
+      statCard('오늘 예약', t.reservations), statCard('오늘 방문 접수', t.visits),
+      statCard('담당 없음', t.noStaffVisits),
+      statCard('방명록 (팀 / 방문객)', t.guestTeams + ' / ' + t.guestPeople, '워킹 ' + t.walkIn + '팀'),
+      statCard('승인 대기 직원', t.pendingStaff, t.guestPending ? '방명록 확인 필요 ' + t.guestPending : '')));
+
+    var canvas = h('canvas', { height: 110 });
+    root.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '최근 14일 추이'), h('div', { style: 'position:relative' }, canvas)));
+    if (dashChart) { dashChart.destroy(); dashChart = null; }
+    if (window.Chart) {
+      var labels = d.trend.map(function (x) { return x.date.slice(5); });
+      var line = function (label, key, color) {
+        return { label: label, data: d.trend.map(function (x) { return x[key]; }), borderColor: color, backgroundColor: color, tension: .25, pointRadius: 3 };
+      };
+      dashChart = new Chart(canvas, {
+        type: 'line',
+        data: { labels: labels, datasets: [line('출근', 'attendance', '#2563eb'), line('예약', 'reservations', '#d97706'), line('방문 접수', 'visits', '#16a34a'), line('방명록 방문객', 'guestPeople', '#7c3aed')] },
+        options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+    } else {
+      canvas.parentNode.appendChild(h('p', { class: 'muted' }, '차트 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'));
+    }
+
+    root.appendChild(h('h3', null, '오늘 출근율'));
+    root.appendChild(h('div', { class: 'grid3' }, rateTable('본부별', d.attendanceRate.byHead), rateTable('팀별', d.attendanceRate.byTeam), rateTable('직군별', d.attendanceRate.byJob)));
+
+    root.appendChild(h('div', { class: 'toolbar', style: 'margin-top:16px' }, h('strong', null, '월별 실적'), monthIn, go));
+    root.appendChild(h('div', { class: 'summary' },
+      statCard(d.month + ' 예약 대비 방문율', d.visitRate.rate + '%', '예약 ' + d.visitRate.reservations + '건 중 방문 ' + d.visitRate.visited + '건 (오늘까지 도래한 예약 기준)')));
+    root.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, d.month + ' 직원별 예약·방문 TOP 10'),
+      simpleTable(['순위', '직원', '직군 / 소속', '예약', '방문', '방문율'], d.topStaff.map(function (x, i) {
+        return h('tr', null, h('td', null, i + 1), h('td', null, h('strong', null, x.name)), h('td', null, x.org), h('td', null, x.reservations), h('td', null, x.visited),
+          h('td', null, x.reservations ? Math.round(x.visited / x.reservations * 100) + '%' : '-'));
+      }))));
+  }
+
+  // ====================================================================
+  // 방명록 통계·내보내기
+  // ====================================================================
+  var guestRange = { from: '', to: '' };
+  var guestChart = null;
+
+  async function renderGuestbookTab() {
+    var today = todayLocal();
+    guestRange.to = guestRange.to || today;
+    guestRange.from = guestRange.from || today.slice(0, 8) + '01';
+    var root = $('#tab-guestbook');
+    root.innerHTML = '';
+    var from = h('input', { type: 'date', value: guestRange.from, style: DATE_STYLE });
+    var to = h('input', { type: 'date', value: guestRange.to, style: DATE_STYLE });
+    var go = h('button', { type: 'button', class: 'btn small primary' }, '조회');
+    var box = h('div');
+    go.addEventListener('click', function () {
+      guestRange = { from: from.value, to: to.value };
+      runBusy(go, function () { return loadGuestbook(box); });
+    });
+    root.appendChild(h('div', { class: 'card' }, h('h2', null, '기간'), h('div', { class: 'toolbar' }, from, '~', to, go)));
+    root.appendChild(box);
+    await loadGuestbook(box);
+  }
+
+  async function loadGuestbook(box) {
+    var q = { from: guestRange.from, to: guestRange.to };
+    var results = await Promise.all([Api.call('admin.guestStats', q), Api.call('admin.guestbook', q)]);
+    var st = results[0], list = results[1].guests;
+    var t = st.total;
+    box.innerHTML = '';
+
+    box.appendChild(h('div', { class: 'summary' },
+      statCard('방문 팀', t.teams, '건수 기준'), statCard('방문객', t.people, '본인 + 동반인'),
+      statCard('단독 / 동반 팀', t.solo + ' / ' + t.groupTeams),
+      statCard('분양 (팀 / 방문객)', t.assignedTeams + ' / ' + t.assignedPeople), statCard('워킹 (팀 / 방문객)', t.walkInTeams + ' / ' + t.walkInPeople),
+      statCard('확인 필요', t.pending, '데스크 미확인'), statCard('개인정보 동의', t.consented + ' / ' + t.teams),
+      statCard('성별 (남 / 여 / 미입력)', t.male + ' / ' + t.female + ' / ' + t.genderUnknown)));
+
+    if (guestChart) { guestChart.destroy(); guestChart = null; }
+    var canvas = h('canvas', { height: 90 });
+    box.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '일별 방문 팀·방문객'), h('div', { style: 'position:relative' }, canvas)));
+    if (window.Chart && st.byDay.length) {
+      guestChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: st.byDay.map(function (x) { return x.date.slice(5); }),
+          datasets: [
+            { label: '방문 팀', data: st.byDay.map(function (x) { return x.teams; }), backgroundColor: '#2563eb' },
+            { label: '방문객', data: st.byDay.map(function (x) { return x.people; }), backgroundColor: '#7c3aed' },
+            { label: '워킹 팀', data: st.byDay.map(function (x) { return x.walkin; }), backgroundColor: '#9ca3af' }
+          ]
+        },
+        options: { responsive: true, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+    }
+
+    var statCsv = h('button', { type: 'button', class: 'btn small' }, '통계 CSV');
+    statCsv.addEventListener('click', function () {
+      var rows = [['구분', '일자/본부', '팀', '방문 팀수', '방문객수', '워킹 팀수']];
+      st.byDay.forEach(function (x) { rows.push(['일별', x.date, '', x.teams, x.people, x.walkin]); });
+      st.byOrg.forEach(function (x) { rows.push(['본부/팀별', x.head, x.team, x.teams, x.people, '']); });
+      rows.push(['합계', st.from + ' ~ ' + st.to, '', t.teams, t.people, t.walkInTeams]);
+      downloadCsv('방명록통계_' + st.from + '_' + st.to + '.csv', rows);
+    });
+    box.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '담당 본부/팀별 (분양)  ', statCsv),
+      simpleTable(['본부', '팀', '방문 팀', '방문객'], st.byOrg.map(function (x) {
+        return h('tr', null, h('td', null, x.head), h('td', null, x.team), h('td', null, x.teams), h('td', null, x.people));
+      }))));
+
+    var csvBtn = h('button', { type: 'button', class: 'btn small primary' }, '방명록 CSV 내보내기');
+    csvBtn.addEventListener('click', function () {
+      var head = ['일자', '시각', '성명', '전화번호', '성별', '동행', '동반인수', '방문객수', '구분', '담당 본부', '담당 팀', '담당자', '개인정보동의', '동의일시', '입력', '호출', '확인'];
+      var rows = [head].concat(list.map(function (g) {
+        return [g.date, g.time, g.name, g.phone, g.gender, g.party, g.companions, g.people, g.category, g.head, g.team, g.staff, g.consent ? '동의' : '미동의', g.consentAt, g.source, g.called, g.acked];
+      }));
+      downloadCsv('방명록_' + st.from + '_' + st.to + '.csv', rows);
+    });
+    box.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '방명록 목록 (' + list.length + '건)  ', csvBtn),
+      h('p', { class: 'muted' }, '전화번호 등 개인정보가 들어 있으니 내려받은 파일은 안전하게 보관해 주세요.'),
+      simpleTable(['일자', '시각', '성명', '전화번호', '성별', '동행', '구분', '담당 본부/팀', '담당자', '동의', '입력'], list.map(function (g) {
+        return h('tr', null, h('td', null, g.date), h('td', null, g.time), h('td', null, g.name), h('td', null, g.phone), h('td', null, g.gender),
+          h('td', null, g.party + (g.companions ? ' ' + g.companions + '명' : '')), h('td', null, g.category),
+          h('td', null, [g.head, g.team].filter(Boolean).join(' ')), h('td', null, g.staff), h('td', null, g.consent ? '동의' : '미동의'), h('td', { class: 'muted' }, g.source));
       }))));
   }
 

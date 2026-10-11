@@ -159,3 +159,14 @@ body.kiosk { background: #eef3fb; font-size: 20px; }
 .kiosk-done { text-align: center; padding: 56px 16px; }
 .kiosk-done h2 { font-size: 36px; }
 .kiosk-done p { font-size: 24px; line-height: 1.6; }
+
+/* 대시보드 */
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 900px) { .grid3 { grid-template-columns: 1fr; } }
+.grid3 .card { margin: 0; }
+.bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin-bottom: 2px; }
+.bar span { display: block; height: 100%; background: var(--primary); }
+
+/* 탭이 많아도 줄바꿈 없이 가로로 넘겨 본다 */
+.tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+.tab { white-space: nowrap; flex: 0 0 auto; }
