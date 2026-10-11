@@ -49,6 +49,11 @@ function handleTelegram_(update, secret) {
   // 웹앱 주소가 알려져도 아무나 가짜 업데이트를 보낼 수 없게, 웹훅 등록 주소에 넣은 비밀값을 확인한다
   var expected = prop_('TELEGRAM_SECRET');
   if (!expected || secret !== expected) return;
+  // 웹앱 응답이 302 라서 텔레그램이 같은 업데이트를 다시 보내는 경우가 있다 → update_id 로 한 번만 처리
+  var cache = CacheService.getScriptCache();
+  var seenKey = 'TGU_' + update.update_id;
+  if (cache.get(seenKey)) return;
+  cache.put(seenKey, '1', 21600);
   withLock(function () {
     if (update.callback_query) handleAck_(update.callback_query);
     else if (update.message && update.message.text) handleStart_(update.message);
@@ -68,6 +73,8 @@ function handleStart_(msg) {
   var staff = findOne('직원', function (r) { return s_(r.텔레그램연결코드).split(':')[0] === code && s_(r.상태) === '활동'; });
   var issued = staff ? Number(s_(staff.텔레그램연결코드).split(':')[1]) : 0;
   if (!staff || Date.now() - issued > CODE_LIFETIME_MS) {
+    // 이미 연결된 텔레그램이면(코드는 한 번만 쓰이므로 재전송일 수 있음) 오류 안내를 보내지 않는다
+    if (findOne('직원', function (r) { return s_(r.텔레그램ID) === chatId; })) return;
     telegramApi_('sendMessage', { chat_id: chatId, text: '연결 코드가 만료되었거나 올바르지 않습니다. 앱에서 [텔레그램 연결]을 다시 눌러 주세요.' });
     return;
   }

@@ -179,6 +179,7 @@ function test_stage3() {
   var webhook = function (body) {
     doPost({ postData: { contents: JSON.stringify(body) }, parameter: { tg: secret } });
   };
+  var uid = Date.now(); // 캐시에 남은 이전 테스트의 update_id 와 겹치지 않게
   var today = todayStr();
   var staffRow = function (id) { return findOne('직원', function (r) { return s_(r.직원ID) === id; }); };
   try {
@@ -211,9 +212,9 @@ function test_stage3() {
     var link = testCall_(tokA, devA, 'staff.telegramLink');
     check('연결 링크 발급', link, true);
     var code = link.ok ? link.data.url.split('start=')[1] : '';
-    doPost({ postData: { contents: JSON.stringify({ update_id: 1, message: { text: '/start ' + code, chat: { id: 777001, type: 'private' } } }) }, parameter: { tg: 'wrong' } });
+    doPost({ postData: { contents: JSON.stringify({ update_id: uid + 1, message: { text: '/start ' + code, chat: { id: 777001, type: 'private' } } }) }, parameter: { tg: 'wrong' } });
     check('틀린 비밀값의 웹훅은 무시', { ok: !s_(staffRow(ids[0]).텔레그램ID) }, true);
-    webhook({ update_id: 2, message: { text: '/start ' + code, chat: { id: 777001, type: 'private' } } });
+    webhook({ update_id: uid + 2, message: { text: '/start ' + code, chat: { id: 777001, type: 'private' } } });
     check('웹훅으로 텔레그램 연결', { ok: s_(staffRow(ids[0]).텔레그램ID) === '777001' }, true);
     check('연결 코드는 한 번만', { ok: !s_(staffRow(ids[0]).텔레그램연결코드) }, true);
 
@@ -229,9 +230,9 @@ function test_stage3() {
     check('같은 예약 중복 접수 → 거부', testCall_(deskTok, '', 'desk.registerVisit', { kind: '예약', reservationId: mine.id, last5: '12345' }), false, '이미 방문 처리');
     var vis = function () { return testCall_(deskTok, '', 'desk.todayVisits').data.visits.filter(function (v) { return v.id === reg.data.visitId; })[0]; };
     check('확인 전 상태는 호출함', { ok: vis().status === '호출함' }, true);
-    webhook({ update_id: 3, callback_query: { id: 'cb1', from: { id: 999999 }, data: 'ack:' + reg.data.visitId, message: { text: '[호출]', chat: { id: 777001 }, message_id: 5 } } });
+    webhook({ update_id: uid + 3, callback_query: { id: 'cb1', from: { id: 999999 }, data: 'ack:' + reg.data.visitId, message: { text: '[호출]', chat: { id: 777001 }, message_id: 5 } } });
     check('다른 사람이 [확인]을 눌러도 무시', { ok: vis().status === '호출함' }, true);
-    webhook({ update_id: 4, callback_query: { id: 'cb2', from: { id: 777001 }, data: 'ack:' + reg.data.visitId, message: { text: '[호출] 12345 고객(남) 도착', chat: { id: 777001 }, message_id: 5 } } });
+    webhook({ update_id: uid + 4, callback_query: { id: 'cb2', from: { id: 777001 }, data: 'ack:' + reg.data.visitId, message: { text: '[호출] 12345 고객(남) 도착', chat: { id: 777001 }, message_id: 5 } } });
     check('본인이 [확인] → 확인함', { ok: vis().status === '확인함' }, true);
     check('메시지에 "확인됨"이 덧붙음', { ok: sent.some(function (m) { return m.method === 'editMessageText' && /확인됨 \d\d:\d\d$/.test(m.payload.text); }) }, true);
     check('확인된 호출 재호출 → 거부', testCall_(deskTok, '', 'desk.recall', { visitId: reg.data.visitId }), false, '이미 확인');
