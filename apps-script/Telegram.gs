@@ -49,14 +49,15 @@ function handleTelegram_(update, secret) {
   // 웹앱 주소가 알려져도 아무나 가짜 업데이트를 보낼 수 없게, 웹훅 등록 주소에 넣은 비밀값을 확인한다
   var expected = prop_('TELEGRAM_SECRET');
   if (!expected || secret !== expected) return;
-  // 웹앱 응답이 302 라서 텔레그램이 같은 업데이트를 다시 보내는 경우가 있다 → update_id 로 한 번만 처리
+  // 웹앱 응답이 302 라서 텔레그램이 같은 업데이트를 다시 보내는 경우가 있다 → update_id 로 한 번만 처리.
+  // "처리함" 표시는 처리가 끝난 뒤에 한다: 서버가 바빠 실패했을 때 재전송이 무시되면 [확인]이 사라진다.
   var cache = CacheService.getScriptCache();
   var seenKey = 'TGU_' + update.update_id;
-  if (cache.get(seenKey)) return;
-  cache.put(seenKey, '1', 21600);
   withLock(function () {
+    if (cache.get(seenKey)) return;
     if (update.callback_query) handleAck_(update.callback_query);
     else if (update.message && update.message.text) handleStart_(update.message);
+    cache.put(seenKey, '1', 21600);
   });
 }
 
