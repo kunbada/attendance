@@ -13,3 +13,4 @@ worker/.wrangler/
 worker/.seed.sql
 worker/.dev.vars.*
 worker/.test.sql
+.secrets.json
