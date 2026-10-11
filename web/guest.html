@@ -34,12 +34,6 @@
         <label class="field"><span class="field-label">전화번호</span>
           <input id="g-phone" type="tel" inputmode="numeric" placeholder="010-0000-0000" autocomplete="off" required></label>
 
-        <div class="field"><span class="field-label">성별</span>
-          <div class="choices" id="g-gender">
-            <button type="button" class="choice" data-v="남">남</button>
-            <button type="button" class="choice" data-v="여">여</button>
-          </div></div>
-
         <div class="field"><span class="field-label">방문 형태</span>
           <div class="choices" id="g-party">
             <button type="button" class="choice active" data-v="단독">혼자 방문</button>
@@ -55,7 +49,7 @@
 
         <div class="consent kiosk-consent">
           <strong>개인정보 수집·이용 동의 (임시 문구 — 운영 전 회사에서 확정)</strong><br>
-          · 수집 항목: 성명, 전화번호, 성별, 동반 인원<br>
+          · 수집 항목: 성명, 전화번호, 동반 인원 (성별은 안내직원이 확인하여 입력)<br>
           · 이용 목적: 방문 상담 안내, 담당자 배정, 방문 통계<br>
           · 보유 기간: 상담 종료 후 관련 법령 또는 회사 기준에 따른 기간까지<br>
           · 동의를 거부할 수 있으나, 거부하시면 방명록을 작성하실 수 없습니다.
@@ -72,6 +66,7 @@
         <div style="font-size:72px">✅</div>
         <h2>감사합니다</h2>
         <p>작성이 완료되었습니다.<br>안내데스크 직원이 곧 도와드리겠습니다.</p>
+        <button type="button" class="btn primary kiosk-submit" id="g-back">처음 화면으로 돌아가기</button>
       </div>
     </section>
   </main>

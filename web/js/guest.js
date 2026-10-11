@@ -1,10 +1,10 @@
 // 방명록 태블릿(고객 입력용). 방명록 계정으로 한 번 로그인해 두면 30일 유지된다.
-// 고객은 성명·전화번호·성별·동반 인원·개인정보 동의만 입력한다. 담당 본부/팀/직원은 데스크가 나중에 지정한다.
+// 고객은 성명·전화번호·동반 인원·개인정보 동의만 입력한다. 성별과 담당 본부/팀/직원은 데스크 안내직원이 나중에 입력한다.
 (function () {
   Api.setScope('kiosk');
   var IDLE_MS = 90 * 1000;      // 입력 중 아무도 만지지 않으면 비워서 개인정보가 화면에 남지 않게 한다
   var DONE_MS = 7 * 1000;       // 완료 화면은 자동으로 닫는다
-  var party = '단독', gender = '', companions = 1, consent = false;
+  var party = '단독', companions = 1, consent = false;
   var idleTimer = null, doneTimer = null;
   var pending = null;           // 로그인이 풀려서 제출하지 못한 입력 (다시 로그인하면 이어서 제출)
 
@@ -16,7 +16,6 @@
 
   // ---------- 입력 화면 ----------
   function renderChoices() {
-    $$('#g-gender .choice').forEach(function (b) { b.classList.toggle('active', b.dataset.v === gender); });
     $$('#g-party .choice').forEach(function (b) { b.classList.toggle('active', b.dataset.v === party); });
     $('#g-companion-box').classList.toggle('hidden', party !== '동반');
     $('#g-companions').textContent = companions;
@@ -26,7 +25,7 @@
 
   function resetForm() {
     $('#form-guest').reset();
-    party = '단독'; gender = ''; companions = 1; consent = false;
+    party = '단독'; companions = 1; consent = false;
     renderChoices();
   }
 
@@ -35,10 +34,6 @@
     idleTimer = setTimeout(function () { if (!$('#screen-form').classList.contains('hidden')) resetForm(); }, IDLE_MS);
   }
 
-  $('#g-gender').addEventListener('click', function (e) {
-    var b = e.target.closest('.choice'); if (!b) return;
-    gender = b.dataset.v; renderChoices();
-  });
   $('#g-party').addEventListener('click', function (e) {
     var b = e.target.closest('.choice'); if (!b) return;
     party = b.dataset.v; renderChoices();
@@ -51,7 +46,7 @@
 
   function collect() {
     return {
-      name: $('#g-name').value, phone: $('#g-phone').value, gender: gender,
+      name: $('#g-name').value, phone: $('#g-phone').value,
       companions: party === '동반' ? companions : 0, consent: consent
     };
   }
@@ -79,10 +74,15 @@
     runBusy($('#form-guest button[type=submit]'), async function () {
       if (!$('#g-name').value.trim()) throw new Error('성명을 입력해 주세요.');
       if (onlyDigits($('#g-phone').value).length < 9) throw new Error('전화번호를 입력해 주세요.');
-      if (!gender) throw new Error('성별을 선택해 주세요.');
       if (!consent) throw new Error('개인정보 수집·이용에 동의해 주세요.');
       await submit(collect());
     });
+  });
+
+  // 완료 화면의 [처음 화면으로 돌아가기]: 자동으로 돌아가기를 기다리지 않고 바로 다음 고객이 쓸 수 있게
+  $('#g-back').addEventListener('click', function () {
+    clearTimeout(doneTimer);
+    show('form');
   });
 
   // ---------- 태블릿 로그인 ----------

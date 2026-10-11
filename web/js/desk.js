@@ -444,7 +444,7 @@
         var st = g.callStatus ? h('span', { class: 'st-' + g.callStatus }, g.callStatus) : '';
         body.appendChild(h('tr', { style: g.reviewed ? '' : 'background:#fff7ed' },
           h('td', null, callBtn),
-          h('td', null, g.time), h('td', null, h('strong', null, g.name)), h('td', null, g.phone), h('td', null, g.gender), h('td', null, partyText(g)),
+          h('td', null, g.time), h('td', null, h('strong', null, g.name)), h('td', null, g.phone), h('td', null, g.gender || h('span', { class: 'muted' }, '미입력')), h('td', null, partyText(g)),
           h('td', null, cat),
           h('td', null, [g.headName, g.teamName].filter(Boolean).join(' ')),
           h('td', null, g.staffName || (g.staffNone ? '없음' : ''), ' ', st),

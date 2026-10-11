@@ -35,7 +35,6 @@ function cleanCompanions(v) {
 export async function guestSubmit(env, data) {
   const name = cleanName(data.name);
   const phone = cleanPhone(data.phone);
-  const gender = cleanGender(data.gender, true);
   const companions = cleanCompanions(data.companions);
   if (data.consent !== true) throw new AppError('개인정보 제공에 동의해 주세요.');
 
@@ -49,7 +48,7 @@ export async function guestSubmit(env, data) {
   await run(env,
     `INSERT INTO guestbook (id, created_at, visit_date, name, phone, last5, gender, companions, consent, consent_at, source)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, '고객')`,
-    newId('G'), now, todayStr(), name, phone, phone.slice(-5), gender, companions, now);
+    newId('G'), now, todayStr(), name, phone, phone.slice(-5), '', companions, now); // 성별은 고객이 아니라 데스크 안내직원이 입력한다
   return {};
 }
 
