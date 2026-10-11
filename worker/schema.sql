@@ -174,7 +174,9 @@ CREATE TABLE IF NOT EXISTS guestbook (
   reviewed INTEGER NOT NULL DEFAULT 0,          -- 0 = 고객이 입력해 아직 데스크가 확인하지 않음
   visit_id TEXT NOT NULL DEFAULT '',            -- 호출했다면 방문 기록 번호
   updated_at TEXT NOT NULL DEFAULT '',
-  updated_by TEXT NOT NULL DEFAULT ''
+  updated_by TEXT NOT NULL DEFAULT '',
+  auto_source TEXT NOT NULL DEFAULT '',          -- 담당자를 자동으로 채운 근거: 예약 / 방문이력 (데스크가 저장하면 비움)
+  reservation_id TEXT NOT NULL DEFAULT ''        -- 연결된 예약
 );
 CREATE INDEX IF NOT EXISTS ix_guest_date ON guestbook(visit_date);
 CREATE INDEX IF NOT EXISTS ix_guest_phone ON guestbook(phone, visit_date);

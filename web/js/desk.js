@@ -392,6 +392,20 @@
 
   function partyText(g) { return g.party; }
 
+  // 예약 있음 / 방문이력 있음 배지 (마우스를 올리면 자세한 내용)
+  function matchBadges(m) {
+    var out = [];
+    if (m.reservation) {
+      var r = m.reservation;
+      out.push(' ', h('span', { class: 'badge ok', title: '예약일 ' + r.date + ' · 담당 ' + (r.staffName || '-') + (r.count > 1 ? ' 외 ' + (r.count - 1) + '건' : '') + (r.status === '방문' ? ' · 이미 방문 처리됨' : '') }, '예약 있음'));
+    }
+    if (m.history) {
+      var hi = m.history;
+      out.push(' ', h('span', { class: 'badge', style: 'background:#ede9fe;color:#5b21b6', title: '최근 ' + hi.lastDate + (hi.staffName ? ' · 담당 ' + hi.staffName : '') + (hi.exact ? ' · 동일 번호' : ' · 뒤 5자리만 일치(다른 고객일 수 있음)') }, '방문이력 ' + hi.count + '회' + (hi.exact ? '' : '?')));
+    }
+    return out;
+  }
+
   async function renderGuestTab() {
     guestState.date = guestState.date || todayLocal();
     var root = $('#dtab-guest');
@@ -445,10 +459,12 @@
         var st = g.callStatus ? h('span', { class: 'st-' + g.callStatus }, g.callStatus) : '';
         body.appendChild(h('tr', { style: g.reviewed ? '' : 'background:#fff7ed' },
           h('td', null, callBtn),
-          h('td', null, g.time), h('td', null, h('strong', null, g.name)), h('td', null, g.phone), h('td', null, g.gender || h('span', { class: 'muted' }, '미입력')), h('td', null, partyText(g)),
+          h('td', null, g.time), h('td', null, h('strong', null, g.name), matchBadges(g)), h('td', null, g.phone), h('td', null, g.gender || h('span', { class: 'muted' }, '미입력')), h('td', null, partyText(g)),
           h('td', null, cat),
           h('td', null, [g.headName, g.teamName].filter(Boolean).join(' ')),
-          h('td', null, g.staffName || (g.staffNone ? '없음' : ''), ' ', st),
+          h('td', null, g.staffName || (g.staffNone ? '없음' : ''), ' ', st,
+            g.autoSource ? [' ', h('span', { class: 'badge warn', title: '확인 후 저장하면 사라집니다. 다르면 [수정]에서 바꾸세요.' }, '자동 입력(' + g.autoSource + ')')] : null,
+            !g.staffId && g.suggest ? [h('div', null, h('button', { type: 'button', class: 'btn small', onclick: function () { openGuestEditor(g, flash, g.suggest); } }, '추천 ' + g.suggest.staffName + ' (' + g.suggest.source + ')'))] : null),
           h('td', null, g.consent ? '동의' : h('span', { class: 'muted' }, '미동의')),
           h('td', { class: 'muted' }, g.source),
           h('td', null, edit, ' ', del)));
@@ -483,7 +499,7 @@
   }
 
   // 방명록 입력·수정 창. g 가 없으면 데스크가 새로 입력한다.
-  function openGuestEditor(g, flash) {
+  function openGuestEditor(g, flash, preset) {
     var name = h('input', { type: 'text', value: g ? g.name : '', maxLength: 20 });
     var phone = h('input', { type: 'tel', inputMode: 'numeric', value: g ? g.phone : '' });
     bindFormat(phone, formatPhone);
@@ -497,6 +513,7 @@
     var team = h('select');
     var staff = h('select');
     var assign = h('div', null, field('담당 팀', team), field('담당자', staff));
+    var info = h('div', { class: 'card hidden', style: 'background:#f8fafc;margin-bottom:12px;padding:12px' });
 
     function fillTeams() {
       var keep = g && g.headId === head.value ? g.teamId : '';
@@ -521,11 +538,43 @@
     function syncParty() { companionsRow.classList.toggle('hidden', party.value !== '동반'); }
     function syncHead() { assign.classList.toggle('hidden', !head.value); }
 
-    // 편집 시작: 기존 값을 채운다
-    staff.dataset.keep = g ? (g.staffNone ? '__none' : g.staffId) : '';
-    team.dataset.keep = g ? g.teamId : '';
+    // 추천 담당자를 입력 칸에 적용 (예약 담당자 또는 최근 방문이력의 담당자)
+    async function applySuggest(sg) {
+      head.value = sg.headId;
+      team.dataset.keep = sg.teamId || '';
+      fillTeams(); syncHead();
+      staff.dataset.keep = sg.staffId;
+      await fillStaff();
+    }
+
+    // 전화번호(뒤 5자리 이상)로 예약·방문이력을 조회해서 안내
+    var matchTimer = null;
+    async function refreshInfo() {
+      if (phone.value.replace(/[^0-9]/g, '').length < 5) { info.classList.add('hidden'); return; }
+      var m = await Api.call('desk.guestSuggest', { phone: phone.value, gender: gender.value, id: g ? g.id : '' });
+      info.innerHTML = '';
+      if (!m.reservation && !m.history) { info.classList.add('hidden'); return; }
+      info.classList.remove('hidden');
+      if (m.reservation) info.appendChild(h('div', null, h('span', { class: 'badge ok' }, '예약 있음'), ' ' + m.reservation.date + ' · 담당 ' + (m.reservation.staffName || '-') + (m.reservation.status === '방문' ? ' (이미 방문 처리됨)' : '')));
+      if (m.history) info.appendChild(h('div', { style: 'margin-top:6px' }, h('span', { class: 'badge', style: 'background:#ede9fe;color:#5b21b6' }, '방문이력 ' + m.history.count + '회'),
+        ' 최근 ' + m.history.lastDate + (m.history.staffName ? ' · 담당 ' + m.history.staffName : '') + (m.history.exact ? ' · 동일 번호' : ' · 뒤 5자리만 일치 (다른 고객일 수 있음)')));
+      if (m.suggest) {
+        var use = h('button', { type: 'button', class: 'btn small primary', style: 'margin-top:8px' }, '추천 담당자 적용: ' + m.suggest.staffName + ' (' + m.suggest.source + ')');
+        use.addEventListener('click', function () { runBusy(use, function () { return applySuggest(m.suggest); }); });
+        info.appendChild(use);
+      }
+    }
+    phone.addEventListener('input', function () { clearTimeout(matchTimer); matchTimer = setTimeout(function () { runBusy(null, refreshInfo); }, 400); });
+    gender.addEventListener('change', function () { runBusy(null, refreshInfo); });
+
+    // 편집 시작: 기존 값을 채운다 (추천 담당자 버튼으로 열었으면 그 값으로)
+    var init = preset ? { headId: preset.headId, teamId: preset.teamId || '', staffId: preset.staffId, none: false } : g ? { headId: g.headId, teamId: g.teamId, staffId: g.staffId, none: g.staffNone } : { headId: '', teamId: '', staffId: '', none: false };
+    head.value = init.headId;
+    staff.dataset.keep = init.none ? '__none' : init.staffId;
+    team.dataset.keep = init.teamId;
     fillTeams(); syncParty(); syncHead();
-    if (g && g.headId) runBusy(null, fillStaff);
+    if (init.headId) runBusy(null, fillStaff);
+    if (phone.value) runBusy(null, refreshInfo);
     head.addEventListener('change', function () { fillTeams(); syncHead(); runBusy(null, fillStaff); });
     team.addEventListener('change', function () { runBusy(null, fillStaff); });
     party.addEventListener('change', syncParty);
@@ -556,7 +605,7 @@
       }
     }];
     modal(g ? '방명록 수정' : '방명록 입력', h('div', null,
-      field('성명', name), field('전화번호', phone), field('성별', gender),
+      field('성명', name), field('전화번호', phone), info, field('성별', gender),
       field('동행', h('div', null, party, companionsRow), '단독이면 1팀 1명, 동반이면 인원을 입력합니다 (통계의 방문팀수·방문객수에 쓰입니다).'),
       field('담당 본부', head, '선택하지 않으면 워킹으로 분류됩니다.'), assign,
       h('label', { class: 'check' }, consent, ' 개인정보 제공에 동의함')), buttons);

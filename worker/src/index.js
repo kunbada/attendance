@@ -14,7 +14,7 @@ import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, de
 import { staffTelegramLink, handleTelegram } from './telegram.js';
 import { leaderStaffList, leaderApprove, leaderReject, leaderRetire } from './leader.js';
 import { adminDashboard, adminGuestStats, adminGuestbook } from './stats.js';
-import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg } from './guestbook.js';
+import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook.js';
 
 // roles: 이 action 을 부를 수 있는 역할 ('public' = 로그인 불필요, 'desk' 는 관리자도 가능)
 // allowMustChange: 비밀번호 변경 전에도 부를 수 있는 action
@@ -47,6 +47,7 @@ const ACTIONS = {
   'desk.guestSave': { roles: ['desk'], fn: deskGuestSave },
   'desk.guestDelete': { roles: ['desk'], fn: deskGuestDelete },
   'desk.guestCall': { roles: ['desk'], fn: deskGuestCall },
+  'desk.guestSuggest': { roles: ['desk'], fn: deskGuestSuggest },
   'desk.staffByOrg': { roles: ['desk'], fn: deskStaffByOrg },
   'guest.submit': { roles: ['kiosk', 'desk'], fn: guestSubmit },
   'desk.registerVisit': { roles: ['desk'], fn: deskRegisterVisit },

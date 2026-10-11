@@ -405,6 +405,50 @@ try {
   check('다른 날짜 조회', (await call('desk.guestList', { date: yesterday }, desk)).ok);
   expectErr('날짜 형식 검사', await call('desk.guestList', { date: 'abc' }, desk), '날짜');
 
+  // ===== 방명록 자동 매칭: 예약 있음 / 방문이력 있음 / 담당자 자동 입력 =====
+  const guestsNow = async () => (await call('desk.guestList', {}, desk)).data.guests;
+  const gPhone2 = '010' + rnd();
+  const r5g = gPhone2.slice(-5);
+  expectOk('직원 M 이 같은 뒤5자리로 예약', await call('reservation.create', { last5: r5g, date: today, gender: '여' }, tokM, M.dev));
+  expectOk('고객 방명록 제출 (예약 있는 번호)', await call('guest.submit', { name: '예약고객' + uniq, phone: gPhone2, companions: 0, consent: true }, kiosk));
+  const gRes = (await guestsNow()).find((g) => g.name === '예약고객' + uniq);
+  check('예약 있음 표시 (예정, 담당 M)', gRes && gRes.reservation && gRes.reservation.status === '예정' && gRes.reservation.staffName === M.name, JSON.stringify(gRes && gRes.reservation));
+  check('담당 본부/팀/직원 자동 입력(예약), 확인 필요 유지, 호출 가능', gRes.staffId === idM && gRes.headId === 'OH01' && gRes.teamId === 'OT011' && gRes.autoSource === '예약' && gRes.category === '확인 필요' && gRes.canCall === true);
+  const sg1 = await call('desk.guestSuggest', { phone: gPhone2 }, desk);
+  check('추천 API: 예약 → 담당자', sg1.ok && sg1.data.reservation && sg1.data.suggest && sg1.data.suggest.source === '예약' && sg1.data.suggest.staffId === idM);
+  expectOk('자동 입력된 담당자 호출', await call('desk.guestCall', { id: gRes.id }, desk));
+  const rl3 = (await call('desk.reservationList', { date: today }, desk)).data.reservations.find((r) => r.last5 === r5g);
+  check('호출하면 그 예약이 방문 처리됨', rl3 && rl3.status === '방문');
+
+  expectOk('같은 번호로 다시 방명록 (이름만 다름)', await call('guest.submit', { name: '재방문' + uniq, phone: gPhone, companions: 0, consent: true }, kiosk));
+  const gHist = (await guestsNow()).find((g) => g.name === '재방문' + uniq);
+  check('방문이력 있음 (동일 번호, 이전 담당 M)', gHist && gHist.history && gHist.history.count >= 1 && gHist.history.exact === true && gHist.history.staffName === M.name, JSON.stringify(gHist && gHist.history));
+  check('이력의 담당자가 자동 입력됨 (방문이력)', gHist.staffId === idM && gHist.autoSource === '방문이력' && gHist.reservation === null);
+  check('자기 자신은 이력으로 세지 않음', !(await guestsNow()).find((g) => g.name === '고객' + uniq).history || (await guestsNow()).find((g) => g.name === '고객' + uniq).history.count === 0);
+  const gWeakPhone = '019' + gPhone.slice(3);
+  expectOk('뒤 5자리만 같은 다른 번호로 방명록', await call('guest.submit', { name: '뒤5일치' + uniq, phone: gWeakPhone, companions: 0, consent: true }, kiosk));
+  const gWeak = (await guestsNow()).find((g) => g.name === '뒤5일치' + uniq);
+  check('뒤 5자리 일치는 방문이력으로 표시하되 동일 번호 아님', gWeak && gWeak.history && gWeak.history.exact === false && gWeak.history.count >= 1);
+  const gNew = '010' + rnd();
+  expectOk('이력·예약 없는 새 고객', await call('guest.submit', { name: '새고객' + uniq, phone: gNew, companions: 0, consent: true }, kiosk));
+  const gNone = (await guestsNow()).find((g) => g.name === '새고객' + uniq);
+  check('일치 없음: 표시·자동 입력 없음', gNone && gNone.reservation === null && gNone.history === null && gNone.suggest === null && gNone.staffId === '' && gNone.autoSource === '', JSON.stringify([gNone && gNone.history, gNone && gNone.staffId]));
+  const sg0 = await call('desk.guestSuggest', { phone: gNew, id: gNone.id }, desk);
+  check('추천 API: 일치 없음', sg0.ok && sg0.data.reservation === null && sg0.data.history === null && sg0.data.suggest === null);
+  expectOk('자동 입력을 데스크가 수동으로 다른 담당자(팀장 L)로 변경', await call('desk.guestSave', { id: gHist.id, name: gHist.name, phone: gPhone, gender: '남', companions: 0, headId: 'OH01', teamId: 'OT011', staffId: idL, consent: true }, desk));
+  const gHist2 = (await guestsNow()).find((g) => g.id === gHist.id);
+  check('수동 변경 후: 담당 L, 확인함, 자동 입력 표시 사라짐', gHist2.staffId === idL && gHist2.reviewed === true && gHist2.autoSource === '' && gHist2.category === '분양');
+  // 예약 담당자가 아닌 다른 직원을 부르면 예약은 그대로 남는다
+  const r5h = last5();
+  expectOk('M 의 다른 예약', await call('reservation.create', { last5: r5h, date: today, gender: '남' }, tokM, M.dev));
+  const gPhone3 = '010' + rnd().slice(0, 3) + r5h;
+  expectOk('그 예약 번호로 방명록', await call('guest.submit', { name: '타담당' + uniq, phone: gPhone3, companions: 0, consent: true }, kiosk));
+  const gOther = (await guestsNow()).find((g) => g.name === '타담당' + uniq);
+  expectOk('데스크가 예약 담당자 대신 팀장 L 로 지정', await call('desk.guestSave', { id: gOther.id, name: gOther.name, phone: gPhone3, gender: '남', companions: 0, headId: 'OH01', teamId: 'OT011', staffId: idL, consent: true }, desk));
+  expectOk('L 호출', await call('desk.guestCall', { id: gOther.id }, desk));
+  const rl4 = (await call('desk.reservationList', { date: today }, desk)).data.reservations.find((r) => r.last5 === r5h);
+  check('예약 담당자와 다른 직원을 불렀으면 예약은 예정 그대로', rl4 && rl4.status === '예정');
+
   // ===== 4단계: 대시보드, 방명록 통계·내보내기 =====
   const dash = await call('admin.dashboard', {}, admin);
   expectOk('대시보드', dash);

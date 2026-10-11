@@ -4,6 +4,7 @@
 import { AppError, s, all, first, run, todayStr, nowStr, newId, orgNameMap, writeLog } from './util.js';
 import { sendCallMessage, hhmm } from './telegram.js';
 import { formatPhone, visitStatus } from './visit.js';
+import { computeMatches } from './matching.js';
 
 function cleanName(v) {
   const n = s(v).trim();
@@ -45,10 +46,23 @@ export async function guestSubmit(env, data) {
   if (dup) return {};
 
   const now = nowStr();
+  const id = newId('G');
   await run(env,
     `INSERT INTO guestbook (id, created_at, visit_date, name, phone, last5, gender, companions, consent, consent_at, source)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, '고객')`,
-    newId('G'), now, todayStr(), name, phone, phone.slice(-5), '', companions, now); // 성별은 고객이 아니라 데스크 안내직원이 입력한다
+    id, now, todayStr(), name, phone, phone.slice(-5), '', companions, now); // 성별은 고객이 아니라 데스크 안내직원이 입력한다
+
+  // 예약이나 방문이력이 있으면 담당 본부/팀/담당자를 미리 채워 둔다. 상태는 '확인 필요' 그대로라 데스크가 확인·수정한다.
+  // 이 단계가 실패해도 고객의 제출은 성공으로 처리한다.
+  try {
+    const m = (await computeMatches(env, [{ key: 'k', phone, last5: phone.slice(-5), gender: '', createdAt: now, excludeId: id }], todayStr())).k;
+    if (m.suggest) {
+      await run(env, 'UPDATE guestbook SET head_id = ?, team_id = ?, staff_id = ?, auto_source = ?, reservation_id = ? WHERE id = ?',
+        m.suggest.headId, m.suggest.teamId, m.suggest.staffId, m.suggest.source, m.suggest.source === '예약' ? m.reservation.id : '', id);
+    }
+  } catch (e) {
+    console.error('guest auto-assign', e && e.stack ? e.stack : String(e));
+  }
   return {};
 }
 
@@ -63,14 +77,18 @@ export async function deskGuestList(env, data) {
   const date = s(data.date) || todayStr();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError('날짜 형식이 올바르지 않습니다.');
   const names = await orgNameMap(env);
-  const rows = await all(env,
+  const rowsRaw = await all(env,
     `SELECT g.*, s.name AS s_name, s.nickname AS s_nick, s.status AS s_status, s.id AS s_id,
             v.called_at AS v_called, v.acked_at AS v_acked, v.staff_id AS v_staff
      FROM guestbook g LEFT JOIN staff s ON s.id = g.staff_id LEFT JOIN visits v ON v.id = g.visit_id
      WHERE g.visit_date = ? ORDER BY g.created_at DESC LIMIT 1000`, date);
+  const rows = rowsRaw;
+  // 예약 있음 / 방문이력 있음 / 추천 담당자 (목록 전체를 한 번에 계산)
+  const matches = await computeMatches(env, rows.map((g) => ({ key: g.id, phone: g.phone, last5: g.last5, gender: g.gender, createdAt: g.created_at, excludeId: g.id })), date);
   return {
     date,
     guests: rows.map((g) => {
+      const m = matches[g.id];
       // 지정된 담당자에게 이미 호출했는지 (담당자를 바꿨다면 새로 호출해야 한다)
       const calledForCurrent = g.visit_id && g.v_staff === g.staff_id;
       return {
@@ -80,6 +98,10 @@ export async function deskGuestList(env, data) {
         headId: g.head_id, teamId: g.team_id, headName: names[g.head_id] || '', teamName: names[g.team_id] || '',
         staffId: g.staff_id, staffNone: !!g.staff_none, staffName: g.s_id ? g.s_name + (g.s_nick ? ' (' + g.s_nick + ')' : '') : '',
         canCall: !!g.s_id && g.s_status === '활동',
+        reservation: m.reservation && { date: m.reservation.date, status: m.reservation.status, count: m.reservation.count, staffName: m.reservation.staffName },
+        history: m.history,
+        suggest: m.suggest,
+        autoSource: g.reviewed ? '' : g.auto_source,
         callStatus: calledForCurrent ? visitStatus({ called_at: g.v_called, acked_at: g.v_acked }, true) : ''
       };
     })
@@ -133,7 +155,7 @@ export async function deskGuestSave(env, data, ctx) {
     const consentAt = consent ? (existing.consent ? existing.consent_at : now) : '';
     await run(env,
       `UPDATE guestbook SET name = ?, phone = ?, last5 = ?, gender = ?, companions = ?, head_id = ?, team_id = ?, staff_id = ?, staff_none = ?,
-         consent = ?, consent_at = ?, reviewed = 1, updated_at = ?, updated_by = ? WHERE id = ?`,
+         consent = ?, consent_at = ?, reviewed = 1, auto_source = '', updated_at = ?, updated_by = ? WHERE id = ?`,
       name, phone, phone.slice(-5), gender, companions, a.headId, a.teamId, a.staffId, a.staffNone, consent, consentAt, now, who, id);
     await writeLog(env, who, '방명록수정', id, name);
     return { id };
@@ -173,12 +195,23 @@ export async function deskGuestCall(env, data, ctx) {
     return callResult(staff, visit.id, ok);
   }
 
+  // 오늘 예약이 있고 그 담당자를 호출하는 거라면 그 예약을 '방문'으로 처리한다 (다른 담당자를 부르면 예약은 그대로 둔다)
+  let reservationId = '';
+  if (g.visit_date === todayStr()) {
+    const m = (await computeMatches(env, [{ key: 'k', phone: g.phone, last5: g.last5, gender: g.gender, createdAt: g.created_at, excludeId: g.id }], g.visit_date)).k;
+    const r = m.reservation;
+    if (r && r.staffId === staff.id && r.date === g.visit_date && r.status === '예정') {
+      const claim = await run(env, `UPDATE reservations SET status = '방문' WHERE id = ? AND status = '예정'`, r.id);
+      if (claim.meta.changes > 0) reservationId = r.id;
+    }
+  }
+
   const visitId = newId('V');
   const now = nowStr();
   await run(env,
-    `INSERT INTO visits (id, visited_at, last5, gender, reservation_id, staff_id, kind, desk_account_id) VALUES (?, ?, ?, ?, '', ?, '방명록', ?)`,
-    visitId, now, g.last5, g.gender, staff.id, ctx.account.id);
-  await run(env, 'UPDATE guestbook SET visit_id = ? WHERE id = ?', visitId, g.id);
+    `INSERT INTO visits (id, visited_at, last5, gender, reservation_id, staff_id, kind, desk_account_id) VALUES (?, ?, ?, ?, ?, ?, '방명록', ?)`,
+    visitId, now, g.last5, g.gender, reservationId, staff.id, ctx.account.id);
+  await run(env, 'UPDATE guestbook SET visit_id = ?, reservation_id = ? WHERE id = ?', visitId, reservationId || g.reservation_id, g.id);
   const ok = await sendCallMessage(env, staff, visitId, g.last5, true);
   if (ok) await run(env, 'UPDATE visits SET called_at = ? WHERE id = ?', now, visitId);
   return callResult(staff, visitId, ok);
@@ -189,4 +222,12 @@ function callResult(staff, visitId, called) {
     visitId, kind: '방명록', called, staffName: staff.name,
     phone: called ? '' : formatPhone(staff.phone), notLinked: !staff.telegram_id
   };
+}
+
+// 방명록 입력 창에서 전화번호를 넣으면 예약·방문이력·추천 담당자를 바로 보여 준다
+export async function deskGuestSuggest(env, data) {
+  const digits = s(data.phone).replace(/\D/g, '');
+  if (digits.length < 5) return { reservation: null, history: null, suggest: null };
+  const m = (await computeMatches(env, [{ key: 'k', phone: digits, last5: digits.slice(-5), gender: cleanGender(data.gender, false), excludeId: s(data.id) }], todayStr())).k;
+  return { reservation: m.reservation, history: m.history, suggest: m.suggest };
 }
