@@ -25,7 +25,8 @@ function formatTime_(ms) {
 }
 
 function createSession_(kind, userId) {
-  purgeExpiredSessions_();
+  // 만료 세션 정리는 시트를 통째로 읽어서 느리다 → 로그인 10번 중 1번만
+  if (Math.random() < 0.1) purgeExpiredSessions_();
   var token = Utilities.getUuid();
   var session = { kind: kind, userId: userId, expires: formatTime_(Date.now() + SESSION_LIFETIME_MS[kind]) };
   appendRow('세션', { 토큰: token, 사용자구분: kind, 사용자ID: userId, 만료일시: session.expires });

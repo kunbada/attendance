@@ -109,11 +109,11 @@ function todayStr() {
   return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
 }
 
-// 쓰기 작업은 동시에 하나만 (최대 10초 대기)
+// 쓰기 작업은 동시에 하나만 (최대 25초 대기)
 function withLock(fn) {
   var lock = LockService.getScriptLock();
   try {
-    lock.waitLock(10000);
+    lock.waitLock(25000);
   } catch (e) {
     throw new AppError('요청이 많아 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
   }

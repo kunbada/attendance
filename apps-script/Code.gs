@@ -69,5 +69,9 @@ function route_(req) {
     }
     return def.fn(req.data || {}, ctx);
   };
-  return def.write ? withLock(run) : run();
+  var t0 = Date.now();
+  var result = def.write ? withLock(run) : run();
+  // 느린 요청을 [보기 → 실행 내역]에서 찾을 수 있게 소요 시간을 남긴다
+  console.log(req.action + ' ' + (Date.now() - t0) + 'ms');
+  return result;
 }
