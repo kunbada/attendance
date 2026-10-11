@@ -3,7 +3,6 @@
   Api.setScope('staff');
   var BANKS = ['국민', '신한', '우리', '하나', '농협', '기업', 'SC제일', '카카오뱅크', '토스뱅크', '케이뱅크', '새마을금고', '우체국', '신협', '수협', '부산', '대구', '광주', '전북', '경남', '제주', '기타'];
   var orgs = null;
-  var selfieRequired = false;
   var genderRequired = false;
 
   function show(name) {
@@ -36,7 +35,6 @@
     $('#home-job').textContent = me.staff.job;
     $('#home-today').textContent = me.checkedInToday ? '출근 ' + me.checkedInAt : '아직 출근 전';
     $('#home-month').textContent = me.monthDays + '일';
-    selfieRequired = me.selfieRequired;
     genderRequired = me.genderRequired;
     $('#tg-status').textContent = me.telegramLinked ? '연결됨' : '연결 안 됨';
     $('#tg-status').style.color = me.telegramLinked ? 'var(--ok)' : 'var(--danger)';
@@ -138,7 +136,6 @@
   var scanHandled = false;
   var lastWarn = 0;
   var positionPromise = null;
-  var selfieData = '';
 
   async function stopScanner() {
     if (!scanner) return;
@@ -150,7 +147,6 @@
     if (!window.Html5Qrcode) { toast('QR 스캔 기능을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.', true); return; }
     show('scan');
     scanHandled = false;
-    selfieData = '';
     scanner = new Html5Qrcode('qr-reader');
     try {
       await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 240, height: 240 } }, onScan, function () { /* 인식 실패 프레임은 무시 */ });
@@ -167,32 +163,12 @@
       if (Date.now() - lastWarn > 2500) { lastWarn = Date.now(); toast('출근 QR이 아닙니다.', true); }
       return;
     }
-    scanHandled = text; // 셀카 단계에서 다시 쓰려고 QR 값을 보관
+    scanHandled = true;
     await stopScanner();
-    // QR 을 읽자마자 위치 측정을 시작한다 (셀카를 찍는 동안에도 측정 계속)
+    // QR 을 읽자마자 위치를 재서 바로 보낸다
     positionPromise = getPosition();
     positionPromise.catch(function () { /* 제출할 때 처리 */ });
-    if (selfieRequired) show('selfie');
-    else submitCheckin(text);
-  }
-
-  // 긴 변 640px JPEG 로 줄여 base64 만 돌려준다 (전송량 절약)
-  function resizeToJpeg(file) {
-    return new Promise(function (resolve, reject) {
-      var url = URL.createObjectURL(file);
-      var img = new Image();
-      img.onload = function () {
-        var scale = Math.min(1, 640 / Math.max(img.width, img.height));
-        var c = document.createElement('canvas');
-        c.width = Math.round(img.width * scale);
-        c.height = Math.round(img.height * scale);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(url);
-        resolve(c.toDataURL('image/jpeg', 0.8).split(',')[1]);
-      };
-      img.onerror = function () { reject(new Error('사진을 읽을 수 없습니다. 다시 촬영해 주세요.')); };
-      img.src = url;
-    });
+    submitCheckin(text);
   }
 
   function showResult(ok, title, detail) {
@@ -208,7 +184,7 @@
     try {
       var pos = await positionPromise;
       var res = await Api.call('attendance.checkin', {
-        qr: qr, lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, selfie: selfieData
+        qr: qr, lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy
       });
       showResult(true, '출근 완료', res.time + ' · 현장에서 ' + res.distance + 'm');
     } catch (e) {
@@ -221,15 +197,6 @@
   $('#btn-checkin').addEventListener('click', function () { startCheckin(); });
   $('#btn-scan-cancel').addEventListener('click', async function () { await stopScanner(); show('home'); });
   $('#btn-result-home').addEventListener('click', function () { runBusy($('#btn-result-home'), showHome); });
-  $('#selfie-input').addEventListener('change', function (e) {
-    var file = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    runBusy(null, async function () {
-      selfieData = await resizeToJpeg(file);
-      await submitCheckin(scanHandled);
-    });
-  });
 
   // ---------- 텔레그램 연결 ----------
   $('#btn-telegram').addEventListener('click', function () {

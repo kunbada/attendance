@@ -1,0 +1,13 @@
+name = "attendance-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# database_id 는 배포가이드 순서대로 DB 를 만든 뒤 채워진다 (비밀 값이 아님)
+[[d1_databases]]
+binding = "DB"
+database_name = "attendance"
+database_id = "REPLACE_WITH_DATABASE_ID"
+
+[vars]
+# 브라우저에서 이 서버를 부를 수 있는 화면 주소 (쉼표로 구분). 여기 없는 사이트는 브라우저가 막는다.
+ALLOWED_ORIGINS = "https://kunbada.github.io,http://localhost:3000,http://localhost:8765"

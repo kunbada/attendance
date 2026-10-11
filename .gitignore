@@ -6,3 +6,10 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# Cloudflare Worker
+worker/.dev.vars
+worker/.wrangler/
+worker/.seed.sql
+worker/.dev.vars.*
+worker/.test.sql

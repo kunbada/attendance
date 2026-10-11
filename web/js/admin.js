@@ -362,9 +362,8 @@
       h('div', { class: 'card' }, h('span', { class: 'num' }, d.present.length + ' / ' + d.activeCount), '출근 / 활동 인원'),
       h('div', { class: 'card' }, h('span', { class: 'num' }, d.failures.length), '실패 기록')));
     box.appendChild(h('h3', null, '출근자'));
-    box.appendChild(simpleTable(['성명(예명)', '직군 / 소속', '시각', '거리', '셀카'], d.present.map(function (p) {
-      return h('tr', null, h('td', null, nameCell(p)), h('td', null, orgCell(p)), h('td', null, p.time), h('td', null, p.distance + 'm'),
-        h('td', null, /^https:\/\/(drive|docs)\.google\.com\//.test(p.selfieUrl) ? h('a', { href: p.selfieUrl, target: '_blank', rel: 'noopener' }, '보기') : '-'));
+    box.appendChild(simpleTable(['성명(예명)', '직군 / 소속', '시각', '거리'], d.present.map(function (p) {
+      return h('tr', null, h('td', null, nameCell(p)), h('td', null, orgCell(p)), h('td', null, p.time), h('td', null, p.distance + 'm'));
     })));
     box.appendChild(h('h3', null, '미출근자 (' + d.absent.length + '명)'));
     box.appendChild(simpleTable(['성명(예명)', '직군 / 소속'], d.absent.map(function (p) {
@@ -483,22 +482,21 @@
     var site = h('input', { type: 'text', value: st['현장명'] || '', maxLength: 40 });
     var dist = h('input', { type: 'number', value: st['GPS허용거리m'] || '200', min: 10, max: 5000 });
     var dup = h('select', null, option('뒤5자리', '뒤5자리', st['예약중복기준'] === '뒤5자리'), option('뒤5자리+성별', '뒤5자리 + 성별', st['예약중복기준'] === '뒤5자리+성별'));
-    var selfie = h('select', null, option('N', '사용 안 함', st['출근셀카사용'] !== 'Y'), option('Y', '사용', st['출근셀카사용'] === 'Y'));
     var bot = h('input', { type: 'text', value: st['텔레그램봇이름'] || '', placeholder: 'my_site_bot' });
     var save = h('button', { type: 'button', class: 'btn primary', style: 'max-width:200px' }, '저장');
     save.addEventListener('click', function () {
       runBusy(save, async function () {
         await Api.call('admin.saveSettings', { values: {
-          '현장명': site.value, 'GPS허용거리m': dist.value, '예약중복기준': dup.value, '출근셀카사용': selfie.value, '텔레그램봇이름': bot.value
+          '현장명': site.value, 'GPS허용거리m': dist.value, '예약중복기준': dup.value, '텔레그램봇이름': bot.value
         } });
         toast('설정을 저장했습니다.');
         $('#siteName').textContent = (site.value || '관리자') + (site.value ? ' · 관리자' : '');
       });
     });
     return h('div', { class: 'card' }, h('h2', null, '기본 설정'),
-      field('현장명', site), field('GPS 허용거리 (m)', dist, '출근 QR 기준점에서 이 거리 안에서만 출근 인정 (2단계에서 사용)'),
-      field('예약 중복 기준', dup, '3단계에서 사용'), field('출근 셀카', selfie, '2단계에서 사용'),
-      field('텔레그램 봇 이름', bot, '@ 없이. 3단계에서 사용'), save);
+      field('현장명', site), field('GPS 허용거리 (m)', dist, '출근 QR 기준점에서 이 거리 안에서만 출근 인정'),
+      field('예약 중복 기준', dup, '같은 고객의 중복 예약을 막는 기준'),
+      field('텔레그램 봇 이름', bot, '@ 없이. 직원 호출 알림에 사용'), save);
   }
 
   function signupLinkCard() {
