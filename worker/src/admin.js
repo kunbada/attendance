@@ -215,7 +215,7 @@ export async function adminAccounts(env) {
   return {
     accounts: rows.map((a) => ({
       id: a.id, loginId: a.login_id, name: a.name, role: a.role, active: !!a.active,
-      locked: a.fail_count >= MAX_FAILS, mustChange: !!a.must_change_password
+      locked: a.fail_count >= MAX_FAILS, mustChange: !!a.must_change_password, email: a.email
     }))
   };
 }
@@ -227,6 +227,9 @@ export async function adminSaveAccount(env, data, ctx) {
   const role = s(data.role);
   const password = s(data.password);
   const active = data.active === false ? 0 : 1;
+  // 이메일은 관리자 계정에서만 쓴다 (비밀번호 초기화 인증 코드를 받는 주소)
+  const email = role === '관리자' ? s(data.email).trim().toLowerCase() : '';
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new AppError('이메일 주소 형식이 올바르지 않습니다.');
   if (!/^[A-Za-z0-9_.-]{3,20}$/.test(loginId)) throw new AppError('아이디는 영문·숫자·_ . - 3~20자로 입력해 주세요.');
   if (!name) throw new AppError('이름을 입력해 주세요.');
   if (!['관리자', '데스크', '방명록'].includes(role)) throw new AppError('역할이 올바르지 않습니다.');
@@ -244,17 +247,17 @@ export async function adminSaveAccount(env, data, ctx) {
 
   if (current) {
     if (password) {
-      await run(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ?, password_hash = ?, must_change_password = ?, fail_count = 0 WHERE id = ?',
-        loginId, name, role, active, await hashSecret(env, password), role === '방명록' ? 0 : 1, id); // 방명록 태블릿 계정은 비밀번호 변경 화면이 없어 강제하지 않는다
+      await run(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ?, email = ?, password_hash = ?, must_change_password = ?, fail_count = 0 WHERE id = ?',
+        loginId, name, role, active, email, await hashSecret(env, password), role === '방명록' ? 0 : 1, id); // 방명록 태블릿 계정은 비밀번호 변경 화면이 없어 강제하지 않는다
     } else {
-      await run(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ? WHERE id = ?', loginId, name, role, active, id);
+      await run(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ?, email = ? WHERE id = ?', loginId, name, role, active, email, id);
     }
     if (password || !active) await destroyUserSessions(env, 'account', id);
     await writeLog(env, adminName(ctx), '계정수정', id, loginId);
   } else {
     id = newId('A');
-    await run(env, 'INSERT INTO accounts (id, login_id, password_hash, role, name, active, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      id, loginId, await hashSecret(env, password), role, name, active, role === '방명록' ? 0 : 1);
+    await run(env, 'INSERT INTO accounts (id, login_id, password_hash, role, name, active, must_change_password, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      id, loginId, await hashSecret(env, password), role, name, active, role === '방명록' ? 0 : 1, email);
     await writeLog(env, adminName(ctx), '계정추가', id, loginId);
   }
   return { id };

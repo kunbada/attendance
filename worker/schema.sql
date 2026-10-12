@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   name TEXT NOT NULL,
   fail_count INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1,
-  must_change_password INTEGER NOT NULL DEFAULT 0
+  must_change_password INTEGER NOT NULL DEFAULT 0,
+  email TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_accounts_login ON accounts(login_id);
 
@@ -180,3 +181,13 @@ CREATE TABLE IF NOT EXISTS guestbook (
 );
 CREATE INDEX IF NOT EXISTS ix_guest_date ON guestbook(visit_date);
 CREATE INDEX IF NOT EXISTS ix_guest_phone ON guestbook(phone, visit_date);
+
+-- 관리자 비밀번호 이메일 인증 초기화 (인증 코드는 해시로만 저장, 5회 틀리면 30분 잠금)
+CREATE TABLE IF NOT EXISTS password_resets (
+  account_id TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  requested_at INTEGER NOT NULL,
+  locked_until INTEGER NOT NULL DEFAULT 0
+);

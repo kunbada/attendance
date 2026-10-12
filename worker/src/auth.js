@@ -1,5 +1,6 @@
 // 로그인, 세션, 기기키 확인. 모든 action 은 세션 → 역할 → (직원이면) deviceKey 순으로 확인한다.
-import { AppError, s, all, first, run, nowStr, hashSecret, safeEqual, writeLog } from './util.js';
+import { AppError, s, all, first, run, nowStr, hashSecret, safeEqual, sha256Hex, writeLog } from './util.js';
+import { sendMail, mailConfigured } from './mail.js';
 
 export const MAX_FAILS = 5;
 // 직원은 매일 로그인하기 번거로우니 30일, 관리자·데스크는 공용 PC 가능성 때문에 12시간
@@ -100,5 +101,72 @@ export async function accountChangePassword(env, data, ctx) {
 
 export async function authLogout(env, data, ctx) {
   await destroySession(env, ctx.token);
+  return {};
+}
+
+// ---------- 관리자 비밀번호 이메일 인증 초기화 ----------
+// 1) accountResetRequest: 아이디를 받으면 계정에 등록된 이메일로 6자리 코드를 보낸다 (관리자 역할만)
+// 2) accountResetConfirm: 코드와 새 비밀번호로 변경. 코드는 10분 유효, 5회 틀리면 30분 잠금
+const RESET_CODE_MS = 10 * 60 * 1000;
+const RESET_COOLDOWN_MS = 60 * 1000;
+const RESET_LOCK_MS = 30 * 60 * 1000;
+const RESET_MAX_ATTEMPTS = 5;
+
+const resetHash = (env, accountId, code) => sha256Hex(env.SALT + ':reset:' + accountId + ':' + code);
+
+export async function accountResetRequest(env, data) {
+  if (!mailConfigured(env)) throw new AppError('이메일 발송이 아직 설정되지 않았습니다. 배포가이드의 "관리자 비밀번호 초기화"를 참고해 주세요.');
+  // 계정이 있는지 없는지 알려 주지 않도록, 아래 어떤 경우에도 같은 응답을 준다
+  const reply = { sent: true };
+  const acc = await first(env, `SELECT * FROM accounts WHERE login_id = ? AND role = '관리자' AND active = 1`, s(data.loginId).trim());
+  if (!acc || !acc.email) return reply;
+
+  const now = Date.now();
+  const cur = await first(env, 'SELECT * FROM password_resets WHERE account_id = ?', acc.id);
+  if (cur && (cur.locked_until > now || now - cur.requested_at < RESET_COOLDOWN_MS)) return reply; // 잠금 중이거나 1분 안에 다시 요청
+
+  const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0');
+  await run(env,
+    `INSERT INTO password_resets (account_id, code_hash, expires_at, attempts, requested_at, locked_until) VALUES (?, ?, ?, 0, ?, 0)
+     ON CONFLICT(account_id) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0, requested_at = excluded.requested_at, locked_until = 0`,
+    acc.id, await resetHash(env, acc.id, code), now + RESET_CODE_MS, now);
+  const ok = await sendMail(env, acc.email, '[근태관리] 관리자 비밀번호 초기화 인증 코드',
+    '관리자 비밀번호 초기화 인증 코드: ' + code + '\n\n10분 안에 입력해 주세요. 직접 요청하지 않았다면 이 메일을 무시하셔도 됩니다 (비밀번호는 바뀌지 않습니다).');
+  if (!ok) {
+    await run(env, 'DELETE FROM password_resets WHERE account_id = ?', acc.id);
+    throw new AppError('이메일을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.');
+  }
+  await writeLog(env, acc.login_id, '비밀번호초기화요청', acc.id);
+  return reply;
+}
+
+export async function accountResetConfirm(env, data) {
+  const bad = new AppError('인증 코드가 올바르지 않거나 만료되었습니다.');
+  const code = s(data.code).replace(/\D/g, '');
+  const acc = await first(env, `SELECT * FROM accounts WHERE login_id = ? AND role = '관리자' AND active = 1`, s(data.loginId).trim());
+  if (!acc) throw bad;
+  const now = Date.now();
+  const cur = await first(env, 'SELECT * FROM password_resets WHERE account_id = ?', acc.id);
+  if (cur && cur.locked_until > now) throw new AppError('인증 코드를 5회 잘못 입력해 30분 동안 잠겼습니다. 나중에 다시 시도해 주세요.', 'LOCKED');
+  if (!cur || !cur.code_hash || cur.expires_at < now) throw bad;
+
+  if (!safeEqual(await resetHash(env, acc.id, code), cur.code_hash)) {
+    const attempts = cur.attempts + 1;
+    if (attempts >= RESET_MAX_ATTEMPTS) {
+      await run(env, `UPDATE password_resets SET code_hash = '', attempts = ?, locked_until = ? WHERE account_id = ?`, attempts, now + RESET_LOCK_MS, acc.id);
+      throw new AppError('인증 코드를 5회 잘못 입력해 30분 동안 잠겼습니다. 나중에 다시 시도해 주세요.', 'LOCKED');
+    }
+    await run(env, 'UPDATE password_resets SET attempts = ? WHERE account_id = ?', attempts, acc.id);
+    throw bad;
+  }
+  // 코드가 맞아도 새 비밀번호가 규칙에 안 맞으면 코드는 그대로 두고 다시 입력하게 한다
+  const newPw = s(data.newPassword);
+  checkPasswordPolicy(newPw);
+  await run(env, 'UPDATE accounts SET password_hash = ?, must_change_password = 0, fail_count = 0 WHERE id = ?', await hashSecret(env, newPw), acc.id);
+  await run(env, 'DELETE FROM password_resets WHERE account_id = ?', acc.id);
+  await destroyUserSessions(env, 'account', acc.id); // 이전에 로그인된 곳은 모두 로그아웃
+  await writeLog(env, acc.login_id, '비밀번호초기화(이메일)', acc.id);
+  // 본인이 한 일이 맞는지 알 수 있게 알림 메일 (실패해도 변경은 완료)
+  await sendMail(env, acc.email, '[근태관리] 관리자 비밀번호가 변경되었습니다', '관리자 비밀번호가 방금 변경되었습니다. 본인이 한 일이 아니라면 즉시 서버 관리자에게 알려 주세요.').catch(() => false);
   return {};
 }

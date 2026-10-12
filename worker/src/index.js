@@ -2,7 +2,7 @@
 // 요청·응답 형식은 Apps Script 시절과 같다:
 //   요청 { action, token, deviceKey, data }  →  응답 { ok: true, data } 또는 { ok: false, error, code }
 import { AppError, s } from './util.js';
-import { authenticate, accountLogin, accountChangePassword, authLogout } from './auth.js';
+import { authenticate, accountLogin, accountChangePassword, authLogout, accountResetRequest, accountResetConfirm } from './auth.js';
 import { publicOrgs, staffSignup, staffLogin, staffMe, staffRequestDeviceChange } from './staff.js';
 import {
   adminStaffList, adminApprove, adminReject, adminUpdate, adminRetire, adminResetPin, adminApproveDevice,
@@ -37,6 +37,8 @@ const ACTIONS = {
   'leader.retire': { roles: ['staff'], fn: leaderRetire },
 
   'account.login': { roles: ['public'], fn: accountLogin },
+  'account.resetRequest': { roles: ['public'], fn: accountResetRequest },
+  'account.resetConfirm': { roles: ['public'], fn: accountResetConfirm },
   'account.changePassword': { roles: ['desk', 'admin'], fn: accountChangePassword, allowMustChange: true },
   'auth.logout': { roles: ['staff', 'desk', 'admin', 'kiosk'], fn: authLogout, allowMustChange: true },
 

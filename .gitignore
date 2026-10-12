@@ -15,3 +15,4 @@ worker/.dev.vars.*
 worker/.test.sql
 .secrets.json
 worker/.telegram-token
+worker/.resend-key

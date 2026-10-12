@@ -8,7 +8,7 @@
   function show(name) {
     $$('.screen').forEach(function (s) { s.classList.add('hidden'); });
     $('#screen-' + name).classList.remove('hidden');
-    $('#btn-logout').classList.toggle('hidden', name === 'login');
+    $('#btn-logout').classList.toggle('hidden', name === 'login' || name === 'reset');
   }
 
   // ---------- 로그인 ----------
@@ -26,6 +26,44 @@
       $('#login-pw').value = '';
       if (res.account.mustChangePassword) show('changepw');
       else await enterApp();
+    });
+  });
+
+  // ---------- 비밀번호 초기화 (이메일 인증 코드) ----------
+  $('#btn-forgot').addEventListener('click', function () {
+    $('#rs-id').value = $('#login-id').value;
+    $('#form-reset1').classList.remove('hidden');
+    $('#form-reset2').classList.add('hidden');
+    show('reset');
+  });
+  ['#btn-reset-back', '#btn-reset-back2'].forEach(function (sel) { $(sel).addEventListener('click', function () { show('login'); }); });
+
+  async function sendResetCode() {
+    await Api.call('account.resetRequest', { loginId: $('#rs-id').value.trim() });
+    $('#form-reset1').classList.add('hidden');
+    $('#form-reset2').classList.remove('hidden');
+    $('#rs-note').textContent = '계정에 등록된 이메일이 있으면 6자리 인증 코드를 보냈습니다. 메일이 안 보이면 스팸함도 확인해 주세요. 코드는 10분 동안 유효합니다.';
+    $('#rs-code').focus();
+  }
+
+  $('#form-reset1').addEventListener('submit', function (e) {
+    e.preventDefault();
+    runBusy($('#form-reset1 button[type=submit]'), sendResetCode);
+  });
+
+  $('#btn-reset-resend').addEventListener('click', function () {
+    runBusy($('#btn-reset-resend'), async function () { await sendResetCode(); toast('코드를 다시 보냈습니다. (1분 안에 다시 요청하면 새 코드는 가지 않습니다)'); });
+  });
+
+  $('#form-reset2').addEventListener('submit', function (e) {
+    e.preventDefault();
+    runBusy($('#form-reset2 button[type=submit]'), async function () {
+      if ($('#rs-new').value !== $('#rs-new2').value) throw new Error('새 비밀번호가 서로 다릅니다.');
+      await Api.call('account.resetConfirm', { loginId: $('#rs-id').value.trim(), code: $('#rs-code').value, newPassword: $('#rs-new').value });
+      $('#form-reset2').reset();
+      $('#login-id').value = $('#rs-id').value.trim();
+      show('login');
+      toast('비밀번호를 변경했습니다. 새 비밀번호로 로그인해 주세요.');
     });
   });
 
@@ -734,12 +772,12 @@
       editBtn.addEventListener('click', function () { openAccountForm(a); });
       var badges = [h('span', { class: 'badge ' + (a.active ? 'ok' : '') }, a.active ? '사용' : '중지')];
       if (a.locked) badges.push(' ', h('span', { class: 'badge danger' }, '잠김'));
-      return h('tr', null, h('td', null, a.loginId), h('td', null, a.name), h('td', null, a.role), h('td', null, badges), h('td', null, editBtn));
+      return h('tr', null, h('td', null, a.loginId), h('td', null, a.name), h('td', null, a.role), h('td', { class: 'muted' }, a.email || (a.role === '관리자' ? '이메일 없음' : '')), h('td', null, badges), h('td', null, editBtn));
     }));
     return h('div', { class: 'card' }, h('h2', null, '계정 ', addBtn),
       h('p', { class: 'muted' }, '관리자·데스크 계정입니다. 비밀번호를 새로 정하면 상대방이 첫 로그인 때 직접 바꾸게 되고, 잠김도 풀립니다.'),
       h('div', { class: 'table-wrap' }, h('table', null,
-        h('thead', null, h('tr', null, ['아이디', '이름', '역할', '상태', ''].map(function (t) { return h('th', null, t); }))), tbody)));
+        h('thead', null, h('tr', null, ['아이디', '이름', '역할', '이메일', '상태', ''].map(function (t) { return h('th', null, t); }))), tbody)));
   }
 
   function openAccountForm(a) {
@@ -747,13 +785,18 @@
     var name = h('input', { type: 'text', value: a ? a.name : '' });
     var role = h('select', null, option('데스크', '데스크', !a || a.role === '데스크'), option('방명록', '방명록 (고객 입력 태블릿 전용)', a && a.role === '방명록'), option('관리자', '관리자', a && a.role === '관리자'));
     var pw = h('input', { type: 'text', autocomplete: 'off', placeholder: a ? '바꾸지 않으려면 비워 두세요' : '8자 이상, 영문+숫자' });
+    var email = h('input', { type: 'text', autocomplete: 'off', value: a ? a.email : '', placeholder: 'name@example.com' });
+    var emailField = field('이메일 (비밀번호 초기화 인증 코드를 받는 주소)', email, '관리자 계정만 입력합니다. 비밀번호를 잊었을 때 로그인 화면의 [비밀번호를 잊으셨나요?]에서 이 주소로 인증 코드가 갑니다.');
+    function syncEmail() { emailField.classList.toggle('hidden', role.value !== '관리자'); }
+    role.addEventListener('change', syncEmail);
+    syncEmail();
     var active = h('select', null, option('Y', '사용', !a || a.active), option('N', '사용 중지', a && !a.active));
     modal(a ? '계정 수정' : '계정 추가', h('div', null, field('아이디', loginId), field('이름', name), field('역할', role),
-      field(a ? '새 비밀번호 (선택)' : '임시 비밀번호', pw, '직접 전달해 주세요. 관리자·데스크는 첫 로그인 때 바꾸게 됩니다. 방명록 태블릿 계정은 변경 없이 그대로 씁니다.'), field('상태', active)), [
+      field(a ? '새 비밀번호 (선택)' : '임시 비밀번호', pw, '직접 전달해 주세요. 관리자·데스크는 첫 로그인 때 바꾸게 됩니다. 방명록 태블릿 계정은 변경 없이 그대로 씁니다.'), emailField, field('상태', active)), [
       {
         label: '저장', primary: true, onClick: async function (close) {
           await Api.call('admin.saveAccount', {
-            id: a ? a.id : '', loginId: loginId.value, name: name.value, role: role.value, password: pw.value, active: active.value === 'Y'
+            id: a ? a.id : '', loginId: loginId.value, name: name.value, role: role.value, password: pw.value, active: active.value === 'Y', email: email.value
           });
           close(); await renderSettingsTab(); toast('저장했습니다.');
         }

@@ -1,6 +1,6 @@
 // 통합 테스트: 로컬에서 띄운 서버(wrangler dev)를 실제 HTTP 로 호출한다.
 //   1) node scripts/make-seed.mjs  → 출력된 초기 비밀번호를 ADMIN_PW 로 넘긴다
-//   2) wrangler dev --local --port 8787 --var TELEGRAM_API_BASE:http://127.0.0.1:9999 --var TELEGRAM_TOKEN:testtoken
+//   2) wrangler dev --local --port 8787 --var TELEGRAM_API_BASE:http://127.0.0.1:9999 --var TELEGRAM_TOKEN:testtoken --var RESEND_API_BASE:http://127.0.0.1:9998 --var RESEND_API_KEY:testkey
 //   3) ADMIN_PW=... node test/run.mjs
 // 가짜 텔레그램 서버(포트 9999)를 이 스크립트가 직접 띄워서 호출 메시지를 가로챈다. 실제 텔레그램으로는 보내지 않는다.
 import http from 'node:http';
@@ -28,6 +28,19 @@ const fake = http.createServer((req, res) => {
   });
 });
 await new Promise((r) => fake.listen(9999, '127.0.0.1', r));
+
+// ---------- 가짜 메일 서비스 (Resend 자리) ----------
+const mails = [];
+const fakeMail = http.createServer((req, res) => {
+  let b = '';
+  req.on('data', (d) => { b += d; });
+  req.on('end', () => {
+    mails.push(JSON.parse(b || '{}'));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ id: 'fake' }));
+  });
+});
+await new Promise((r) => fakeMail.listen(9998, '127.0.0.1', r));
 
 // ---------- 도우미 ----------
 let pass = 0, failed = 0;
@@ -129,6 +142,49 @@ try {
   const desk = deskLogin.data.token;
   expectErr('데스크가 관리자 action → 거부', await call('admin.staffList', {}, desk), '권한이 없습니다', 'FORBIDDEN');
   expectErr('설정 규칙 검사', await call('admin.saveSettings', { values: { 'GPS허용거리m': '3' } }, admin), '10~5000');
+
+  // ===== 관리자 비밀번호 이메일 인증 초기화 =====
+  const rAdmin = 'resetadm' + uniq.slice(0, 4), rAdmin2 = 'resetad2' + uniq.slice(0, 4);
+  const rpw0 = 'First' + uniq.slice(0, 4) + 'a1', rpw1 = 'Second' + uniq.slice(0, 4) + 'b2';
+  expectErr('이메일 형식 검사', await call('admin.saveAccount', { loginId: 'bademail' + uniq.slice(0, 3), name: 'x', role: '관리자', password: rpw0, active: true, email: 'abc' }, admin), '이메일');
+  expectOk('이메일 있는 관리자 계정 추가', await call('admin.saveAccount', { loginId: rAdmin, name: '리셋관리자', role: '관리자', password: rpw0, active: true, email: 'Reset@Test.Example' }, admin));
+  expectOk('두 번째 관리자 계정 추가', await call('admin.saveAccount', { loginId: rAdmin2, name: '리셋관리자2', role: '관리자', password: rpw0, active: true, email: 'reset2@test.example' }, admin));
+  const accList0 = (await call('admin.accounts', {}, admin)).data.accounts;
+  check('이메일은 소문자로 저장', accList0.find((a) => a.loginId === rAdmin).email === 'reset@test.example');
+  const deskAcc = accList0.find((a) => a.loginId === 'desk' + uniq.slice(0, 4));
+  expectOk('데스크 계정에 이메일을 넣어도', await call('admin.saveAccount', { id: deskAcc.id, loginId: deskAcc.loginId, name: deskAcc.name, role: '데스크', active: true, email: 'desk@test.example' }, admin));
+  check('데스크 계정에는 이메일이 저장되지 않음', (await call('admin.accounts', {}, admin)).data.accounts.find((a) => a.id === deskAcc.id).email === '');
+
+  const m0 = mails.length;
+  expectOk('없는 아이디도 같은 응답 (계정 존재 여부를 알려주지 않음)', await call('account.resetRequest', { loginId: 'nobody' + uniq }));
+  expectOk('데스크 계정도 같은 응답', await call('account.resetRequest', { loginId: deskAcc.loginId }));
+  check('위 두 경우에는 메일이 가지 않음', mails.length === m0);
+  const oldSession = await call('account.login', { loginId: rAdmin, password: rpw0 });
+  expectOk('인증 코드 요청', await call('account.resetRequest', { loginId: rAdmin }));
+  check('등록된 이메일로 6자리 코드 발송', mails.length === m0 + 1 && mails[m0].to[0] === 'reset@test.example' && /\d{6}/.test(mails[m0].text), mails[m0] ? mails[m0].to[0] : '(없음)');
+  const code1 = /(\d{6})/.exec(mails[m0].text)[1];
+  expectOk('1분 안에 다시 요청해도 같은 응답', await call('account.resetRequest', { loginId: rAdmin }));
+  check('연속 요청은 메일을 또 보내지 않음', mails.length === m0 + 1);
+  expectErr('틀린 코드', await call('account.resetConfirm', { loginId: rAdmin, code: '000000', newPassword: rpw1 }), '올바르지 않');
+  expectErr('코드가 맞아도 약한 새 비밀번호는 거부', await call('account.resetConfirm', { loginId: rAdmin, code: code1, newPassword: 'abc' }), '8자 이상');
+  expectOk('인증 코드로 새 비밀번호 설정', await call('account.resetConfirm', { loginId: rAdmin, code: code1, newPassword: rpw1 }));
+  check('변경 알림 메일 발송', mails.length === m0 + 2 && /변경/.test(mails[m0 + 1].subject));
+  expectErr('이전 비밀번호는 거부', await call('account.login', { loginId: rAdmin, password: rpw0 }), '올바르지 않');
+  const relog = await call('account.login', { loginId: rAdmin, password: rpw1 });
+  expectOk('새 비밀번호로 로그인', relog);
+  check('본인이 정한 비밀번호라 변경 강제 없음', relog.data.account.mustChangePassword === false);
+  expectErr('초기화 전에 로그인해 둔 세션은 무효', await call('auth.logout', {}, oldSession.data.token), null, 'AUTH');
+  expectErr('같은 코드는 다시 쓸 수 없음', await call('account.resetConfirm', { loginId: rAdmin, code: code1, newPassword: rpw0 }), '올바르지 않');
+
+  const m1 = mails.length;
+  expectOk('두 번째 계정 코드 요청', await call('account.resetRequest', { loginId: rAdmin2 }));
+  const code2 = /(\d{6})/.exec(mails[m1].text)[1];
+  for (let i = 1; i <= 4; i++) expectErr('틀린 코드 ' + i + '회', await call('account.resetConfirm', { loginId: rAdmin2, code: '000000', newPassword: rpw1 }), '올바르지 않');
+  expectErr('5회째 틀리면 잠김', await call('account.resetConfirm', { loginId: rAdmin2, code: '000000', newPassword: rpw1 }), '잠겼습니다', 'LOCKED');
+  expectErr('잠긴 뒤에는 맞는 코드도 거부', await call('account.resetConfirm', { loginId: rAdmin2, code: code2, newPassword: rpw1 }), '잠겼습니다', 'LOCKED');
+  expectOk('잠긴 동안 다시 요청해도 같은 응답', await call('account.resetRequest', { loginId: rAdmin2 }));
+  check('잠긴 동안에는 메일을 보내지 않음', mails.length === m1 + 1);
+  expectOk('두 번째 계정은 기존 비밀번호가 그대로', await call('account.login', { loginId: rAdmin2, password: rpw0 }));
 
   // ===== 2단계: 근태 =====
   const tokB = (await call('staff.login', { phone: B.phone, pin: B.pin }, '', B.dev)).data.token;
@@ -498,6 +554,7 @@ try {
   console.log('[실패] 테스트 중 예외: ' + (e && e.stack ? e.stack : e));
 } finally {
   fake.close();
+  fakeMail.close();
 }
 console.log(failed ? `=== 실패 ${failed}건 (통과 ${pass}건) ===` : `=== 전체 통과 (${pass}건) ===`);
 process.exit(failed ? 1 : 0);
