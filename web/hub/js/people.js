@@ -48,7 +48,7 @@
         return d || a.name.localeCompare(b.name, 'ko');
       });
       tbody.innerHTML = '';
-      if (!rows.length) tbody.appendChild(h('tr', null, h('td', { colspan: 6, class: 'muted' }, '해당하는 직원이 없습니다.')));
+      if (!rows.length) tbody.appendChild(h('tr', null, h('td', { colspan: 8, class: 'muted' }, '해당하는 직원이 없습니다.')));
       rows.forEach(function (s) { tbody.appendChild(staffRow(s)); });
     }
     [search, statusSel, jobSel, tgSel].forEach(function (el) { el.addEventListener('input', renderRows); });
@@ -56,7 +56,7 @@
     root.appendChild(h('div', { class: 'toolbar' }, search, statusSel, jobSel, tgSel,
       h('span', { class: 'muted', style: 'align-self:center' }, '총 ' + state.staff.length + '명')));
     root.appendChild(h('div', { class: 'table-wrap' }, h('table', null,
-      h('thead', null, h('tr', null, ['성명(예명)', '휴대폰', '직군 / 소속', '상태', '가입일', '관리'].map(function (t) { return h('th', null, t); }))),
+      h('thead', null, h('tr', null, ['성명(예명)', '휴대폰', '현장', '직급', '직군 / 소속', '상태', '가입일', '관리'].map(function (t) { return h('th', null, t); }))),
       tbody)));
     renderRows();
   }
@@ -113,10 +113,12 @@
       }, 'danger');
     }
 
+    var cur = Hub.currentProject();
     return h('tr', null,
-      h('td', null, h('strong', null, s.name), s.nickname ? ' (' + s.nickname + ')' : '',
-        s.grade && s.grade !== '직원' ? [' ', h('span', { class: 'badge ok' }, s.grade + (s.canApprove ? '·승인권한' : ''))] : null),
+      h('td', null, h('strong', null, s.name), s.nickname ? ' (' + s.nickname + ')' : ''),
       h('td', null, fmtPhone(s.phone)),
+      h('td', null, cur ? cur.name : ''),
+      h('td', null, s.grade || '직원', s.canApprove ? [' ', h('span', { class: 'badge ok' }, '승인권한')] : null),
       h('td', null, org),
       h('td', null, badges),
       h('td', { class: 'muted' }, (s.joinedAt || '').slice(0, 10)),
@@ -197,9 +199,12 @@
 
 
   // 현장 이동: 다른 현장으로 소속을 옮기고 그 현장의 직군·본부·팀을 다시 고른다 (관리자 전용)
-  async function openMoveStaff(s) {
-    var targets = state.projects.filter(function (p) { return p.id !== Api.getProject() && p.status !== '종료'; });
+  // fromId: 직원이 지금 소속된 현장 (전체 현장 검색 결과에서는 선택한 현장과 다를 수 있다)
+  async function openMoveStaff(s, fromId) {
+    fromId = fromId || Api.getProject();
+    var targets = state.projects.filter(function (p) { return p.id !== fromId && p.status !== '종료'; });
     if (!targets.length) { toast('이동할 수 있는 다른 현장이 없습니다.', true); return; }
+    var info = await Api.call('admin.moveInfo', { staffId: s.id }, { projectId: fromId });
     var target = h('select', null, option('', '선택해 주세요'), targets.map(function (p) { return option(p.id, p.name); }));
     var holder = h('div');
     var sel = null;
@@ -215,12 +220,16 @@
       });
     });
     modal('현장 이동 — ' + s.name, h('div', null,
-      h('p', { class: 'muted' }, '이동하면 직급(팀장·본부장)과 승인 권한은 "직원"으로 되돌아가고, 이 직원은 다시 로그인해야 합니다. 지난 출근·예약 기록은 지금 현장에 그대로 남습니다.'),
+      h('p', { class: 'muted' }, '이동하면 직급(팀장·본부장)과 승인 권한은 "직원"으로 되돌아가고, 이 직원은 다시 로그인해야 합니다. 지난 출근·예약 기록은 지금 현장에 그대로 남고, 정산도 그 현장 기록으로 처리됩니다.'),
+      h('p', null, '이번 달 지금 현장 출근 ', h('strong', null, info.attendanceDaysThisMonth + '일'), ' · 아직 방문하지 않은 예약 ', h('strong', null, info.upcomingReservations + '건'),
+        info.upcomingReservations ? ' (이동하면 취소됩니다)' : ''),
       field('이동할 현장', target), holder), [{
         label: '이동', primary: true, onClick: async function (close) {
           if (!sel) throw new Error('이동할 현장을 선택해 주세요.');
-          await Api.call('admin.moveStaff', { staffId: s.id, toProjectId: target.value, job: sel.jobSel.value, headId: sel.headSel.value, teamId: sel.teamSel.value });
-          close(); await refreshStaff(); toast(s.name + ' 님을 이동했습니다.');
+          var mv = await Api.call('admin.moveStaff', { staffId: s.id, toProjectId: target.value, job: sel.jobSel.value, headId: sel.headSel.value, teamId: sel.teamSel.value }, { projectId: fromId });
+          close();
+          if (view === 'all') await runSearchAll(); else await refreshStaff();
+          toast(s.name + ' 님을 이동했습니다.' + (mv.canceledReservations ? ' (예약 ' + mv.canceledReservations + '건 취소)' : ''));
         }
       }]);
   }
@@ -286,11 +295,60 @@
       }]);
   }
 
+
+  // ====================================================================
+  // 전체 현장 검색: 이름·전화번호 일부로 모든 현장(보조관리자는 담당 현장)에서 직원을 찾는다
+  // ====================================================================
+  var allBox = null, allInput = null;
+
+  function searchAllView() {
+    allInput = h('input', { type: 'text', placeholder: '이름·예명·전화번호 일부 (예: 홍길동, 1234)', style: 'min-width:280px' });
+    var go = h('button', { type: 'button', class: 'btn small primary' }, '검색');
+    allBox = h('div');
+    go.addEventListener('click', function () { runBusy(go, runSearchAll); });
+    allInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); runBusy(go, runSearchAll); } });
+    return h('div', null,
+      h('div', { class: 'card' }, h('h2', null, '전체 현장 직원 검색'),
+        h('p', { class: 'muted' }, Hub.isAdmin() ? '모든 현장에서 찾습니다. 다른 현장에 가입된 직원을 확인하거나 현장 이동을 처리할 수 있습니다.' : '담당 현장 안에서 찾습니다.'),
+        h('div', { class: 'toolbar' }, allInput, go)),
+      allBox);
+  }
+
+  async function runSearchAll() {
+    var q = allInput.value.trim();
+    if (!q) { toast('검색어를 입력해 주세요.', true); return; }
+    var res = await Api.call('admin.staffSearchAll', { q: q });
+    allBox.innerHTML = '';
+    var rows = res.staff.map(function (s) {
+      var cell = [];
+      var openBtn = h('button', { type: 'button', class: 'btn small' }, '그 현장 보기');
+      openBtn.addEventListener('click', function () {
+        var sel = document.getElementById('project-select');
+        sel.value = s.projectId;
+        sel.dispatchEvent(new Event('change'));
+      });
+      cell.push(openBtn);
+      if (Hub.isAdmin() && s.status !== '퇴사') {
+        var mv = h('button', { type: 'button', class: 'btn small' }, '현장 이동');
+        mv.addEventListener('click', function () { runBusy(mv, function () { return openMoveStaff(s, s.projectId); }); });
+        cell.push(' ', mv);
+      }
+      return h('tr', null,
+        h('td', null, h('strong', null, s.name), s.nickname ? ' (' + s.nickname + ')' : ''),
+        h('td', null, fmtPhone(s.phone)), h('td', null, s.projectName), h('td', null, s.grade),
+        h('td', null, s.job + (s.headName ? ' / ' + s.headName + ' ' + s.teamName : '')),
+        h('td', null, h('span', { class: 'badge ' + STATUS_BADGE[s.status] }, s.status)), h('td', null, cell));
+    });
+    allBox.appendChild(h('div', { class: 'card' }, h('div', { class: 'muted' }, res.staff.length + '명' + (res.staff.length >= 100 ? ' (최대 100명까지 표시)' : '')),
+      Hub.simpleTable(['성명(예명)', '휴대폰', '현장', '직급', '직군 / 소속', '상태', ''], rows)));
+  }
+
   async function showView() {
     await Promise.all([Hub.loadStaff(), Hub.loadOrgs()]);
     box.innerHTML = '';
     if (view === 'staff') renderStaff(box);
     else if (view === 'orgs') box.appendChild(orgsCard());
+    else if (view === 'all') box.appendChild(searchAllView());
     else box.appendChild(signupLinkCard());
   }
 
@@ -300,7 +358,7 @@
       root.innerHTML = '';
       box = h('div');
       var tabs = h('div', { class: 'sub-tabs no-print' });
-      [['staff', '직원'], ['orgs', '조직 (직군·본부·팀)'], ['link', '가입 링크']].forEach(function (t) {
+      [['staff', '직원'], ['all', '전체 현장 검색'], ['orgs', '조직 (직군·본부·팀)'], ['link', '가입 링크']].forEach(function (t) {
         var b = h('button', { type: 'button', class: 'btn' + (view === t[0] ? ' active' : '') }, t[1]);
         b.addEventListener('click', function () {
           view = t[0];

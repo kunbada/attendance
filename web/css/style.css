@@ -131,10 +131,10 @@ td .btn + .btn { margin-top: 0; margin-left: 4px; }
 .panel-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .panel-actions .btn { width: auto; flex: 1; margin: 0; }
 .bigphone { font-size: 40px; font-weight: 700; color: var(--danger); margin: 8px 0; }
-.st-미확인 { color: var(--danger); font-weight: 700; }
+.st-미확인 { color: var(--warn); font-weight: 700; }
 .st-확인함 { color: var(--ok); font-weight: 700; }
 .st-호출함 { color: var(--warn); font-weight: 700; }
-.st-미호출 { color: var(--danger); font-weight: 700; }
+.st-미호출 { color: var(--muted); font-weight: 700; }
 
 /* 방명록 태블릿 (고객용: 크게, 터치하기 쉽게) */
 body.kiosk { background: #eef3fb; font-size: 20px; }

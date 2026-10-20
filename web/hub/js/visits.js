@@ -56,11 +56,11 @@
 
     var visCsv = h('button', { type: 'button', class: 'btn small' }, 'CSV 다운로드');
     visCsv.addEventListener('click', function () {
-      downloadCsv('방문_' + q.from + '_' + q.to + '.csv', [['방문일시', '뒤5자리', '성별', '구분', '담당직원', '직군', '본부', '팀', '호출일시', '확인일시']].concat(
+      downloadCsv('호출_' + q.from + '_' + q.to + '.csv', [['호출일시', '뒤5자리', '성별', '구분', '담당직원', '직군', '본부', '팀', '호출일시', '확인일시']].concat(
         vs.map(function (v) { return [v.at, v.last5, v.gender, v.kind, v.staff ? v.staff.name : '', v.staff ? v.staff.job : '', v.staff ? v.staff.headName : '', v.staff ? v.staff.teamName : '', v.calledAt, v.ackedAt]; })));
     });
-    box.appendChild(h('div', { class: 'card' }, h('h2', null, '방문 (' + vs.length + '건) '), h('div', { class: 'toolbar' }, visCsv),
-      simpleTable(['방문일시', '뒤5자리', '성별', '구분', '담당직원', '호출', '확인'], vs.map(function (v) {
+    box.appendChild(h('div', { class: 'card' }, h('h2', null, '호출 (' + vs.length + '건) '), h('div', { class: 'toolbar' }, visCsv),
+      simpleTable(['호출일시', '뒤5자리', '성별', '구분', '담당직원', '호출', '확인'], vs.map(function (v) {
         return h('tr', null, h('td', null, v.at), h('td', null, v.last5), h('td', null, v.gender), h('td', null, v.kind),
           h('td', null, v.staff ? nameCell(v.staff) : '-'), h('td', null, v.calledAt.slice(11, 16)), h('td', null, v.ackedAt.slice(11, 16)));
       }))));
@@ -157,7 +157,7 @@
       root.innerHTML = '';
       var box = h('div');
       var tabs = h('div', { class: 'sub-tabs no-print' });
-      [['visits', '예약·방문 현황'], ['guestbook', '방명록']].forEach(function (t) {
+      [['visits', '예약·호출 현황'], ['guestbook', '방명록 (방문 통계)']].forEach(function (t) {
         var b = h('button', { type: 'button', class: 'btn' + (view === t[0] ? ' active' : '') }, t[1]);
         b.addEventListener('click', function () {
           view = t[0];

@@ -43,10 +43,19 @@ export async function resolveOrg(env, projectId, job, headId, teamId, allowNoTea
 
 // 대기·활동 직원 중 이 기기를 이미 쓰는 사람이 있는지 (1폰 1인)
 export async function deviceInUse(env, deviceKey, exceptStaffId) {
-  return !!(await first(env,
-    `SELECT 1 FROM staff WHERE status IN ('대기', '활동') AND id <> ? AND (device_key = ? OR device_change_request = ?) LIMIT 1`,
-    exceptStaffId, deviceKey, deviceKey));
+  return !!(await deviceHolder(env, deviceKey, exceptStaffId));
 }
+
+// 이 기기를 이미 쓰는 사람 (어느 현장 누구인지 안내 문구에 쓴다)
+async function deviceHolder(env, deviceKey, exceptStaffId) {
+  return first(env,
+    `SELECT s.phone, s.status, p.name AS project_name FROM staff s LEFT JOIN projects p ON p.id = s.project_id
+     WHERE s.status IN ('대기', '활동') AND s.id <> ? AND (s.device_key = ? OR s.device_change_request = ?) LIMIT 1`,
+    exceptStaffId, deviceKey, deviceKey);
+}
+
+const maskPhone = (d) => (d.length >= 7 ? d.slice(0, 3) + '-****-' + d.slice(-4) : '****');
+const where = (name) => (name ? (name.endsWith('현장') ? name : name + ' 현장') : '다른 현장');
 
 export async function checkPin(env, row, pin) {
   const lockedMsg = 'PIN을 5회 잘못 입력해 잠겼습니다. 관리자에게 PIN 초기화를 요청해 주세요.';
@@ -123,12 +132,22 @@ export async function staffSignup(env, data, ctx) {
 
   const existing = await first(env, 'SELECT * FROM staff WHERE phone = ?', phone);
   if (existing) {
-    if (existing.status === '대기') throw new AppError('이미 가입 신청되어 승인 대기 중인 번호입니다.');
-    if (existing.status === '활동') throw new AppError('이미 가입된 번호입니다. 로그인해 주세요.');
+    const other = existing.project_id !== project.id;
+    const at = other ? (await first(env, 'SELECT name FROM projects WHERE id = ?', existing.project_id) || {}).name : '';
+    if (existing.status === '대기' || existing.status === '활동') {
+      // 다른 현장에 이미 있으면 그 현장을 알려 준다 (현장 이동은 관리자가 처리)
+      if (other) throw new AppError(where(at) + '에 ' + (existing.status === '대기' ? '가입 신청되어 있습니다' : '가입되어 있습니다') + '. 해당 현장으로 로그인하거나 관리자에게 현장 이동을 요청해 주세요.');
+      if (existing.status === '대기') throw new AppError('이미 가입 신청되어 승인 대기 중인 번호입니다.');
+      throw new AppError('이미 가입된 번호입니다. 로그인해 주세요.');
+    }
     if (existing.status === '퇴사') throw new AppError('가입할 수 없는 번호입니다. 관리자에게 문의해 주세요.');
   }
   const staffId = existing ? existing.id : newId('S');
-  if (await deviceInUse(env, deviceKey, staffId)) throw new AppError('이 휴대폰은 이미 다른 직원으로 등록되어 있습니다.');
+  const devUser = await deviceHolder(env, deviceKey, staffId);
+  if (devUser) {
+    throw new AppError('이 휴대폰은 이미 ' + maskPhone(devUser.phone) + ' 번호로 ' + where(devUser.project_name) + '에 ' + (devUser.status === '대기' ? '가입 신청' : '가입') +
+      '되어 있습니다. 휴대폰 한 대에는 한 명만 가입할 수 있습니다. 같은 분이면 그 번호로 로그인하고, 아니면 관리자에게 문의해 주세요.');
+  }
 
   const now = nowStr();
   const pinHash = await hashSecret(env, pin);
@@ -211,7 +230,8 @@ export async function staffRequestDeviceChange(env, data, ctx) {
   await checkPin(env, row, pin);
   if (row.status !== '활동') throw new AppError('승인된 직원만 기기 변경을 요청할 수 있습니다.');
   if (row.device_key === newKey) throw new AppError('이미 이 휴대폰이 등록되어 있습니다. 바로 로그인해 주세요.');
-  if (await deviceInUse(env, newKey, row.id)) throw new AppError('이 휴대폰은 이미 다른 직원에게 등록되어 있습니다.');
+  const holder = await deviceHolder(env, newKey, row.id);
+  if (holder) throw new AppError('이 휴대폰은 이미 ' + maskPhone(holder.phone) + ' 번호로 ' + where(holder.project_name) + '에 등록되어 있습니다.');
 
   await run(env, 'UPDATE staff SET device_change_request = ? WHERE id = ?', newKey, row.id);
   await writeLog(env, row.name, '기기변경요청', row.id, '', row.project_id);

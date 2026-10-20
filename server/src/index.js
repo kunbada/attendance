@@ -5,7 +5,7 @@ import { AppError, s } from './core/util.js';
 import { authenticate, accountLogin, accountMe, accountChangePassword, authLogout, accountResetRequest, accountResetConfirm } from './core/auth.js';
 import { publicOrgs, deskOrgs, staffSignup, staffLogin, staffMe, staffRequestDeviceChange } from './core/staff.js';
 import {
-  adminStaffList, adminApprove, adminReject, adminUpdate, adminRetire, adminResetPin, adminApproveDevice, adminMoveStaff,
+  adminStaffList, adminApprove, adminReject, adminUpdate, adminRetire, adminResetPin, adminApproveDevice, adminMoveStaff, adminMoveInfo, adminStaffSearchAll,
   adminPayrollGet, adminPayrollReveal
 } from './core/people.js';
 import { adminOrgs, adminSaveOrg } from './core/orgs.js';
@@ -77,6 +77,8 @@ const ACTIONS = {
   'admin.resetPin': { roles: MGR, fn: adminResetPin },
   'admin.approveDevice': { roles: MGR, fn: adminApproveDevice },
   'admin.moveStaff': { roles: ['admin'], fn: adminMoveStaff },
+  'admin.moveInfo': { roles: ['admin'], fn: adminMoveInfo },
+  'admin.staffSearchAll': { roles: MGR, scope: 'global', fn: adminStaffSearchAll },
   'admin.payrollGet': { roles: MGR, fn: adminPayrollGet },
   'admin.payrollReveal': { roles: MGR, fn: adminPayrollReveal }, // 보조관리자는 계정에 허용된 경우만 (함수 안에서 확인)
   'admin.currentQr': { roles: MGR, fn: adminCurrentQr },

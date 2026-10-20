@@ -5,6 +5,7 @@ import { DEFAULT_JOBS } from './orgs.js';
 
 const STATUSES = ['준비', '진행', '종료'];
 const MONEY_LABELS = ['분양가', '임대보증금'];
+export const KINDS = ['아파트', '오피스텔', '상가', '기타'];
 const isDate = (v) => v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v);
 
 // 새 현장에 넣어 주는 기본 설정
@@ -33,7 +34,7 @@ export async function projectSave(env, data, ctx) {
   const name = s(data.name).trim();
   if (!name || name.length > 40) throw new AppError('현장 이름을 입력해 주세요. (40자 이내)');
   const kind = s(data.kind).trim();
-  if (kind.length > 20) throw new AppError('유형은 20자 이내로 입력해 주세요.');
+  if (kind && !KINDS.includes(kind)) throw new AppError('유형은 ' + KINDS.join(' / ') + ' 중에서 선택해 주세요.');
   const address = s(data.address).trim();
   const client = s(data.client).trim();
   if (address.length > 100 || client.length > 60) throw new AppError('주소·시행사 입력이 너무 깁니다.');

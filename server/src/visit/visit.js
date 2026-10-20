@@ -19,6 +19,9 @@ function deskStaffView(r, names) {
   };
 }
 
+// 다른 현장으로 이동한 직원: 이름만 보여 준다
+const movedStaffView = (r) => ({ id: r.id, name: r.name + ' (타 현장 이전)', nickname: '', job: '', grade: '', headName: '', teamName: '', telegramLinked: false, phone: '', moved: true });
+
 export async function deskLookup(env, data, ctx) {
   const pid = ctx.projectId;
   const last5 = requireLast5(data.last5);
@@ -42,6 +45,7 @@ export async function deskLookup(env, data, ctx) {
 export async function deskSearchStaff(env, data, ctx) {
   const pid = ctx.projectId;
   const q = s(data.q).trim().toLowerCase().replace(/[^0-9a-z가-힣 ]/g, '');
+  if (!q) return { staff: [] }; // 검색어 없이는 아무도 보여 주지 않는다 (전체 명단 노출·속도 문제 방지)
   const names = await orgNameMap(env, pid);
   const conds = [`s.project_id = ?`, `s.status = '활동'`];
   const params = [pid];
@@ -76,10 +80,12 @@ export async function deskReservationList(env, data, ctx) {
     date,
     reservations: rows.map((r) => {
       const status = effectiveStatus({ status: r.rstatus, visit_date: r.visit_date });
+      // 담당 직원이 다른 현장으로 이동했으면 이름만 남기고 전화번호·호출은 숨긴다 (지난 기록 확인용)
+      const here = !!r.id && r.project_id === pid;
       return {
         id: r.rid, last5: r.last5, gender: r.gender, memo: r.memo, status,
-        staff: r.id ? deskStaffView(r, names) : null,
-        callable: status === '예정' && date === todayStr() && r.status === '활동'
+        staff: here ? deskStaffView(r, names) : r.id ? movedStaffView(r) : null,
+        callable: here && status === '예정' && date === todayStr() && r.status === '활동'
       };
     })
   };
@@ -186,17 +192,26 @@ function matchOrg(staff, data) {
 const rangeFrom = (data) => (s(data.from) || '0000-00-00');
 const rangeTo = (data) => (s(data.to) || '9999-12-31');
 
-async function staffMap(env, pid) {
+// 이 현장 직원 + (다른 현장으로 이동한 직원은 이름만) — 지난 예약·방문 기록의 담당자 표시용
+async function staffMap(env, pid, ids) {
   const byId = {};
   (await all(env, 'SELECT * FROM staff WHERE project_id = ?', pid)).forEach((r) => { byId[r.id] = r; });
+  const missing = [...new Set(ids)].filter((id) => id && !byId[id]);
+  for (let i = 0; i < missing.length; i += 80) {
+    const part = missing.slice(i, i + 80);
+    (await all(env, `SELECT id, name FROM staff WHERE id IN (${part.map(() => '?').join(',')})`, ...part)).forEach((r) => {
+      byId[r.id] = { id: r.id, name: r.name + ' (타 현장 이전)', nickname: '', job: '', head_id: '', team_id: '' };
+    });
+  }
   return byId;
 }
 
 export async function adminReservations(env, data, ctx) {
   const pid = ctx.projectId;
   const names = await orgNameMap(env, pid);
-  const staffById = await staffMap(env, pid);
-  const rows = (await all(env, 'SELECT * FROM reservations WHERE project_id = ? AND visit_date >= ? AND visit_date <= ? ORDER BY visit_date DESC', pid, rangeFrom(data), rangeTo(data)))
+  const found = await all(env, 'SELECT * FROM reservations WHERE project_id = ? AND visit_date >= ? AND visit_date <= ? ORDER BY visit_date DESC', pid, rangeFrom(data), rangeTo(data));
+  const staffById = await staffMap(env, pid, found.map((r) => r.staff_id));
+  const rows = found
     .filter((r) => matchOrg(staffById[r.staff_id], data)).slice(0, 3000)
     .map((r) => ({
       date: r.visit_date, last5: r.last5, gender: r.gender, staff: staffById[r.staff_id] ? staffBrief(staffById[r.staff_id], names) : null,
@@ -208,10 +223,11 @@ export async function adminReservations(env, data, ctx) {
 export async function adminVisits(env, data, ctx) {
   const pid = ctx.projectId;
   const names = await orgNameMap(env, pid);
-  const staffById = await staffMap(env, pid);
   const filtering = !!(s(data.staffId) || s(data.headId) || s(data.teamId));
-  const rows = (await all(env, 'SELECT * FROM visits WHERE project_id = ? AND visited_at >= ? AND visited_at <= ? ORDER BY visited_at DESC',
-    pid, rangeFrom(data) + ' 00:00:00', rangeTo(data) + ' 23:59:59'))
+  const found = await all(env, 'SELECT * FROM visits WHERE project_id = ? AND visited_at >= ? AND visited_at <= ? ORDER BY visited_at DESC',
+    pid, rangeFrom(data) + ' 00:00:00', rangeTo(data) + ' 23:59:59');
+  const staffById = await staffMap(env, pid, found.map((v) => v.staff_id));
+  const rows = found
     .filter((v) => {
       const st = staffById[v.staff_id];
       return st ? matchOrg(st, data) : !filtering;

@@ -115,7 +115,7 @@ try {
   expectErr('영업 직군인데 팀 없음 → 거부', await call('staff.signup', base(A, { job: '영업' }), '', A.dev), '본부');
   expectOk('가입 신청', await call('staff.signup', base(A), '', A.dev));
   expectErr('같은 번호 중복 가입 거부', await call('staff.signup', base(A), '', NEWDEV), '승인 대기');
-  expectErr('같은 기기로 다른 번호 가입 거부', await call('staff.signup', base(B), '', A.dev), '다른 직원으로 등록');
+  expectErr('같은 기기로 다른 번호 가입 거부', await call('staff.signup', base(B), '', A.dev), '한 명만 가입할 수 있습니다');
   expectErr('승인 전 로그인 거부', await call('staff.login', { phone: A.phone, pin: A.pin }, '', A.dev), '승인을 기다리는');
   expectErr('직원 토큰 없이 관리자 action 거부', await call('admin.staffList', {}, 'x'), '로그인이 필요', 'AUTH');
   const list = (await call('admin.staffList', {}, admin)).data.staff;
@@ -396,8 +396,9 @@ try {
   expectErr('직원은 예약명단 조회 불가', await call('desk.reservationList', { date: today }, tokA3, A.dev), '권한');
 
   // 직원 검색
-  const all0 = await call('desk.searchStaff', { q: '' }, desk);
-  check('직원 전체 리스트 (활동 직원, 전화번호 포함)', all0.ok && all0.data.staff.length >= 5 && all0.data.staff.every((x) => /^010-/.test(x.phone)), all0.ok ? String(all0.data.staff.length) : all0.error);
+  check('검색어가 없으면 아무 직원도 보여 주지 않음', (await call('desk.searchStaff', { q: '' }, desk)).data.staff.length === 0 && (await call('desk.searchStaff', {}, desk)).data.staff.length === 0);
+  const all0 = await call('desk.searchStaff', { q: '테스트' }, desk);
+  check('이름 일부로 검색한 리스트 (활동 직원, 전화번호 포함)', all0.ok && all0.data.staff.length >= 3 && all0.data.staff.every((x) => /^010-/.test(x.phone)), all0.ok ? String(all0.data.staff.length) : all0.error);
   const heads = all0.data.staff.map((x) => x.headName);
   check('전체 리스트는 본부 → 팀 → 이름 순', heads.every((h, i) => i === 0 || (heads[i - 1] || '힣') <= (h || '힣') || (heads[i - 1] !== '' && h === '')));
   check('이름으로 검색', (await call('desk.searchStaff', { q: M.name }, desk)).data.staff.some((x) => x.id === idM));
@@ -573,9 +574,10 @@ try {
   check('첫 현장(P01, 코드 site1)이 있음', plist.data.projects.some((p) => p.id === P1 && p.code === 'site1'));
   expectErr('현장 코드 형식 검사', await call('project.save', { name: 'B현장', code: 'A_B' }, admin, '', null), '현장 코드');
   expectErr('현장 이름 필수', await call('project.save', { name: ' ' }, admin, '', null), '이름');
+  expectErr('유형은 목록에서만 선택', await call('project.save', { name: 'x', kind: '우주기지' }, admin, '', null), '유형');
   expectErr('현장 상태 검사', await call('project.save', { name: 'x', status: '??' }, admin, '', null), '상태');
   const codeB = 'siteb' + uniq.slice(0, 3);
-  const pB = await call('project.save', { name: 'B현장', code: codeB, kind: 'APT', status: '진행', moneyLabel: '분양가' }, admin, '', null);
+  const pB = await call('project.save', { name: 'B현장', code: codeB, kind: '아파트', status: '진행', moneyLabel: '분양가' }, admin, '', null);
   expectOk('현장 생성 (B현장)', pB);
   const P2 = pB.data.id;
   expectErr('현장 코드 중복 거부', await call('project.save', { name: 'C현장', code: codeB }, admin, '', null), '이미 사용');
@@ -727,7 +729,8 @@ try {
   expectErr('데스크 B 가 P01 직원을 지명 호출 → 거부', await call('desk.registerVisit', { kind: '지명', staffId: idA }, deskB, '', null), '활동 중이 아닙니다');
   expectErr('데스크 B 가 P01 방문 기록을 재호출 → 거부', await call('desk.recall', { visitId: reg.data.visitId }, deskB, '', null), '방문 기록을 찾을 수 없습니다');
   expectErr('데스크 B 가 P01 예약으로 방문 접수 → 거부', await call('desk.registerVisit', { kind: '예약', reservationId: mine.id, last5: r5 }, deskB, '', null), '오늘 예약을 찾을 수 없습니다');
-  check('데스크 B 직원 검색에는 B현장 직원만', (await call('desk.searchStaff', { q: '' }, deskB, '', null)).data.staff.every((x) => x.id === idS1));
+  const srB = (await call('desk.searchStaff', { q: '테스트' }, deskB, '', null)).data.staff;
+  check('데스크 B 직원 검색에는 B현장 직원만', srB.length === 1 && srB[0].id === idS1);
   check('데스크 B 예약명단에는 B현장 예약만', (await call('desk.reservationList', { date: today }, deskB, '', null)).data.reservations.every((x) => x.staff && x.staff.id === idS1));
   const gB = '010' + rnd();
   expectOk('방명록 B 제출', await call('guest.submit', { name: 'B고객' + uniq, phone: gB, companions: 0, consent: true }, kioskB, '', null));
@@ -768,7 +771,34 @@ try {
   expectErr('종료된 현장으로는 이동 불가', await call('admin.moveStaff', { staffId: idA, toProjectId: pC.data.id, job: '상담사' }, admin, '', P1), '종료된 현장');
   expectErr('이동할 현장에 없는 직군 → 거부', await call('admin.moveStaff', { staffId: idA, toProjectId: P2, job: '없는직군' }, admin, '', P1), '직군');
   expectErr('영업 직군은 새 현장의 본부/팀을 골라야 함', await call('admin.moveStaff', { staffId: idA, toProjectId: P2, job: '영업', headId: 'OH01', teamId: 'OT011' }, admin, '', P1), '본부');
-  expectOk('P01 직원 A 를 B현장으로 이동', await call('admin.moveStaff', { staffId: idA, toProjectId: P2, job: '상담사' }, admin, '', P1));
+
+  // --- 가입 안내 메시지 / 전체 현장 검색 / 이동 시 예약 처리 ---
+  const A2x = () => ({ ...A, dev: 'dev-a2-' + uniq + '-xxxx' });
+  const SX = person(31);
+  expectErr('다른 현장에 가입된 번호로 가입 → 어느 현장인지 안내', await call('staff.signup', base(S1, { projectCode: 'site1' }), '', 'dev-new-' + uniq + '-xxxx'), 'B현장에 가입되어 있습니다');
+  expectErr('같은 번호가 다른 현장 링크로 가입 시도 → 이동 안내', await call('staff.signup', base(A2x(), { projectCode: codeB }), '', 'dev-new2-' + uniq + '-xxxx'), '현장 이동을 요청');
+  expectErr('같은 휴대폰으로 다른 번호 가입 → 기존 번호(마스킹)와 현장 안내', await call('staff.signup', base(SX, { projectCode: 'site1' }), '', S1.dev), '010-****-' + S1.phone.slice(-4));
+  const srAdmin = await call('admin.staffSearchAll', { q: S1.name }, admin, '', null);
+  check('전체 현장 검색 (관리자): 현장명·직급 포함', srAdmin.ok && srAdmin.data.staff.length === 1 && srAdmin.data.staff[0].projectName === 'B현장' && srAdmin.data.staff[0].grade === '직원');
+  check('전체 현장 검색은 전화번호 일부로도 가능', (await call('admin.staffSearchAll', { q: S1.phone.slice(-6) }, admin, '', null)).data.staff.some((x) => x.id === idS1));
+  expectErr('전체 현장 검색은 검색어 필수', await call('admin.staffSearchAll', { q: ' ' }, admin, '', null), '검색어');
+  check('보조관리자 A 는 담당 외 현장(B현장) 직원이 검색되지 않음', (await call('admin.staffSearchAll', { q: S1.name }, subA, '', null)).data.staff.length === 0);
+  check('보조관리자 B 는 자기 현장 직원을 검색함', (await call('admin.staffSearchAll', { q: S1.name }, subB, '', null)).data.staff.length === 1);
+  expectErr('데스크는 전체 현장 검색 불가', await call('admin.staffSearchAll', { q: S1.name }, deskA, '', null), '권한');
+  // 이동: 아직 방문하지 않은 예약은 취소, 지난/방문 기록은 이름만 남김
+  const rMv = last5();
+  expectOk('이동 전 직원 A 의 새 예약', await call('reservation.create', { last5: rMv, date: today, gender: '남' }, tokA3, A.dev));
+  const mvInfo = await call('admin.moveInfo', { staffId: idA }, admin, '', P1);
+  check('이동 전 요약: 이번 달 출근일수와 예정 예약 수', mvInfo.ok && mvInfo.data.attendanceDaysThisMonth >= 1 && mvInfo.data.upcomingReservations >= 1, JSON.stringify(mvInfo.data));
+  const mvRes = await call('admin.moveStaff', { staffId: idA, toProjectId: P2, job: '상담사' }, admin, '', P1);
+  expectOk('직원 A 를 B현장으로 이동', mvRes);
+  check('이동 응답에 취소된 예약 수', mvRes.data.canceledReservations >= 1);
+  const rlMv = (await call('desk.reservationList', { date: today }, deskA, '', null)).data.reservations;
+  const cancelled = rlMv.find((r) => r.last5 === rMv);
+  check('이동 전 방문하지 않은 예약은 취소 처리되고 호출 불가·전화번호 없음', cancelled && cancelled.status === '취소' && cancelled.callable === false && (!cancelled.staff || cancelled.staff.phone === ''), JSON.stringify(cancelled));
+  check('이동한 직원의 지난 예약(방문 완료)은 이름만 보이고 호출·전화번호 없음', rlMv.filter((r) => r.staff && r.staff.id === idA).every((r) => r.callable === false && r.staff.phone === '' && /타 현장 이전/.test(r.staff.name)));
+  check('조회에서는 이동한 직원이 담당자로 나오지 않음', (await call('desk.lookup', { last5: rMv }, deskA, '', null)).data.reservations.every((r) => !r.staff || r.staff.id !== idA));
+  check('관리자 예약 현황: 이동한 직원은 이름 + (타 현장 이전)', (await call('admin.reservations', { from: today, to: today }, admin, '', P1)).data.reservations.some((r) => r.staff && /타 현장 이전/.test(r.staff.name)));
   expectErr('이동하면 이전 로그인은 무효', await call('staff.me', {}, tokA3, A.dev, null), null, 'AUTH');
   const reA = await call('staff.login', { phone: A.phone, pin: A.pin }, '', A.dev, null);
   check('다시 로그인하면 B현장으로 들어감', reA.ok && reA.data.project.id === P2 && reA.data.staff.grade === '직원');

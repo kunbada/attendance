@@ -1,5 +1,5 @@
 // 관리자·보조관리자 action: 직원(인력) 관리, 급여정보, 현장 이동. 모두 ctx.projectId 현장의 직원만 다룬다.
-import { AppError, s, all, first, run, nowStr, hashSecret, decryptText, orgNameMap, writeLog } from './util.js';
+import { AppError, s, all, first, run, nowStr, todayStr, hashSecret, decryptText, orgNameMap, writeLog } from './util.js';
 import { MAX_FAILS, destroyUserSessions } from './auth.js';
 import { normalizePhone, resolveOrg, deviceInUse, checkGrade } from './staff.js';
 
@@ -111,8 +111,46 @@ export async function adminMoveStaff(env, data, ctx) {
   await run(env, `UPDATE staff SET project_id = ?, job = ?, head_id = ?, team_id = ?, grade = '직원', can_approve = 0 WHERE id = ? AND project_id = ?`,
     to.id, org.job, org.headId, org.teamId, row.id, ctx.projectId);
   await destroyUserSessions(env, 'staff', row.id); // 다시 로그인하면 새 현장으로 들어간다
-  await writeLog(env, adminName(ctx), '직원현장이동', row.id, row.name + ' / ' + ctx.project.name + ' → ' + to.name, ctx.projectId);
-  return {};
+  // 아직 방문하지 않은 예약(오늘 이후 '예정')은 이 직원이 더 이상 이 현장 담당이 아니므로 취소한다 (데스크 명단에 이름·호출이 남지 않게).
+  // 이미 방문했거나 지난 예약은 이전 현장의 기록으로 그대로 남는다.
+  const cancel = await run(env,
+    `UPDATE reservations SET status = '취소', memo = substr(memo || ' [담당자 현장 이동으로 취소]', 1, 200)
+     WHERE project_id = ? AND staff_id = ? AND status = '예정' AND visit_date >= ?`, ctx.projectId, row.id, todayStr());
+  const canceled = cancel.meta.changes || 0;
+  await writeLog(env, adminName(ctx), '직원현장이동', row.id, row.name + ' / ' + ctx.project.name + ' → ' + to.name + (canceled ? ' / 예약 ' + canceled + '건 취소' : ''), ctx.projectId);
+  return { canceledReservations: canceled };
+}
+
+// 이전 현장에 남는 실적(정산 전 근태)을 이동 전에 알려 주기 위한 요약 (이동 확인 창에서 사용)
+export async function adminMoveInfo(env, data, ctx) {
+  const row = await findStaffOrThrow(env, data.staffId, ctx.projectId);
+  const month = todayStr().slice(0, 7);
+  const days = await first(env, `SELECT COUNT(DISTINCT date) AS n FROM attendance WHERE project_id = ? AND staff_id = ? AND result = '성공' AND date >= ?`, ctx.projectId, row.id, month + '-01');
+  const upcoming = await first(env, `SELECT COUNT(*) AS n FROM reservations WHERE project_id = ? AND staff_id = ? AND status = '예정' AND visit_date >= ?`, ctx.projectId, row.id, todayStr());
+  return { attendanceDaysThisMonth: days ? days.n : 0, upcomingReservations: upcoming ? upcoming.n : 0 };
+}
+
+// 모든 현장에서 직원 찾기 (이름·예명·전화번호 일부). 관리자는 전체 현장, 보조관리자는 담당 현장 안에서만 찾는다.
+export async function adminStaffSearchAll(env, data, ctx) {
+  const q = s(data.q).trim().toLowerCase().replace(/[%_]/g, ''); // LIKE 특수문자 제거
+  if (!q) throw new AppError('검색어를 입력해 주세요. (이름·예명·전화번호 일부)');
+  const digits = q.replace(/\D/g, '');
+  const like = '%' + q + '%';
+  let cond = 'lower(s.name) LIKE ? OR lower(s.nickname) LIKE ?';
+  const params = [like, like];
+  if (digits.length >= 2) { cond += ' OR s.phone LIKE ?'; params.push('%' + digits + '%'); }
+  let scope = '';
+  if (ctx.role !== 'admin') { scope = ' AND s.project_id IN (SELECT project_id FROM account_projects WHERE account_id = ?)'; params.push(ctx.account.id); }
+  const rows = await all(env,
+    `SELECT s.id, s.name, s.nickname, s.phone, s.job, s.grade, s.status, s.project_id, p.name AS project_name, h.name AS head_name, t.name AS team_name
+     FROM staff s JOIN projects p ON p.id = s.project_id LEFT JOIN orgs h ON h.id = s.head_id LEFT JOIN orgs t ON t.id = s.team_id
+     WHERE (${cond})${scope} ORDER BY p.created_at, s.name LIMIT 100`, ...params);
+  return {
+    staff: rows.map((r) => ({
+      id: r.id, name: r.name, nickname: r.nickname, phone: r.phone, job: r.job, grade: r.grade, status: r.status,
+      projectId: r.project_id, projectName: r.project_name, headName: r.head_name || '', teamName: r.team_name || ''
+    }))
+  };
 }
 
 // ---------- 급여정보 (암호화되어 저장됨) ----------

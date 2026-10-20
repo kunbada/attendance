@@ -28,7 +28,7 @@
     root.appendChild(h('div', { class: 'toolbar' }, h('strong', null, t.date + ' 오늘 현황'), reload));
     root.appendChild(h('div', { class: 'summary' },
       statCard('오늘 출근', t.attendance + ' / ' + t.activeStaff, '출근율 ' + t.attendanceRate + '%'),
-      statCard('오늘 예약', t.reservations), statCard('오늘 방문 접수', t.visits),
+      statCard('오늘 예약', t.reservations), statCard('오늘 호출', t.visits),
       statCard('담당 없음', t.noStaffVisits),
       statCard('방명록 (팀 / 방문객)', t.guestTeams + ' / ' + t.guestPeople, '워킹 ' + t.walkIn + '팀'),
       statCard('승인 대기 직원', t.pendingStaff, t.guestPending ? '방명록 확인 필요 ' + t.guestPending : '')));
@@ -43,7 +43,7 @@
       };
       dashChart = new Chart(canvas, {
         type: 'line',
-        data: { labels: labels, datasets: [line('출근', 'attendance', '#2563eb'), line('예약', 'reservations', '#d97706'), line('방문 접수', 'visits', '#16a34a'), line('방명록 방문객', 'guestPeople', '#7c3aed')] },
+        data: { labels: labels, datasets: [line('출근', 'attendance', '#2563eb'), line('예약', 'reservations', '#d97706'), line('호출', 'visits', '#16a34a'), line('방명록 방문객', 'guestPeople', '#7c3aed')] },
         options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
       });
     } else {

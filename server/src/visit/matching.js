@@ -30,17 +30,17 @@ export async function computeMatches(env, projectId, items, date) {
     resv.push(...await all(env,
       `SELECT r.id, r.last5, r.gender, r.visit_date, r.status, r.staff_id, r.created_at,
               s.name AS s_name, s.status AS s_status, s.head_id AS s_head, s.team_id AS s_team
-       FROM reservations r LEFT JOIN staff s ON s.id = r.staff_id
+       FROM reservations r LEFT JOIN staff s ON s.id = r.staff_id AND s.project_id = r.project_id
        WHERE r.project_id = ? AND r.last5 IN (${ph}) AND ((r.status = '예정' AND r.visit_date >= ?) OR (r.status = '방문' AND r.visit_date = ?))`, projectId, ...part, date, date));
     hist.push(...await all(env,
       `SELECT g.id, g.phone, g.last5, g.visit_date, g.created_at, g.staff_id,
               s.name AS s_name, s.status AS s_status, s.head_id AS s_head, s.team_id AS s_team
-       FROM guestbook g LEFT JOIN staff s ON s.id = g.staff_id WHERE g.project_id = ? AND g.last5 IN (${ph}) AND g.visit_date <= ?`, projectId, ...part, date));
+       FROM guestbook g LEFT JOIN staff s ON s.id = g.staff_id AND s.project_id = g.project_id WHERE g.project_id = ? AND g.last5 IN (${ph}) AND g.visit_date <= ?`, projectId, ...part, date));
     // 방명록으로 호출한 방문(kind=방명록)은 방명록 기록에 이미 들어 있으니 중복해서 세지 않는다
     vis.push(...await all(env,
       `SELECT v.id, v.last5, v.visited_at, v.staff_id, v.kind,
               s.name AS s_name, s.status AS s_status, s.head_id AS s_head, s.team_id AS s_team
-       FROM visits v LEFT JOIN staff s ON s.id = v.staff_id
+       FROM visits v LEFT JOIN staff s ON s.id = v.staff_id AND s.project_id = v.project_id
        WHERE v.project_id = ? AND v.last5 IN (${ph}) AND v.visited_at < ? AND v.kind <> '방명록'`, projectId, ...part, date + ' 00:00:00'));
   }
 

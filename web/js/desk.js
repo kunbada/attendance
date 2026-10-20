@@ -337,29 +337,40 @@
     var root = $('#dtab-staff');
     root.innerHTML = '';
     var flash = h('div');
-    var cust = h('input', { type: 'tel', inputMode: 'numeric', maxLength: 5, placeholder: '고객 뒤 5자리(선택)', style: INPUT_STYLE + ';width:160px;font-size:20px;font-weight:700' });
-    bindFormat(cust, onlyDigits);
-    var q = h('input', { type: 'text', placeholder: '검색: 이름·예명·전화번호 일부·본부·팀 (비우면 전체)', style: INPUT_STYLE + ';min-width:320px' });
+    var q = h('input', { type: 'text', placeholder: '직원 이름·예명·전화번호 일부·본부·팀', style: INPUT_STYLE + ';min-width:300px;flex:1' });
+    var go = h('button', { type: 'button', class: 'btn primary', style: 'width:auto;padding:0 22px' }, '검색');
     var count = h('span', { class: 'muted' });
     var body = h('tbody');
-    var timer;
 
+    // 오른쪽: 호출할 고객의 예약 번호(뒤 5자리). 입력하고 [조회]하면 그 예약이 어느 직원 것인지 바로 보여 준다
+    var cust = h('input', { type: 'tel', inputMode: 'numeric', maxLength: 5, placeholder: '12345', style: INPUT_STYLE + ';width:120px;font-size:20px;font-weight:700;text-align:center' });
+    bindFormat(cust, onlyDigits);
+    var lookupBtn = h('button', { type: 'button', class: 'btn', style: 'width:auto;padding:0 18px' }, '조회');
+    var lookupBox = h('div', { class: 'muted', style: 'margin-top:8px' });
+
+    function showMessage(text) {
+      body.innerHTML = '';
+      body.appendChild(h('tr', null, h('td', { colspan: 8, class: 'muted' }, text)));
+    }
+
+    // 검색어가 비어 있으면 서버에 묻지 않는다 (전체 명단을 보여 주지 않음)
     async function load() {
-      var res = await Api.call('desk.searchStaff', { q: q.value });
+      var text = q.value.trim();
+      if (!text) { count.textContent = ''; showMessage('직원 이름이나 전화번호 일부를 입력하고 [검색]을 누르거나 Enter 를 눌러 주세요.'); return; }
+      var res = await Api.call('desk.searchStaff', { q: text });
       count.textContent = res.staff.length + '명' + (res.staff.length >= 500 ? ' (최대 500명까지 표시)' : '');
       body.innerHTML = '';
-      if (!res.staff.length) body.appendChild(h('tr', null, h('td', { colspan: 8, class: 'muted' }, '찾는 직원이 없습니다.')));
+      if (!res.staff.length) showMessage('찾는 직원이 없습니다.');
       res.staff.forEach(function (st) {
         var b = h('button', { type: 'button', class: 'btn small primary' }, '호출');
         b.addEventListener('click', function () {
-          if (cust.value && cust.value.length !== 5) { toast('고객 뒤 5자리는 5자리 전체를 입력하거나 비워 두세요.', true); cust.focus(); return; }
+          if (cust.value && cust.value.length !== 5) { toast('예약고객 5자리는 5자리 전체를 입력하거나 비워 두세요.', true); cust.focus(); return; }
           if (!confirm((cust.value ? '뒤 ' + cust.value + ' 고객 도착: ' : '고객 도착: ') + st.name + ' 님을 호출할까요?')) return;
           runBusy(b, async function () {
             var out = await Api.call('desk.registerVisit', { kind: '지명', staffId: st.id, last5: cust.value });
             flash.innerHTML = '';
             flash.appendChild(h('div', { class: 'card' }, callResultNodes(out)));
-            cust.value = '';
-            await loadVisits();
+            cust.value = ''; lookupBox.textContent = '';
           });
         });
         body.appendChild(h('tr', null,
@@ -371,12 +382,30 @@
       });
     }
 
-    q.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { runBusy(null, load); }, 250); });
+    async function lookupCustomer() {
+      lookupBox.textContent = '';
+      if (cust.value.length !== 5) { toast('예약고객 뒤 5자리를 모두 입력해 주세요.', true); return; }
+      var res = await Api.call('desk.lookup', { last5: cust.value });
+      if (!res.reservations.length) { lookupBox.textContent = '오늘 ' + cust.value + ' 예약이 없습니다.'; return; }
+      lookupBox.textContent = res.reservations.map(function (r) {
+        return '오늘 예약 ' + (r.gender ? '(' + r.gender + ') ' : '') + (r.staff ? r.staff.name + (r.staff.headName ? ' · ' + r.staff.headName + ' ' + r.staff.teamName : '') : '(담당 직원 없음)') + ' · ' + r.status;
+      }).join(' / ');
+    }
+
+    go.addEventListener('click', function () { runBusy(go, load); });
+    q.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); runBusy(go, load); } });
+    lookupBtn.addEventListener('click', function () { runBusy(lookupBtn, lookupCustomer); });
+    cust.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); runBusy(lookupBtn, lookupCustomer); } });
+
     root.appendChild(flash);
     root.appendChild(h('div', { class: 'card' }, h('h2', null, '직원검색'),
-      h('div', { class: 'toolbar' }, h('span', { class: 'field-label', style: 'align-self:center' }, '호출할 고객'), cust, q, count),
+      h('div', { class: 'toolbar', style: 'align-items:center;gap:10px' },
+        q, go, count,
+        h('span', { style: 'flex:0 0 24px' }),
+        h('span', { class: 'field-label', style: 'align-self:center;white-space:nowrap' }, '예약고객 5자리'), cust, lookupBtn),
+      lookupBox,
       tableOf(['본부', '팀', '직원', '직급', '직군', '전화번호', '텔레그램', ''], body)));
-    await load();
+    showMessage('직원 이름이나 전화번호 일부를 입력하고 [검색]을 누르거나 Enter 를 눌러 주세요.');
   }
 
   // --- 방명록: 고객이 태블릿으로 입력한 내용을 확인·수정하고 담당 본부/팀/직원을 지정, 목록 옆에서 바로 호출
@@ -617,12 +646,12 @@
       h('label', { class: 'check' }, consent, ' 개인정보 제공에 동의함')), buttons);
   }
 
-  // ---------- 오늘 방문 목록 ----------
+  // ---------- 오늘 호출 목록 (예약검색 화면에만 표시) ----------
   async function loadVisits() {
     var res = await Api.call('desk.todayVisits');
     var body = $('#visits');
     body.innerHTML = '';
-    if (!res.visits.length) body.appendChild(h('tr', null, h('td', { colspan: 6, class: 'muted' }, '오늘 방문 기록이 없습니다.')));
+    if (!res.visits.length) body.appendChild(h('tr', null, h('td', { colspan: 6, class: 'muted' }, '오늘 호출 기록이 없습니다.')));
     res.visits.forEach(function (v) {
       var cell = h('td');
       if (v.staffName && v.status !== '확인함') {

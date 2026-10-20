@@ -81,7 +81,7 @@ export async function deskGuestList(env, data, ctx) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError('날짜 형식이 올바르지 않습니다.');
   const names = await orgNameMap(env, pid);
   const rows = await all(env,
-    `SELECT g.*, s.name AS s_name, s.nickname AS s_nick, s.status AS s_status, s.id AS s_id,
+    `SELECT g.*, s.name AS s_name, s.nickname AS s_nick, s.status AS s_status, s.project_id AS s_project, s.id AS s_id,
             v.called_at AS v_called, v.acked_at AS v_acked, v.staff_id AS v_staff
      FROM guestbook g LEFT JOIN staff s ON s.id = g.staff_id LEFT JOIN visits v ON v.id = g.visit_id
      WHERE g.project_id = ? AND g.visit_date = ? ORDER BY g.created_at DESC LIMIT 1000`, pid, date);
@@ -99,7 +99,7 @@ export async function deskGuestList(env, data, ctx) {
         category: category(g), source: g.source, consent: !!g.consent, reviewed: !!g.reviewed,
         headId: g.head_id, teamId: g.team_id, headName: names[g.head_id] || '', teamName: names[g.team_id] || '',
         staffId: g.staff_id, staffNone: !!g.staff_none, staffName: g.s_id ? g.s_name + (g.s_nick ? ' (' + g.s_nick + ')' : '') : '',
-        canCall: !!g.s_id && g.s_status === '활동',
+        canCall: !!g.s_id && g.s_status === '활동' && g.s_project === pid, // 다른 현장으로 이동한 직원은 호출할 수 없다
         reservation: m.reservation && { date: m.reservation.date, status: m.reservation.status, count: m.reservation.count, staffName: m.reservation.staffName },
         history: m.history,
         suggest: m.suggest,
