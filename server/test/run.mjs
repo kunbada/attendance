@@ -105,6 +105,12 @@ try {
   expectOk('비밀번호 변경', await call('account.changePassword', { oldPassword: ADMIN_PW, newPassword: 'TestPass' + uniq.slice(0, 4) + 'a1' }, admin));
   expectOk('변경 후 관리자 기능', await call('admin.staffList', {}, admin));
   expectErr('틀린 비밀번호', await call('account.login', { loginId: 'admin', password: 'wrongpass1' }), '올바르지 않습니다');
+  // 현장 값(출근 허용거리·예약 중복 기준)은 프로젝트 저장(project.save)으로 바꾼다
+  const projList = async () => (await call('project.list', {}, admin, '', null)).data.projects;
+  const projSet = async (pid, patch) => {
+    const cur = (await projList()).find((x) => x.id === pid);
+    return call('project.save', { id: pid, name: cur.name, code: cur.code, kind: cur.kind, status: cur.status, moneyLabel: cur.moneyLabel, ...patch }, admin, '', null);
+  };
   const orgs = (await call('public.orgs', { projectCode: 'site1' })).data;
   check('가입용 조직 목록 (영업 직군, 본부·팀)', orgs.jobs.some((j) => j.name === '영업') && orgs.heads.length >= 1 && orgs.teams.length >= 1);
 
@@ -159,7 +165,9 @@ try {
   expectOk('데스크 비밀번호 변경', await call('account.changePassword', { oldPassword: deskPw, newPassword: 'DeskNew' + uniq.slice(0, 4) + 'x1' }, deskLogin.data.token));
   const desk = deskLogin.data.token;
   expectErr('데스크가 관리자 action → 거부', await call('admin.staffList', {}, desk), '권한이 없습니다', 'FORBIDDEN');
-  expectErr('설정 규칙 검사', await call('admin.saveSettings', { values: { 'GPS허용거리m': '3' } }, admin), '10~5000');
+  expectErr('설정 규칙 검사 (현장 저장)', await projSet(P1, { gpsDistance: '3' }), '10~5000');
+  expectErr('현장 값은 공통 설정 저장으로는 못 바꿈', await call('admin.saveSettings', { values: { 'GPS허용거리m': '300' } }, admin, '', null), '프로젝트 메뉴');
+  expectErr('예약 중복 기준 검사', await projSet(P1, { dupRule: '아무거나' }), '예약 중복');
 
   // ===== 관리자 비밀번호 이메일 인증 초기화 =====
   const rAdmin = 'resetadm' + uniq.slice(0, 4), rAdmin2 = 'resetad2' + uniq.slice(0, 4);
@@ -235,12 +243,13 @@ try {
   const mon = await call('admin.attendance', { month: today.slice(0, 7) }, admin);
   check('월별 현황에 출근일수', mon.ok && mon.data.staff.find((p) => p.id === idA).days.length === 1);
   check('내 정보에 출근 반영', (await call('staff.me', {}, tokA3, A.dev)).data.checkedInToday === true);
-  expectOk('GPS 허용거리 변경', await call('admin.saveSettings', { values: { 'GPS허용거리m': '2000' } }, admin));
-  await call('admin.saveSettings', { values: { 'GPS허용거리m': '200' } }, admin);
+  expectOk('GPS 허용거리 변경', await projSet(P1, { gpsDistance: '2000' }));
+  check('프로젝트 목록에 현장 설정이 보임', (await projList()).find((x) => x.id === P1).gpsDistance === 2000);
+  await projSet(P1, { gpsDistance: '200' });
 
   // ===== 3단계: 예약 =====
   const r5 = last5(), r5b = last5();
-  await call('admin.saveSettings', { values: { '예약중복기준': '뒤5자리' } }, admin);
+  await projSet(P1, { dupRule: '뒤5자리' });
   const r1 = await call('reservation.create', { last5: r5, date: today, gender: '남', memo: '테스트' }, tokA3, A.dev);
   expectOk('예약 등록', r1);
   expectErr('다른 직원이 같은 뒤5자리 → 차단', await call('reservation.create', { last5: r5, date: today, gender: '여' }, tokB, B.dev), '이미 예약된 고객입니다.');
@@ -252,7 +261,7 @@ try {
     call('reservation.create', { last5: race, date: today }, tokA3, A.dev), call('reservation.create', { last5: race, date: today }, tokB, B.dev)
   ]);
   check('동시에 같은 고객을 등록해도 한 명만 성공', [x, y].filter((r) => r.ok).length === 1, JSON.stringify([x.ok, y.ok]));
-  await call('admin.saveSettings', { values: { '예약중복기준': '뒤5자리+성별' } }, admin);
+  await projSet(P1, { dupRule: '뒤5자리+성별' });
   expectErr('성별 기준: 성별 없으면 거부', await call('reservation.create', { last5: last5(), date: today }, tokB, B.dev), '성별');
   expectOk('성별 기준: 같은 번호·다른 성별 허용', await call('reservation.create', { last5: r5, date: today, gender: '여' }, tokB, B.dev));
   expectErr('성별 기준: 같은 번호·같은 성별 차단', await call('reservation.create', { last5: r5, date: today, gender: '남' }, tokB, B.dev), '이미 예약된 고객입니다.');
@@ -583,7 +592,14 @@ try {
   expectErr('현장 코드 중복 거부', await call('project.save', { name: 'C현장', code: codeB }, admin, '', null), '이미 사용');
   const orgsB0 = (await call('admin.orgs', {}, admin, '', P2)).data.orgs;
   check('새 현장에는 기본 직군만 만들어짐 (영업 포함, 본부·팀 없음)', orgsB0.filter((o) => o.kind === '직군').length === 5 && orgsB0.some((o) => o.name === '영업') && !orgsB0.some((o) => o.kind !== '직군'));
-  check('새 현장 기본 설정', (await call('admin.settings', {}, admin, '', P2)).data.settings['GPS허용거리m'] === '200');
+  const pBv = (await projList()).find((x) => x.id === P2);
+  check('새 현장 기본 설정 (허용거리 200, 예약 중복 기준 뒤5자리)', pBv.gpsDistance === 200 && pBv.dupRule === '뒤5자리');
+  const pD = await call('project.save', { name: '입력설정현장', code: 'cfg' + uniq.slice(0, 3), gpsDistance: '350', dupRule: '뒤5자리+성별' }, admin, '', null);
+  expectOk('새 현장 만들면서 현장 설정 입력', pD);
+  const pDv = (await projList()).find((x) => x.id === pD.data.id);
+  check('입력한 현장 설정이 저장됨', pDv.gpsDistance === 350 && pDv.dupRule === '뒤5자리+성별');
+  expectOk('현장 설정을 비워 저장하면 그대로 유지', await call('project.save', { id: pD.data.id, name: '입력설정현장', code: 'cfg' + uniq.slice(0, 3) }, admin, '', null));
+  check('유지 확인', (await projList()).find((x) => x.id === pD.data.id).gpsDistance === 350);
   expectErr('존재하지 않는 현장을 가리키면 거부', await call('admin.staffList', {}, admin, '', 'PNOPE'), '접근할 수 없습니다', 'FORBIDDEN');
   expectErr('현장 없이 현장 업무 action → 거부', await call('admin.staffList', {}, admin, '', null), '현장을 선택', 'NO_PROJECT');
 
@@ -622,7 +638,7 @@ try {
   check('보조관리자 현장 목록에는 담당 현장만', plistA.ok && plistA.data.projects.length === 1 && plistA.data.projects[0].id === P1);
   for (const [label, action, data] of [
     ['현장 생성', 'project.save', { name: '무단 현장' }], ['계정 목록', 'admin.accounts', {}], ['계정 저장', 'admin.saveAccount', acctBase('hack' + sfx, '관리자', [])],
-    ['설정 저장', 'admin.saveSettings', { values: { 'GPS허용거리m': '300' } }], ['직원 현장 이동', 'admin.moveStaff', { staffId: idA, toProjectId: P2, job: '상담사' }]
+    ['설정 저장', 'admin.saveSettings', { values: { '텔레그램봇이름': 'hack_bot' } }], ['직원 현장 이동', 'admin.moveStaff', { staffId: idA, toProjectId: P2, job: '상담사' }]
   ]) expectErr('보조관리자는 관리자 전용 action 불가: ' + label, await call(action, data, subA, '', action.startsWith('project.') || action.startsWith('admin.acc') ? null : P1), '권한이 없습니다', 'FORBIDDEN');
   expectErr('열람 계정은 아직 직원 관리 불가', await call('admin.staffList', {}, viewer, '', P1), '권한이 없습니다', 'FORBIDDEN');
   check('열람 계정도 담당 현장 목록은 받음', (await call('project.list', {}, viewer, '', null)).data.projects.length === 1);
@@ -705,8 +721,9 @@ try {
   check('B현장 출근 현황에는 S1 만', dayB.present.length === 1 && dayB.present[0].id === idS1 && dayB.activeCount === 1);
   check('P01 출근 현황에는 S1 없음', !dayA.present.some((p) => p.id === idS1) && !dayA.absent.some((p) => p.id === idS1));
   check('출근 기록에 현장이 저장됨', (await query(`SELECT project_id FROM attendance WHERE staff_id = '${idS1}' AND result = '성공'`))[0].project_id === P2);
-  expectOk('B현장 GPS 허용거리 변경', await call('admin.saveSettings', { values: { 'GPS허용거리m': '2000' } }, admin, '', P2));
-  check('설정은 현장별 (B현장 2000, P01 은 그대로 200)', (await call('admin.settings', {}, admin, '', P2)).data.settings['GPS허용거리m'] === '2000' && (await call('admin.settings', {}, admin, '', P1)).data.settings['GPS허용거리m'] === '200');
+  expectOk('B현장 GPS 허용거리 변경', await projSet(P2, { gpsDistance: '2000' }));
+  check('설정은 현장별 (B현장 2000, P01 은 그대로 200)', (await projList()).find((x) => x.id === P2).gpsDistance === 2000 && (await projList()).find((x) => x.id === P1).gpsDistance === 200);
+  check('보조관리자 목록에도 담당 현장의 설정이 보임', (await call('project.list', {}, subA, '', null)).data.projects[0].gpsDistance === 200);
 
   // --- 예약: 같은 뒤 5자리도 현장이 다르면 별개 ---
   expectOk('P01 에 예약된 번호를 B현장에서도 예약 가능 (현장별 중복 판정)', await call('reservation.create', { last5: r5, date: today }, tokS1, S1.dev, null));

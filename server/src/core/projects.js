@@ -8,13 +8,27 @@ const MONEY_LABELS = ['분양가', '임대보증금'];
 export const KINDS = ['아파트', '오피스텔', '상가', '기타'];
 const isDate = (v) => v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v);
 
+
+const PROJECT_SETTING_RULES = {
+  'GPS허용거리m': (v) => {
+    const n = Number(v);
+    if (!isFinite(n) || n < 10 || n > 5000 || Math.floor(n) !== n) throw new AppError('GPS 허용거리는 10~5000 사이 정수(m)로 입력해 주세요.');
+    return String(n);
+  },
+  '예약중복기준': (v) => {
+    if (v !== '뒤5자리' && v !== '뒤5자리+성별') throw new AppError('예약 중복 기준 값이 올바르지 않습니다.');
+    return v;
+  }
+};
+
 // 새 현장에 넣어 주는 기본 설정
 export const DEFAULT_PROJECT_SETTINGS = { 'GPS허용거리m': '200', '예약중복기준': '뒤5자리' };
 
-const view = (p, counts) => ({
+const view = (p, counts, st = {}) => ({
   id: p.id, code: p.code, name: p.name, kind: p.kind, address: p.address, client: p.client, status: p.status,
   startDate: p.start_date, endDate: p.end_date, moneyLabel: p.money_label, createdAt: p.created_at,
-  activeStaff: (counts[p.id] || {})['활동'] || 0, pendingStaff: (counts[p.id] || {})['대기'] || 0
+  activeStaff: (counts[p.id] || {})['활동'] || 0, pendingStaff: (counts[p.id] || {})['대기'] || 0,
+  gpsDistance: Number(st['GPS허용거리m'] || DEFAULT_PROJECT_SETTINGS['GPS허용거리m']), dupRule: st['예약중복기준'] || DEFAULT_PROJECT_SETTINGS['예약중복기준']
 });
 
 // 접근 가능한 현장 목록 (관리자는 전체, 그 외는 지정된 현장만)
@@ -26,7 +40,11 @@ export async function projectList(env, data, ctx) {
   });
   const allowed = new Set(projects.map((p) => p.id));
   Object.keys(counts).forEach((k) => { if (!allowed.has(k)) delete counts[k]; }); // 접근 권한 없는 현장의 인원 수는 보내지 않는다
-  return { projects: projects.map((p) => view(p, counts)) };
+  const settings = {};
+  (await all(env, 'SELECT project_id, key, value FROM project_settings')).forEach((r) => {
+    if (allowed.has(r.project_id)) (settings[r.project_id] = settings[r.project_id] || {})[r.key] = r.value;
+  });
+  return { projects: projects.map((p) => view(p, counts, settings[p.id])) };
 }
 
 // 현장 만들기·수정 (관리자 전용). 새 현장에는 기본 직군과 기본 설정을 함께 만들어 준다
@@ -46,6 +64,11 @@ export async function projectSave(env, data, ctx) {
   const moneyLabel = s(data.moneyLabel) || '분양가';
   if (!MONEY_LABELS.includes(moneyLabel)) throw new AppError('금액 명칭이 올바르지 않습니다.');
 
+  // 현장 설정(출근 허용거리, 예약 중복 기준)도 여기서 함께 입력한다. 비워 두면 수정 때는 그대로, 새로 만들 때는 기본값
+  const settingVals = {};
+  if (s(data.gpsDistance).trim() !== '') settingVals['GPS허용거리m'] = PROJECT_SETTING_RULES['GPS허용거리m'](s(data.gpsDistance).trim());
+  if (s(data.dupRule).trim() !== '') settingVals['예약중복기준'] = PROJECT_SETTING_RULES['예약중복기준'](s(data.dupRule).trim());
+
   let code = s(data.code).trim().toLowerCase();
   let id = s(data.id);
   const current = id ? await first(env, 'SELECT * FROM projects WHERE id = ?', id) : null;
@@ -57,14 +80,17 @@ export async function projectSave(env, data, ctx) {
   if (current) {
     await run(env, 'UPDATE projects SET code = ?, name = ?, kind = ?, address = ?, client = ?, status = ?, start_date = ?, end_date = ?, money_label = ? WHERE id = ?',
       code, name, kind, address, client, status, startDate, endDate, moneyLabel, id);
-    await writeLog(env, ctx.account.login_id, '현장수정', id, name + (code !== current.code ? ' / 코드 ' + current.code + ' → ' + code : ''), id);
+    const sw = Object.keys(settingVals).map((k) => stmt(env,
+      'INSERT INTO project_settings (project_id, key, value) VALUES (?, ?, ?) ON CONFLICT(project_id, key) DO UPDATE SET value = excluded.value', id, k, settingVals[k]));
+    if (sw.length) await env.DB.batch(sw);
+    await writeLog(env, ctx.account.login_id, '현장수정', id, name + (code !== current.code ? ' / 코드 ' + current.code + ' → ' + code : '') + (sw.length ? ' / 설정 ' + Object.keys(settingVals).join(', ') : ''), id);
   } else {
     id = newId('P');
     const writes = [stmt(env,
       'INSERT INTO projects (id, code, name, kind, address, client, status, start_date, end_date, money_label, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       id, code, name, kind, address, client, status, startDate, endDate, moneyLabel, nowStr())];
     Object.keys(DEFAULT_PROJECT_SETTINGS).forEach((k) =>
-      writes.push(stmt(env, 'INSERT INTO project_settings (project_id, key, value) VALUES (?, ?, ?)', id, k, DEFAULT_PROJECT_SETTINGS[k])));
+      writes.push(stmt(env, 'INSERT INTO project_settings (project_id, key, value) VALUES (?, ?, ?)', id, k, settingVals[k] || DEFAULT_PROJECT_SETTINGS[k])));
     DEFAULT_JOBS.forEach((j, i) =>
       writes.push(stmt(env, `INSERT INTO orgs (id, project_id, kind, name, parent_id, sort_order, active) VALUES (?, ?, '직군', ?, '', ?, 1)`, newId('O'), id, j, i + 1)));
     await env.DB.batch(writes);
@@ -73,19 +99,8 @@ export async function projectSave(env, data, ctx) {
   return { id, code };
 }
 
-// ---------- 현장별 설정 ----------
-
-const PROJECT_SETTING_RULES = {
-  'GPS허용거리m': (v) => {
-    const n = Number(v);
-    if (!isFinite(n) || n < 10 || n > 5000 || Math.floor(n) !== n) throw new AppError('GPS 허용거리는 10~5000 사이 정수(m)로 입력해 주세요.');
-    return String(n);
-  },
-  '예약중복기준': (v) => {
-    if (v !== '뒤5자리' && v !== '뒤5자리+성별') throw new AppError('예약 중복 기준 값이 올바르지 않습니다.');
-    return v;
-  }
-};
+// ---------- 공통 설정 (현장과 무관, 설정 메뉴) ----------
+// 현장별 값(출근 허용거리, 예약 중복 기준)은 프로젝트 만들기·수정(project.save)에서 입력한다.
 
 // 전체 공통 설정 (현장과 무관, 텔레그램 봇은 하나)
 const GLOBAL_SETTING_RULES = {
@@ -96,25 +111,20 @@ const GLOBAL_SETTING_RULES = {
   }
 };
 
-export async function adminSettings(env, data, ctx) {
-  return { settings: await getSettings(env, ctx.projectId) };
+export async function adminSettings(env) {
+  return { settings: await getSettings(env) };
 }
 
 export async function adminSaveSettings(env, data, ctx) {
   const values = data.values || {};
-  const projectVals = {}, globalVals = {};
+  const clean = {};
   Object.keys(values).forEach((k) => {
-    const v = s(values[k]).trim();
-    if (PROJECT_SETTING_RULES[k]) projectVals[k] = PROJECT_SETTING_RULES[k](v);
-    else if (GLOBAL_SETTING_RULES[k]) globalVals[k] = GLOBAL_SETTING_RULES[k](v);
-    else throw new AppError('알 수 없는 설정 항목입니다: ' + k);
+    if (!GLOBAL_SETTING_RULES[k]) throw new AppError('알 수 없는 설정 항목입니다: ' + k + (PROJECT_SETTING_RULES[k] ? ' (현장 값은 프로젝트 메뉴에서 수정합니다)' : ''));
+    clean[k] = GLOBAL_SETTING_RULES[k](s(values[k]).trim());
   });
-  const writes = [];
-  Object.keys(projectVals).forEach((k) => writes.push(stmt(env,
-    'INSERT INTO project_settings (project_id, key, value) VALUES (?, ?, ?) ON CONFLICT(project_id, key) DO UPDATE SET value = excluded.value', ctx.projectId, k, projectVals[k])));
-  Object.keys(globalVals).forEach((k) => writes.push(stmt(env,
-    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, globalVals[k])));
+  const writes = Object.keys(clean).map((k) => stmt(env,
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, clean[k]));
   if (writes.length) await env.DB.batch(writes);
-  await writeLog(env, ctx.account.login_id, '설정변경', '', Object.keys({ ...projectVals, ...globalVals }).join(', '), ctx.projectId);
+  await writeLog(env, ctx.account.login_id, '설정변경', '', Object.keys(clean).join(', '));
   return {};
 }

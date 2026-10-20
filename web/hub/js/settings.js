@@ -1,4 +1,4 @@
-// 설정: 선택한 현장의 기본 설정(관리자만 변경), 전체 계정·권한(관리자 전용)
+// 설정(관리자 전용): 모든 현장에 공통인 설정, 전체 계정·권한
 (function () {
   var state = Hub.state;
   var ROLES = [
@@ -15,36 +15,29 @@
 
   async function render(r) {
     root = r;
-    var calls = [Api.call('admin.settings')];
-    if (Hub.isAdmin()) calls.push(Api.call('admin.accounts'));
-    var results = await Promise.all(calls);
+    var results = await Promise.all([Api.call('admin.settings'), Api.call('admin.accounts')]);
     state.settings = results[0].settings;
-    state.accounts = results[1] ? results[1].accounts : [];
+    state.accounts = results[1].accounts;
     root.innerHTML = '';
-    root.appendChild(basicSettingsCard());
-    if (Hub.isAdmin()) root.appendChild(accountsCard());
+    root.appendChild(commonSettingsCard());
+    root.appendChild(accountsCard());
   }
 
-  function basicSettingsCard() {
+  // 공통 설정: 모든 현장에 함께 적용되는 값만 둔다. 현장별 값(출근 허용거리, 예약 중복 기준 등)은 프로젝트 메뉴의 현장 수정에서 입력한다.
+  // 앞으로 추가되는 설정도 공통 값 위주로 이 카드에 넣는다.
+  function commonSettingsCard() {
     var st = state.settings;
-    var canEdit = Hub.isAdmin();
-    var dist = h('input', { type: 'number', value: st['GPS허용거리m'] || '200', min: 10, max: 5000, disabled: !canEdit });
-    var dup = h('select', { disabled: !canEdit }, option('뒤5자리', '뒤5자리', st['예약중복기준'] === '뒤5자리'), option('뒤5자리+성별', '뒤5자리 + 성별', st['예약중복기준'] === '뒤5자리+성별'));
-    var bot = h('input', { type: 'text', value: st['텔레그램봇이름'] || '', placeholder: 'my_site_bot', disabled: !canEdit });
+    var bot = h('input', { type: 'text', value: st['텔레그램봇이름'] || '', placeholder: 'my_site_bot' });
     var save = h('button', { type: 'button', class: 'btn primary', style: 'max-width:200px' }, '저장');
     save.addEventListener('click', function () {
       runBusy(save, async function () {
-        await Api.call('admin.saveSettings', { values: { 'GPS허용거리m': dist.value, '예약중복기준': dup.value, '텔레그램봇이름': bot.value } });
+        await Api.call('admin.saveSettings', { values: { '텔레그램봇이름': bot.value } });
         toast('설정을 저장했습니다.');
       });
     });
-    var p = Hub.currentProject();
-    return h('div', { class: 'card' }, h('h2', null, '현장 설정 — ' + (p ? p.name : '')),
-      canEdit ? null : h('p', { class: 'muted' }, '설정 변경은 관리자만 할 수 있습니다.'),
-      field('GPS 허용거리 (m)', dist, '출근 QR 기준점에서 이 거리 안에서만 출근 인정 (이 현장에만 적용)'),
-      field('예약 중복 기준', dup, '같은 고객의 중복 예약을 막는 기준 (이 현장에만 적용)'),
-      field('텔레그램 봇 이름', bot, '@ 없이. 직원 호출 알림에 사용. 모든 현장이 같은 봇을 씁니다.'),
-      canEdit ? save : null);
+    return h('div', { class: 'card' }, h('h2', null, '공통 설정'),
+      h('p', { class: 'muted' }, '모든 현장에 함께 적용됩니다. 현장마다 다른 값(출근 허용거리, 예약 중복 기준)은 [프로젝트] 메뉴에서 현장을 만들거나 수정할 때 입력합니다.'),
+      field('텔레그램 봇 이름', bot, '@ 없이. 직원 호출 알림에 사용. 모든 현장이 같은 봇을 씁니다.'), save);
   }
 
   // ----- 계정 -----
@@ -133,5 +126,5 @@
       }]);
   }
 
-  Hub.register({ key: 'settings', label: '설정', render: render });
+  Hub.register({ key: 'settings', label: '설정', adminOnly: true, needsProject: false, render: render });
 })();

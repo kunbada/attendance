@@ -41,7 +41,8 @@
       h('div', null,
         h('h3', { style: 'margin:0 0 4px' }, p.name + ' ', h('span', { class: 'badge ' + STATUS_BADGE[p.status] }, p.status)),
         h('div', { class: 'meta' }, meta || '(상세 정보 없음)'),
-        h('div', { class: 'meta' }, '활동 ' + p.activeStaff + '명 · 승인 대기 ' + p.pendingStaff + '명 · 가입 코드 ' + p.code)),
+        h('div', { class: 'meta' }, '활동 ' + p.activeStaff + '명 · 승인 대기 ' + p.pendingStaff + '명 · 가입 코드 ' + p.code),
+        h('div', { class: 'meta' }, '출근 허용거리 ' + p.gpsDistance + 'm · 예약 중복 기준 ' + (p.dupRule === '뒤5자리+성별' ? '뒤5자리 + 성별' : '뒤5자리'))),
       actions);
   }
 
@@ -54,14 +55,20 @@
     var status = h('select', null, ['준비', '진행', '종료'].map(function (s) { return option(s, s, (p ? p.status : '준비') === s); }));
     var start = h('input', { type: 'date', value: p ? p.startDate : '' });
     var end = h('input', { type: 'date', value: p ? p.endDate : '' });
+    var gps = h('input', { type: 'number', value: p ? p.gpsDistance : 200, min: 10, max: 5000 });
+    var dup = h('select', null, option('뒤5자리', '뒤5자리', !p || p.dupRule === '뒤5자리'), option('뒤5자리+성별', '뒤5자리 + 성별', p && p.dupRule === '뒤5자리+성별'));
     var money = h('select', null, ['분양가', '임대보증금'].map(function (s) { return option(s, s, (p ? p.moneyLabel : '분양가') === s); }));
     var codeHint = p ? '직원 가입 링크에 쓰이는 코드입니다. 바꾸면 이미 보낸 가입 링크는 쓸 수 없게 됩니다.' : '직원 가입 링크에 쓰이는 영문 소문자·숫자 3~20자 코드입니다.';
     modal(p ? '프로젝트 수정' : '새 프로젝트', h('div', null, field('현장 이름', name), field('현장 코드', code, codeHint), field('유형', kind), field('시행·시공사', client), field('주소', address),
-      field('상태', status, '종료하면 새 직원 가입을 받지 않습니다.'), field('시작일', start), field('종료일', end), field('금액 명칭', money, '분양 현장은 분양가, 임대 현장은 임대보증금')), [{
+      field('상태', status, '종료하면 새 직원 가입을 받지 않습니다.'), field('시작일', start), field('종료일', end), field('금액 명칭', money, '분양 현장은 분양가, 임대 현장은 임대보증금'),
+      h('h4', { style: 'margin:14px 0 4px' }, '현장 설정'),
+      field('출근 허용거리 (m)', gps, '출근 QR 기준점에서 이 거리 안에서만 출근 인정 (10~5000)'),
+      field('예약 중복 기준', dup, '같은 고객의 중복 예약을 막는 기준 (현장별)')), [{
         label: '저장', primary: true, onClick: async function (close) {
           var res = await Api.call('project.save', {
             id: p ? p.id : '', name: name.value, code: code.value, kind: kind.value, client: client.value, address: address.value,
-            status: status.value, startDate: start.value, endDate: end.value, moneyLabel: money.value
+            status: status.value, startDate: start.value, endDate: end.value, moneyLabel: money.value,
+            gpsDistance: gps.value, dupRule: dup.value
           });
           close();
           await Hub.reloadProjects();
