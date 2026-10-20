@@ -33,19 +33,22 @@ export const first = (env, sql, ...params) => env.DB.prepare(sql).bind(...params
 export const run = (env, sql, ...params) => env.DB.prepare(sql).bind(...params).run();
 export const stmt = (env, sql, ...params) => env.DB.prepare(sql).bind(...params);
 
-export async function writeLog(env, user, action, target = '', content = '') {
-  await run(env, 'INSERT INTO logs (at, user, action, target, content) VALUES (?, ?, ?, ?, ?)', nowStr(), user, action, target, content);
+// projectId 는 현장에 속한 일이면 넣는다 (계정·프로젝트 관리처럼 현장과 무관하면 비움)
+export async function writeLog(env, user, action, target = '', content = '', projectId = '') {
+  await run(env, 'INSERT INTO logs (at, user, action, target, content, project_id) VALUES (?, ?, ?, ?, ?, ?)', nowStr(), user, action, target, content, projectId);
 }
 
-export async function getSettings(env) {
+// settings(전체 공통 값: 텔레그램 봇 이름 등) 위에 이 현장의 project_settings 를 덮어쓴 결과
+export async function getSettings(env, projectId) {
   const map = {};
   (await all(env, 'SELECT key, value FROM settings')).forEach((r) => { map[r.key] = r.value; });
+  if (projectId) (await all(env, 'SELECT key, value FROM project_settings WHERE project_id = ?', projectId)).forEach((r) => { map[r.key] = r.value; });
   return map;
 }
 
-export async function orgNameMap(env) {
+export async function orgNameMap(env, projectId) {
   const map = {};
-  (await all(env, 'SELECT id, name FROM orgs')).forEach((o) => { map[o.id] = o.name; });
+  (await all(env, 'SELECT id, name FROM orgs WHERE project_id = ?', projectId)).forEach((o) => { map[o.id] = o.name; });
   return map;
 }
 

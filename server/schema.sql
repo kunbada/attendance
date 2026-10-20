@@ -3,24 +3,52 @@
 -- 날짜·시각은 Asia/Seoul 기준 문자열: 날짜 'YYYY-MM-DD', 일시 'YYYY-MM-DD HH:MM:SS'.
 -- 상태·구분 값(대기/활동/예정/방문 …)은 화면과 같은 한국어 그대로 저장한다.
 
+-- 현장(프로젝트). 모든 업무 표는 project_id 로 이 표에 속한다. code 는 가입 링크 등에 쓰는 짧은 영문·숫자(소문자)
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT '',
+  address TEXT NOT NULL DEFAULT '',
+  client TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '준비',
+  start_date TEXT NOT NULL DEFAULT '',
+  end_date TEXT NOT NULL DEFAULT '',
+  money_label TEXT NOT NULL DEFAULT '분양가',
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_code ON projects(code);
+
+-- 전체 공통 설정 (텔레그램 봇 이름 등). 현장별 값은 project_settings
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL DEFAULT '',
   description TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS project_settings (
+  project_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (project_id, key)
+);
+
 -- 본부 / 팀(parent_id = 본부) / 직군
 CREATE TABLE IF NOT EXISTS orgs (
   id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT '',
   kind TEXT NOT NULL,
   name TEXT NOT NULL,
   parent_id TEXT NOT NULL DEFAULT '',
   sort_order INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1
 );
+CREATE INDEX IF NOT EXISTS ix_orgs_project ON orgs(project_id, kind);
 
+-- 영업사원은 한 번에 1개 현장에만 소속 (project_id). 현장 이동은 관리자가 project_id 를 바꾸고 logs 에 남긴다
 CREATE TABLE IF NOT EXISTS staff (
   id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT '',
   name TEXT NOT NULL,
   nickname TEXT NOT NULL DEFAULT '',
   phone TEXT NOT NULL,
@@ -47,6 +75,7 @@ CREATE INDEX IF NOT EXISTS ix_staff_device_req ON staff(device_change_request);
 CREATE INDEX IF NOT EXISTS ix_staff_telegram ON staff(telegram_id);
 CREATE INDEX IF NOT EXISTS ix_staff_status ON staff(status);
 CREATE INDEX IF NOT EXISTS ix_staff_org ON staff(head_id, team_id);
+CREATE INDEX IF NOT EXISTS ix_staff_project ON staff(project_id, status);
 
 -- 주민번호·계좌번호는 암호화(AES-GCM)해서 저장한다. 관리자 action 에서만 읽는다.
 CREATE TABLE IF NOT EXISTS payroll (
@@ -59,7 +88,7 @@ CREATE TABLE IF NOT EXISTS payroll (
   consent_at TEXT NOT NULL
 );
 
--- 관리자·데스크 계정
+-- 계정 역할: 관리자(전체 현장) / 보조관리자·계약담당·열람(지정한 현장만) / 데스크·방명록(현장 1개에 고정)
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
   login_id TEXT NOT NULL,
@@ -69,9 +98,19 @@ CREATE TABLE IF NOT EXISTS accounts (
   fail_count INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1,
   must_change_password INTEGER NOT NULL DEFAULT 0,
-  email TEXT NOT NULL DEFAULT ''
+  email TEXT NOT NULL DEFAULT '',
+  allow_payroll INTEGER NOT NULL DEFAULT 0,      -- 보조관리자에게 급여정보 원문 보기를 허용
+  allow_pay_confirm INTEGER NOT NULL DEFAULT 0   -- 보조관리자에게 지급 확정을 허용 (2단계에서 사용)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_accounts_login ON accounts(login_id);
+
+-- 계정이 접근할 수 있는 현장 (관리자는 전체라 행이 없다)
+CREATE TABLE IF NOT EXISTS account_projects (
+  account_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  PRIMARY KEY (account_id, project_id)
+);
+CREATE INDEX IF NOT EXISTS ix_account_projects_project ON account_projects(project_id);
 
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
@@ -83,17 +122,20 @@ CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(kind, user_id);
 CREATE INDEX IF NOT EXISTS ix_sessions_expires ON sessions(expires_at);
 
 CREATE TABLE IF NOT EXISTS qr_issues (
-  date TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  date TEXT NOT NULL,
   qr TEXT NOT NULL,
   base_lat REAL NOT NULL,
   base_lng REAL NOT NULL,
   accuracy_m INTEGER NOT NULL DEFAULT 0,
   issued_by TEXT NOT NULL,
-  issued_at TEXT NOT NULL
+  issued_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, date)
 );
 
 CREATE TABLE IF NOT EXISTS attendance (
   id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT '',
   date TEXT NOT NULL,
   staff_id TEXT NOT NULL,
   time TEXT NOT NULL,
@@ -106,13 +148,14 @@ CREATE TABLE IF NOT EXISTS attendance (
   fail_reason TEXT NOT NULL DEFAULT ''
 );
 -- 같은 날 한 직원 / 한 휴대폰은 성공 기록이 하나만 (동시에 눌러도 DB 가 막아 준다)
-CREATE UNIQUE INDEX IF NOT EXISTS ux_att_ok_staff ON attendance(date, staff_id) WHERE result = '성공';
-CREATE UNIQUE INDEX IF NOT EXISTS ux_att_ok_device ON attendance(date, device_key) WHERE result = '성공';
-CREATE INDEX IF NOT EXISTS ix_att_date ON attendance(date);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_att_ok_staff ON attendance(project_id, date, staff_id) WHERE result = '성공';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_att_ok_device ON attendance(project_id, date, device_key) WHERE result = '성공';
+CREATE INDEX IF NOT EXISTS ix_att_date ON attendance(project_id, date);
 CREATE INDEX IF NOT EXISTS ix_att_staff ON attendance(staff_id, date);
 
 CREATE TABLE IF NOT EXISTS reservations (
   id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT '',
   last5 TEXT NOT NULL,
   gender TEXT NOT NULL DEFAULT '',
   visit_date TEXT NOT NULL,
@@ -121,12 +164,13 @@ CREATE TABLE IF NOT EXISTS reservations (
   status TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_res_last5 ON reservations(last5, status);
+CREATE INDEX IF NOT EXISTS ix_res_last5 ON reservations(project_id, last5, status);
 CREATE INDEX IF NOT EXISTS ix_res_staff ON reservations(staff_id, status);
-CREATE INDEX IF NOT EXISTS ix_res_date ON reservations(visit_date);
+CREATE INDEX IF NOT EXISTS ix_res_date ON reservations(project_id, visit_date);
 
 CREATE TABLE IF NOT EXISTS visits (
   id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT '',
   visited_at TEXT NOT NULL,
   last5 TEXT NOT NULL,
   gender TEXT NOT NULL DEFAULT '',
@@ -137,7 +181,7 @@ CREATE TABLE IF NOT EXISTS visits (
   acked_at TEXT NOT NULL DEFAULT '',
   desk_account_id TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS ix_visits_at ON visits(visited_at);
+CREATE INDEX IF NOT EXISTS ix_visits_at ON visits(project_id, visited_at);
 CREATE INDEX IF NOT EXISTS ix_visits_staff ON visits(staff_id);
 
 CREATE TABLE IF NOT EXISTS logs (
@@ -146,7 +190,8 @@ CREATE TABLE IF NOT EXISTS logs (
   user TEXT NOT NULL,
   action TEXT NOT NULL,
   target TEXT NOT NULL DEFAULT '',
-  content TEXT NOT NULL DEFAULT ''
+  content TEXT NOT NULL DEFAULT '',
+  project_id TEXT NOT NULL DEFAULT ''   -- 현장과 무관한 일(계정·프로젝트 관리)은 비어 있다
 );
 
 -- 텔레그램이 같은 업데이트를 다시 보내도 한 번만 처리하기 위한 기록
@@ -158,6 +203,7 @@ CREATE TABLE IF NOT EXISTS tg_updates (
 -- 방명록 (고객이 태블릿으로 입력하거나 데스크가 입력)
 CREATE TABLE IF NOT EXISTS guestbook (
   id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   visit_date TEXT NOT NULL,
   name TEXT NOT NULL,
@@ -179,8 +225,8 @@ CREATE TABLE IF NOT EXISTS guestbook (
   auto_source TEXT NOT NULL DEFAULT '',          -- 담당자를 자동으로 채운 근거: 예약 / 방문이력 (데스크가 저장하면 비움)
   reservation_id TEXT NOT NULL DEFAULT ''        -- 연결된 예약
 );
-CREATE INDEX IF NOT EXISTS ix_guest_date ON guestbook(visit_date);
-CREATE INDEX IF NOT EXISTS ix_guest_phone ON guestbook(phone, visit_date);
+CREATE INDEX IF NOT EXISTS ix_guest_date ON guestbook(project_id, visit_date);
+CREATE INDEX IF NOT EXISTS ix_guest_phone ON guestbook(project_id, phone, visit_date);
 
 -- 관리자 비밀번호 이메일 인증 초기화 (인증 코드는 해시로만 저장, 5회 틀리면 30분 잠금)
 CREATE TABLE IF NOT EXISTS password_resets (

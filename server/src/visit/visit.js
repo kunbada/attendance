@@ -1,7 +1,7 @@
-// 방문 접수·호출·현황 (안내데스크용) + 관리자 예약·방문 현황
-import { AppError, s, all, first, run, todayStr, nowStr, newId, parseKst, orgNameMap, staffBrief } from './util.js';
+// 방문 접수·호출·현황 (안내데스크용) + 관리자 예약·방문 현황. 모두 ctx.projectId 현장 안에서만 다룬다.
+import { AppError, s, all, first, run, todayStr, nowStr, newId, parseKst, orgNameMap, staffBrief } from '../core/util.js';
 import { requireLast5, normGender, effectiveStatus } from './reservation.js';
-import { sendCallMessage, hhmm } from './telegram.js';
+import { sendCallMessage, hhmm } from '../telegram/telegram.js';
 
 const UNCONFIRMED_MIN = 3; // 호출 후 이 시간이 지나도 확인이 없으면 화면에서 빨간색
 
@@ -19,16 +19,17 @@ function deskStaffView(r, names) {
   };
 }
 
-export async function deskLookup(env, data) {
+export async function deskLookup(env, data, ctx) {
+  const pid = ctx.projectId;
   const last5 = requireLast5(data.last5);
   const gender = normGender(data.gender);
-  const names = await orgNameMap(env);
+  const names = await orgNameMap(env, pid);
   const rows = await all(env,
-    `SELECT id, gender, status, staff_id FROM reservations WHERE last5 = ? AND visit_date = ? AND status IN ('예정', '방문')`, last5, todayStr());
+    `SELECT id, gender, status, staff_id FROM reservations WHERE project_id = ? AND last5 = ? AND visit_date = ? AND status IN ('예정', '방문')`, pid, last5, todayStr());
   const out = [];
   for (const r of rows) {
     if (gender && r.gender && r.gender !== gender) continue;
-    const st = await first(env, 'SELECT * FROM staff WHERE id = ?', r.staff_id);
+    const st = await first(env, 'SELECT * FROM staff WHERE id = ? AND project_id = ?', r.staff_id, pid);
     out.push({
       id: r.id, last5, gender: r.gender, status: r.status,
       staff: st ? deskStaffView(st, names) : null, staffActive: !!st && st.status === '활동'
@@ -38,11 +39,12 @@ export async function deskLookup(env, data) {
 }
 
 // 직원 검색: 이름·예명·전화번호 일부·본부/팀 이름. 검색어가 비어 있으면 전체 목록 (본부 → 팀 → 이름 순)
-export async function deskSearchStaff(env, data) {
+export async function deskSearchStaff(env, data, ctx) {
+  const pid = ctx.projectId;
   const q = s(data.q).trim().toLowerCase().replace(/[^0-9a-z가-힣 ]/g, '');
-  const names = await orgNameMap(env);
-  const conds = [`s.status = '활동'`];
-  const params = [];
+  const names = await orgNameMap(env, pid);
+  const conds = [`s.project_id = ?`, `s.status = '활동'`];
+  const params = [pid];
   if (q) {
     const like = '%' + q + '%';
     const digits = q.replace(/[^0-9]/g, '');
@@ -59,16 +61,17 @@ export async function deskSearchStaff(env, data) {
 }
 
 // 날짜별 예약명단 (본부 → 팀 → 직원 순). 오늘의 '예정' 건은 바로 호출할 수 있다.
-export async function deskReservationList(env, data) {
+export async function deskReservationList(env, data, ctx) {
+  const pid = ctx.projectId;
   const date = s(data.date) || todayStr();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError('날짜 형식이 올바르지 않습니다.');
-  const names = await orgNameMap(env);
+  const names = await orgNameMap(env, pid);
   const rows = await all(env,
     `SELECT r.id AS rid, r.last5, r.gender, r.visit_date, r.status AS rstatus, r.memo, s.*
      FROM reservations r LEFT JOIN staff s ON s.id = r.staff_id
        LEFT JOIN orgs h ON h.id = s.head_id LEFT JOIN orgs t ON t.id = s.team_id
-     WHERE r.visit_date = ?
-     ORDER BY COALESCE(h.sort_order, 9999), h.name, COALESCE(t.sort_order, 9999), t.name, s.name, r.created_at LIMIT 1000`, date);
+     WHERE r.project_id = ? AND r.visit_date = ?
+     ORDER BY COALESCE(h.sort_order, 9999), h.name, COALESCE(t.sort_order, 9999), t.name, s.name, r.created_at LIMIT 1000`, pid, date);
   return {
     date,
     reservations: rows.map((r) => {
@@ -83,6 +86,7 @@ export async function deskReservationList(env, data) {
 }
 
 export async function deskRegisterVisit(env, data, ctx) {
+  const pid = ctx.projectId;
   const kind = s(data.kind);
   // 직원을 지명해 부를 때는 고객 번호 없이도 호출할 수 있다 (번호를 입력했다면 형식은 확인)
   let last5 = kind === '지명' && !s(data.last5).trim() ? '' : requireLast5(data.last5);
@@ -91,14 +95,14 @@ export async function deskRegisterVisit(env, data, ctx) {
   let reservation = null;
 
   if (kind === '예약') {
-    reservation = await first(env, 'SELECT * FROM reservations WHERE id = ?', s(data.reservationId));
+    reservation = await first(env, 'SELECT * FROM reservations WHERE id = ? AND project_id = ?', s(data.reservationId), pid);
     if (!reservation || reservation.visit_date !== todayStr()) throw new AppError('오늘 예약을 찾을 수 없습니다.');
     if (reservation.status !== '예정') throw new AppError('이미 방문 처리된 예약입니다. 다시 부르려면 아래 방문 목록의 [재호출]을 누르세요.');
-    staff = await first(env, 'SELECT * FROM staff WHERE id = ?', reservation.staff_id);
+    staff = await first(env, 'SELECT * FROM staff WHERE id = ? AND project_id = ?', reservation.staff_id, pid);
     last5 = reservation.last5;
     gender = reservation.gender;
   } else if (kind === '지명') {
-    staff = await first(env, 'SELECT * FROM staff WHERE id = ?', s(data.staffId));
+    staff = await first(env, 'SELECT * FROM staff WHERE id = ? AND project_id = ?', s(data.staffId), pid);
   } else if (kind !== '담당없음') {
     throw new AppError('방문 구분이 올바르지 않습니다.');
   }
@@ -108,17 +112,17 @@ export async function deskRegisterVisit(env, data, ctx) {
 
   // 예약을 '방문'으로 먼저 확정한다 (두 데스크가 동시에 눌러도 한 번만 호출되도록)
   if (reservation) {
-    const claim = await run(env, `UPDATE reservations SET status = '방문' WHERE id = ? AND status = '예정'`, reservation.id);
+    const claim = await run(env, `UPDATE reservations SET status = '방문' WHERE id = ? AND project_id = ? AND status = '예정'`, reservation.id, pid);
     if (claim.meta.changes === 0) throw new AppError('이미 방문 처리된 예약입니다. 다시 부르려면 아래 방문 목록의 [재호출]을 누르세요.');
   }
   const visitId = newId('V');
   const now = nowStr();
   await run(env,
-    `INSERT INTO visits (id, visited_at, last5, gender, reservation_id, staff_id, kind, desk_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    visitId, now, last5, gender, reservation ? reservation.id : '', staff ? staff.id : '', kind, ctx.account.id);
+    `INSERT INTO visits (id, project_id, visited_at, last5, gender, reservation_id, staff_id, kind, desk_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    visitId, pid, now, last5, gender, reservation ? reservation.id : '', staff ? staff.id : '', kind, ctx.account.id);
 
   const called = staff ? await sendCallMessage(env, staff, visitId, last5, true) : false;
-  if (called) await run(env, 'UPDATE visits SET called_at = ? WHERE id = ?', now, visitId);
+  if (called) await run(env, 'UPDATE visits SET called_at = ? WHERE id = ? AND project_id = ?', now, visitId, pid);
 
   return {
     visitId, kind, called,
@@ -129,17 +133,18 @@ export async function deskRegisterVisit(env, data, ctx) {
   };
 }
 
-export async function deskRecall(env, data) {
-  const visit = await first(env, 'SELECT * FROM visits WHERE id = ?', s(data.visitId));
+export async function deskRecall(env, data, ctx) {
+  const pid = ctx.projectId;
+  const visit = await first(env, 'SELECT * FROM visits WHERE id = ? AND project_id = ?', s(data.visitId), pid);
   if (!visit) throw new AppError('방문 기록을 찾을 수 없습니다.');
-  const staff = visit.staff_id ? await first(env, 'SELECT * FROM staff WHERE id = ?', visit.staff_id) : null;
+  const staff = visit.staff_id ? await first(env, 'SELECT * FROM staff WHERE id = ? AND project_id = ?', visit.staff_id, pid) : null;
   if (!staff) throw new AppError('담당 직원이 없는 방문입니다.');
   if (visit.acked_at) throw new AppError('이미 확인된 호출입니다.');
   if (!staff.telegram_id) throw new AppError('텔레그램이 연결되지 않은 직원입니다. 전화로 연락해 주세요: ' + formatPhone(staff.phone));
   if (!(await sendCallMessage(env, staff, visit.id, visit.last5))) {
     throw new AppError('호출을 보내지 못했습니다. 전화로 연락해 주세요: ' + formatPhone(staff.phone));
   }
-  await run(env, 'UPDATE visits SET called_at = ? WHERE id = ?', nowStr(), visit.id);
+  await run(env, 'UPDATE visits SET called_at = ? WHERE id = ? AND project_id = ?', nowStr(), visit.id, pid);
   return {};
 }
 
@@ -150,12 +155,12 @@ export function visitStatus(v, staff) {
   return (Date.now() - parseKst(v.called_at).getTime()) / 60000 >= UNCONFIRMED_MIN ? '미확인' : '호출함';
 }
 
-export async function deskTodayVisits(env) {
+export async function deskTodayVisits(env, data, ctx) {
   const today = todayStr();
   const rows = await all(env,
     `SELECT v.*, s.name AS s_name, s.nickname AS s_nick, s.phone AS s_phone, s.id AS s_id
      FROM visits v LEFT JOIN staff s ON s.id = v.staff_id
-     WHERE v.visited_at >= ? AND v.visited_at <= ? ORDER BY v.visited_at DESC`, today + ' 00:00:00', today + ' 23:59:59');
+     WHERE v.project_id = ? AND v.visited_at >= ? AND v.visited_at <= ? ORDER BY v.visited_at DESC`, ctx.projectId, today + ' 00:00:00', today + ' 23:59:59');
   return {
     visits: rows.map((v) => {
       const status = visitStatus(v, v.s_id);
@@ -181,11 +186,17 @@ function matchOrg(staff, data) {
 const rangeFrom = (data) => (s(data.from) || '0000-00-00');
 const rangeTo = (data) => (s(data.to) || '9999-12-31');
 
-export async function adminReservations(env, data) {
-  const names = await orgNameMap(env);
-  const staffById = {};
-  (await all(env, 'SELECT * FROM staff')).forEach((r) => { staffById[r.id] = r; });
-  const rows = (await all(env, 'SELECT * FROM reservations WHERE visit_date >= ? AND visit_date <= ? ORDER BY visit_date DESC', rangeFrom(data), rangeTo(data)))
+async function staffMap(env, pid) {
+  const byId = {};
+  (await all(env, 'SELECT * FROM staff WHERE project_id = ?', pid)).forEach((r) => { byId[r.id] = r; });
+  return byId;
+}
+
+export async function adminReservations(env, data, ctx) {
+  const pid = ctx.projectId;
+  const names = await orgNameMap(env, pid);
+  const staffById = await staffMap(env, pid);
+  const rows = (await all(env, 'SELECT * FROM reservations WHERE project_id = ? AND visit_date >= ? AND visit_date <= ? ORDER BY visit_date DESC', pid, rangeFrom(data), rangeTo(data)))
     .filter((r) => matchOrg(staffById[r.staff_id], data)).slice(0, 3000)
     .map((r) => ({
       date: r.visit_date, last5: r.last5, gender: r.gender, staff: staffById[r.staff_id] ? staffBrief(staffById[r.staff_id], names) : null,
@@ -194,13 +205,13 @@ export async function adminReservations(env, data) {
   return { reservations: rows };
 }
 
-export async function adminVisits(env, data) {
-  const names = await orgNameMap(env);
-  const staffById = {};
-  (await all(env, 'SELECT * FROM staff')).forEach((r) => { staffById[r.id] = r; });
+export async function adminVisits(env, data, ctx) {
+  const pid = ctx.projectId;
+  const names = await orgNameMap(env, pid);
+  const staffById = await staffMap(env, pid);
   const filtering = !!(s(data.staffId) || s(data.headId) || s(data.teamId));
-  const rows = (await all(env, 'SELECT * FROM visits WHERE visited_at >= ? AND visited_at <= ? ORDER BY visited_at DESC',
-    rangeFrom(data) + ' 00:00:00', rangeTo(data) + ' 23:59:59'))
+  const rows = (await all(env, 'SELECT * FROM visits WHERE project_id = ? AND visited_at >= ? AND visited_at <= ? ORDER BY visited_at DESC',
+    pid, rangeFrom(data) + ' 00:00:00', rangeTo(data) + ' 23:59:59'))
     .filter((v) => {
       const st = staffById[v.staff_id];
       return st ? matchOrg(st, data) : !filtering;

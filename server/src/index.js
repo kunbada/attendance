@@ -1,23 +1,31 @@
 // Cloudflare Worker 진입점. 모든 요청은 POST 하나로 들어와 action 이름으로 나뉜다.
 // 요청·응답 형식은 Apps Script 시절과 같다:
-//   요청 { action, token, deviceKey, data }  →  응답 { ok: true, data } 또는 { ok: false, error, code }
-import { AppError, s } from './util.js';
-import { authenticate, accountLogin, accountChangePassword, authLogout, accountResetRequest, accountResetConfirm } from './auth.js';
-import { publicOrgs, staffSignup, staffLogin, staffMe, staffRequestDeviceChange } from './staff.js';
+//   요청 { action, token, deviceKey, projectId, data }  →  응답 { ok: true, data } 또는 { ok: false, error, code }
+import { AppError, s } from './core/util.js';
+import { authenticate, accountLogin, accountMe, accountChangePassword, authLogout, accountResetRequest, accountResetConfirm } from './core/auth.js';
+import { publicOrgs, deskOrgs, staffSignup, staffLogin, staffMe, staffRequestDeviceChange } from './core/staff.js';
 import {
-  adminStaffList, adminApprove, adminReject, adminUpdate, adminRetire, adminResetPin, adminApproveDevice,
-  adminPayrollGet, adminPayrollReveal, adminSettings, adminSaveSettings, adminOrgs, adminSaveOrg, adminAccounts, adminSaveAccount
-} from './admin.js';
-import { adminCurrentQr, adminIssueQr, attendanceCheckin, adminAttendance } from './attendance.js';
-import { reservationCreate, reservationList, reservationUpdate, reservationCancel } from './reservation.js';
-import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit.js';
-import { staffTelegramLink, handleTelegram } from './telegram.js';
-import { leaderStaffList, leaderApprove, leaderReject, leaderRetire } from './leader.js';
-import { adminDashboard, adminGuestStats, adminGuestbook } from './stats.js';
-import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook.js';
+  adminStaffList, adminApprove, adminReject, adminUpdate, adminRetire, adminResetPin, adminApproveDevice, adminMoveStaff,
+  adminPayrollGet, adminPayrollReveal
+} from './core/people.js';
+import { adminOrgs, adminSaveOrg } from './core/orgs.js';
+import { adminAccounts, adminSaveAccount } from './core/accounts.js';
+import { projectList, projectSave, adminSettings, adminSaveSettings } from './core/projects.js';
+import { leaderStaffList, leaderApprove, leaderReject, leaderRetire } from './core/leader.js';
+import { adminCurrentQr, adminIssueQr, attendanceCheckin, adminAttendance } from './attendance/attendance.js';
+import { reservationCreate, reservationList, reservationUpdate, reservationCancel } from './visit/reservation.js';
+import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit/visit.js';
+import { staffTelegramLink, handleTelegram } from './telegram/telegram.js';
+import { adminDashboard, adminGuestStats, adminGuestbook } from './report/stats.js';
+import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook/guestbook.js';
 
-// roles: 이 action 을 부를 수 있는 역할 ('public' = 로그인 불필요, 'desk' 는 관리자도 가능)
+// roles: 이 action 을 부를 수 있는 역할
+//   'public' = 로그인 불필요, 'staff' = 영업사원, 'admin' = 관리자(전체 현장), 'sub' = 보조관리자(지정 현장),
+//   'contract' = 계약담당, 'viewer' = 열람, 'desk' = 데스크 (관리자·보조관리자도 가능), 'kiosk' = 방명록 태블릿
+// scope: 'global' 이면 현장과 무관한 action. 그 외에는 인증 단계에서 ctx.projectId 가 정해지고, 접근 권한이 없는 현장은 거부된다
 // allowMustChange: 비밀번호 변경 전에도 부를 수 있는 action
+const MGR = ['admin', 'sub'];
+const ACCOUNTS = ['admin', 'sub', 'contract', 'viewer', 'desk', 'kiosk'];
 const ACTIONS = {
   'public.orgs': { roles: ['public'], fn: publicOrgs },
   'staff.signup': { roles: ['public'], fn: staffSignup },
@@ -39,9 +47,14 @@ const ACTIONS = {
   'account.login': { roles: ['public'], fn: accountLogin },
   'account.resetRequest': { roles: ['public'], fn: accountResetRequest },
   'account.resetConfirm': { roles: ['public'], fn: accountResetConfirm },
-  'account.changePassword': { roles: ['desk', 'admin'], fn: accountChangePassword, allowMustChange: true },
-  'auth.logout': { roles: ['staff', 'desk', 'admin', 'kiosk'], fn: authLogout, allowMustChange: true },
+  'account.me': { roles: ACCOUNTS, scope: 'global', fn: accountMe, allowMustChange: true },
+  'account.changePassword': { roles: ACCOUNTS, scope: 'global', fn: accountChangePassword, allowMustChange: true },
+  'auth.logout': { roles: ['staff', ...ACCOUNTS], scope: 'global', fn: authLogout, allowMustChange: true },
 
+  'project.list': { roles: ACCOUNTS, scope: 'global', fn: projectList },
+  'project.save': { roles: ['admin'], scope: 'global', fn: projectSave },
+
+  'desk.orgs': { roles: ['desk', 'kiosk'], fn: deskOrgs },
   'desk.lookup': { roles: ['desk'], fn: deskLookup },
   'desk.searchStaff': { roles: ['desk'], fn: deskSearchStaff },
   'desk.reservationList': { roles: ['desk'], fn: deskReservationList },
@@ -56,35 +69,36 @@ const ACTIONS = {
   'desk.recall': { roles: ['desk'], fn: deskRecall },
   'desk.todayVisits': { roles: ['desk'], fn: deskTodayVisits },
 
-  'admin.staffList': { roles: ['admin'], fn: adminStaffList },
-  'admin.approve': { roles: ['admin'], fn: adminApprove },
-  'admin.reject': { roles: ['admin'], fn: adminReject },
-  'admin.update': { roles: ['admin'], fn: adminUpdate },
-  'admin.retire': { roles: ['admin'], fn: adminRetire },
-  'admin.resetPin': { roles: ['admin'], fn: adminResetPin },
-  'admin.approveDevice': { roles: ['admin'], fn: adminApproveDevice },
-  'admin.payrollGet': { roles: ['admin'], fn: adminPayrollGet },
-  'admin.payrollReveal': { roles: ['admin'], fn: adminPayrollReveal },
-  'admin.currentQr': { roles: ['admin'], fn: adminCurrentQr },
-  'admin.issueQr': { roles: ['admin'], fn: adminIssueQr },
-  'admin.attendance': { roles: ['admin'], fn: adminAttendance },
-  'admin.reservations': { roles: ['admin'], fn: adminReservations },
-  'admin.visits': { roles: ['admin'], fn: adminVisits },
-  'admin.dashboard': { roles: ['admin'], fn: adminDashboard },
-  'admin.guestStats': { roles: ['admin'], fn: adminGuestStats },
-  'admin.guestbook': { roles: ['admin'], fn: adminGuestbook },
-  'admin.settings': { roles: ['admin'], fn: adminSettings },
+  'admin.staffList': { roles: MGR, fn: adminStaffList },
+  'admin.approve': { roles: MGR, fn: adminApprove },
+  'admin.reject': { roles: MGR, fn: adminReject },
+  'admin.update': { roles: MGR, fn: adminUpdate },
+  'admin.retire': { roles: MGR, fn: adminRetire },
+  'admin.resetPin': { roles: MGR, fn: adminResetPin },
+  'admin.approveDevice': { roles: MGR, fn: adminApproveDevice },
+  'admin.moveStaff': { roles: ['admin'], fn: adminMoveStaff },
+  'admin.payrollGet': { roles: MGR, fn: adminPayrollGet },
+  'admin.payrollReveal': { roles: MGR, fn: adminPayrollReveal }, // 보조관리자는 계정에 허용된 경우만 (함수 안에서 확인)
+  'admin.currentQr': { roles: MGR, fn: adminCurrentQr },
+  'admin.issueQr': { roles: MGR, fn: adminIssueQr },
+  'admin.attendance': { roles: MGR, fn: adminAttendance },
+  'admin.reservations': { roles: MGR, fn: adminReservations },
+  'admin.visits': { roles: MGR, fn: adminVisits },
+  'admin.dashboard': { roles: MGR, fn: adminDashboard },
+  'admin.guestStats': { roles: MGR, fn: adminGuestStats },
+  'admin.guestbook': { roles: MGR, fn: adminGuestbook },
+  'admin.settings': { roles: MGR, fn: adminSettings },
   'admin.saveSettings': { roles: ['admin'], fn: adminSaveSettings },
-  'admin.orgs': { roles: ['admin'], fn: adminOrgs },
-  'admin.saveOrg': { roles: ['admin'], fn: adminSaveOrg },
-  'admin.accounts': { roles: ['admin'], fn: adminAccounts },
-  'admin.saveAccount': { roles: ['admin'], fn: adminSaveAccount }
+  'admin.orgs': { roles: MGR, fn: adminOrgs },
+  'admin.saveOrg': { roles: MGR, fn: adminSaveOrg },
+  'admin.accounts': { roles: ['admin'], scope: 'global', fn: adminAccounts },
+  'admin.saveAccount': { roles: ['admin'], scope: 'global', fn: adminSaveAccount }
 };
 
 async function route(env, req) {
   const def = ACTIONS[s(req && req.action)];
   if (!def) throw new AppError('알 수 없는 요청입니다.');
-  const ctx = await authenticate(env, req, def.roles);
+  const ctx = await authenticate(env, req, def);
   if (ctx.account && ctx.account.must_change_password && !def.allowMustChange) {
     throw new AppError('비밀번호를 먼저 변경해 주세요.', 'MUST_CHANGE_PW');
   }

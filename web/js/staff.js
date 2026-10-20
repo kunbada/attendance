@@ -11,9 +11,19 @@
     window.scrollTo(0, 0);
   }
 
+  // 가입 링크(staff.html?p=현장코드#signup)에 현장이 들어 있다. 링크를 열어 둔 뒤 주소가 바뀌어도 쓸 수 있게 한 번 저장해 둔다.
+  function signupCode() {
+    var code = new URLSearchParams(location.search).get('p') || '';
+    try {
+      if (code) localStorage.setItem('wn_signup_code', code);
+      else code = localStorage.getItem('wn_signup_code') || '';
+    } catch (e) { /* 저장 불가 환경 */ }
+    return code;
+  }
+
   async function loadOrgs() {
     if (orgs) return orgs;
-    orgs = await Api.call('public.orgs');
+    orgs = await Api.call('public.orgs', { projectCode: signupCode() });
     if (orgs.siteName) $('#siteName').textContent = orgs.siteName;
     return orgs;
   }
@@ -31,6 +41,7 @@
 
   async function showHome() {
     var me = await Api.call('staff.me');
+    if (me.project) $('#siteName').textContent = me.project.name;
     $('#home-name').textContent = me.staff.name + (me.staff.nickname ? ' (' + me.staff.nickname + ')' : '');
     $('#home-job').textContent = me.staff.job;
     $('#home-today').textContent = me.checkedInToday ? '출근 ' + me.checkedInAt : '아직 출근 전';
@@ -90,7 +101,7 @@
       if ($('#su-pin').value !== $('#su-pin2').value) throw new Error('PIN이 서로 다릅니다.');
       if (!$('#su-consent').checked) throw new Error('개인정보 수집·이용에 동의해 주세요.');
       await Api.call('staff.signup', {
-        name: $('#su-name').value, nickname: $('#su-nickname').value, phone: $('#su-phone').value,
+        projectCode: signupCode(), name: $('#su-name').value, nickname: $('#su-nickname').value, phone: $('#su-phone').value,
         job: $('#su-job').value, headId: $('#su-head').value, teamId: $('#su-team').value,
         rrn: $('#su-rrn').value, bank: $('#su-bank').value, accountNo: $('#su-account').value, holder: $('#su-holder').value,
         pin: $('#su-pin').value, consent: true

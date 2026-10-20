@@ -1,6 +1,6 @@
 // 직원 가입, 로그인, 내 정보, 기기 변경 요청
 import { AppError, s, all, first, run, stmt, nowStr, todayStr, newId, hashSecret, safeEqual, encryptText, getSettings, writeLog } from './util.js';
-import { MAX_FAILS, createSession } from './auth.js';
+import { MAX_FAILS, createSession, projectBrief } from './auth.js';
 
 export const SALES_JOB = '영업'; // 이 직군만 본부→팀을 선택한다
 
@@ -25,14 +25,14 @@ export function requirePin(v) {
   return p;
 }
 
-export function activeOrgs(env) {
-  return all(env, 'SELECT * FROM orgs WHERE active = 1 ORDER BY sort_order, rowid');
+export function activeOrgs(env, projectId) {
+  return all(env, 'SELECT * FROM orgs WHERE project_id = ? AND active = 1 ORDER BY sort_order, rowid', projectId);
 }
 
 // 직군·본부·팀 선택이 유효한지 확인하고 저장할 값을 돌려준다
 // allowNoTeam: 본부장은 팀 없이 본부에만 소속될 수 있다
-export async function resolveOrg(env, job, headId, teamId, allowNoTeam = false) {
-  const orgs = await activeOrgs(env);
+export async function resolveOrg(env, projectId, job, headId, teamId, allowNoTeam = false) {
+  const orgs = await activeOrgs(env, projectId);
   if (!orgs.some((o) => o.kind === '직군' && o.name === job)) throw new AppError('직군을 선택해 주세요.');
   if (job !== SALES_JOB) return { job, headId: '', teamId: '' };
   if (!orgs.some((o) => o.kind === '본부' && o.id === headId)) throw new AppError('본부를 선택해 주세요.');
@@ -62,6 +62,21 @@ export async function checkPin(env, row, pin) {
 
 const staffSelf = (r) => ({ id: r.id, name: r.name, nickname: r.nickname, phone: r.phone, job: r.job, status: r.status, grade: r.grade });
 
+// 가입 링크의 현장 코드로 현장을 찾는다 (가입을 받지 않는 현장은 거부)
+async function projectByCode(env, code) {
+  const project = await first(env, 'SELECT * FROM projects WHERE code = ?', s(code).trim().toLowerCase());
+  if (!project) throw new AppError('가입 링크가 올바르지 않습니다. 관리자에게 새 링크를 받아 주세요.');
+  if (project.status === '종료') throw new AppError('종료된 현장입니다. 관리자에게 문의해 주세요.');
+  return project;
+}
+
+// 가입 화면·데스크 화면이 쓰는 조직 목록 (이 현장의 것만)
+export async function orgsPayload(env, project) {
+  const orgs = await activeOrgs(env, project.id);
+  const pick = (kind) => orgs.filter((o) => o.kind === kind).map((o) => ({ id: o.id, name: o.name, parentId: o.parent_id }));
+  return { siteName: project.name, jobs: pick('직군'), heads: pick('본부'), teams: pick('팀'), salesJob: SALES_JOB };
+}
+
 export const GRADES = ['직원', '팀장', '본부장'];
 
 // 팀장·본부장 지정이 소속과 맞는지 확인한다 (관리자 화면에서 지정할 때 사용)
@@ -74,11 +89,14 @@ export function checkGrade(grade, org) {
 
 // ---------- action ----------
 
-export async function publicOrgs(env) {
-  const orgs = await activeOrgs(env);
-  const pick = (kind) => orgs.filter((o) => o.kind === kind).map((o) => ({ id: o.id, name: o.name, parentId: o.parent_id }));
-  const settings = await getSettings(env);
-  return { siteName: settings['현장명'] || '', jobs: pick('직군'), heads: pick('본부'), teams: pick('팀'), salesJob: SALES_JOB };
+// 로그인 전 가입 화면용: data.projectCode 로 현장을 정한다
+export async function publicOrgs(env, data) {
+  return orgsPayload(env, await projectByCode(env, data.projectCode));
+}
+
+// 데스크·방명록 화면용: 계정에 고정된 현장
+export async function deskOrgs(env, data, ctx) {
+  return orgsPayload(env, ctx.project);
 }
 
 export async function staffSignup(env, data, ctx) {
@@ -89,7 +107,8 @@ export async function staffSignup(env, data, ctx) {
   const phone = normalizePhone(data.phone);
   const deviceKey = requireDeviceKey(ctx);
   const pin = requirePin(data.pin);
-  const org = await resolveOrg(env, s(data.job), s(data.headId), s(data.teamId));
+  const project = await projectByCode(env, data.projectCode);
+  const org = await resolveOrg(env, project.id, s(data.job), s(data.headId), s(data.teamId));
 
   const rrnDigits = s(data.rrn).replace(/\D/g, '');
   if (rrnDigits.length !== 13) throw new AppError('주민등록번호 13자리를 입력해 주세요.');
@@ -122,20 +141,20 @@ export async function staffSignup(env, data, ctx) {
     staffId, name, rrnEnc, bank, accEnc, holder, now);
   const staff = existing
     ? stmt(env,
-      `UPDATE staff SET name = ?, nickname = ?, phone = ?, job = ?, head_id = ?, team_id = ?, status = '대기', reject_reason = '',
+      `UPDATE staff SET project_id = ?, name = ?, nickname = ?, phone = ?, job = ?, head_id = ?, team_id = ?, status = '대기', reject_reason = '',
          pin_hash = ?, fail_count = 0, device_key = ?, device_change_request = '', joined_at = ?, approved_at = '' WHERE id = ?`,
-      name, nickname, phone, org.job, org.headId, org.teamId, pinHash, deviceKey, now, staffId)
+      project.id, name, nickname, phone, org.job, org.headId, org.teamId, pinHash, deviceKey, now, staffId)
     : stmt(env,
-      `INSERT INTO staff (id, name, nickname, phone, job, head_id, team_id, status, pin_hash, device_key, joined_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '대기', ?, ?, ?)`,
-      staffId, name, nickname, phone, org.job, org.headId, org.teamId, pinHash, deviceKey, now);
+      `INSERT INTO staff (id, project_id, name, nickname, phone, job, head_id, team_id, status, pin_hash, device_key, joined_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '대기', ?, ?, ?)`,
+      staffId, project.id, name, nickname, phone, org.job, org.headId, org.teamId, pinHash, deviceKey, now);
   try {
     await env.DB.batch([payroll, staff]); // 급여정보와 직원 정보는 함께 저장되거나 함께 취소된다
   } catch (e) {
     if (/UNIQUE/i.test(String(e.message))) throw new AppError('이미 가입 신청된 번호입니다.');
     throw e;
   }
-  await writeLog(env, name, existing ? '재가입신청' : '가입신청', staffId);
+  await writeLog(env, name, existing ? '재가입신청' : '가입신청', staffId, '', project.id);
   return {};
 }
 
@@ -159,19 +178,21 @@ export async function staffLogin(env, data, ctx) {
     }
     throw new AppError('등록된 휴대폰이 아닙니다.', 'DEVICE_MISMATCH');
   }
-  return { token: await createSession(env, 'staff', row.id), staff: staffSelf(row) };
+  const project = await first(env, 'SELECT * FROM projects WHERE id = ?', row.project_id);
+  return { token: await createSession(env, 'staff', row.id), staff: staffSelf(row), project: project ? projectBrief(project) : null };
 }
 
 export async function staffMe(env, data, ctx) {
   const today = todayStr();
   const month = today.slice(0, 7);
-  const todayRec = await first(env, `SELECT time FROM attendance WHERE staff_id = ? AND date = ? AND result = '성공'`, ctx.staff.id, today);
+  const todayRec = await first(env, `SELECT time FROM attendance WHERE project_id = ? AND staff_id = ? AND date = ? AND result = '성공'`, ctx.projectId, ctx.staff.id, today);
   const days = await first(env,
-    `SELECT COUNT(DISTINCT date) AS n FROM attendance WHERE staff_id = ? AND result = '성공' AND date >= ? AND date <= ?`,
-    ctx.staff.id, month + '-01', month + '-31');
-  const settings = await getSettings(env);
+    `SELECT COUNT(DISTINCT date) AS n FROM attendance WHERE project_id = ? AND staff_id = ? AND result = '성공' AND date >= ? AND date <= ?`,
+    ctx.projectId, ctx.staff.id, month + '-01', month + '-31');
+  const settings = await getSettings(env, ctx.projectId);
   return {
     staff: staffSelf(ctx.staff),
+    project: projectBrief(ctx.project),
     checkedInToday: !!todayRec,
     checkedInAt: todayRec ? todayRec.time.slice(0, 5) : '',
     monthDays: days ? days.n : 0,

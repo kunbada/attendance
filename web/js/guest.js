@@ -116,7 +116,7 @@
   ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(function (ev) { $('#siteName').addEventListener(ev, holdEnd); });
 
   renderChoices();
-  Api.call('public.orgs').then(function (o) { if (o.siteName) $('#siteName').textContent = o.siteName + ' 방명록'; }).catch(function () { /* 현장명 표시는 생략 */ });
+  Api.call('desk.orgs').then(function (o) { if (o.siteName) $('#siteName').textContent = o.siteName + ' 방명록'; }).catch(function () { /* 현장명 표시는 생략 */ });
   show(Api.getToken() ? 'form' : 'login');
   touch();
 })();

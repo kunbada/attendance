@@ -13,20 +13,21 @@
 ## 폴더 (0단계 완료 구조 — 구성안 3장)
 ```
 server/          통합 서버 = Cloudflare Worker + D1 (기존 근태 서버. 이름 attendance-api / DB attendance 유지)
-                 wrangler.toml, schema.sql, migrations/, src/, scripts/, test/run.mjs
+                 wrangler.toml, schema.sql, migrations/, scripts/, test/run.mjs(통합 시험), test/check-scope.mjs(project_id 누락 점검)
+                 src/ = index.js(ACTIONS 표) + core/(인증·프로젝트·인력·조직·계정) attendance/ visit/ guestbook/ telegram/ report/
 web/             GitHub Pages 로 배포 (.github/workflows/pages.yml 이 web/ 만 올림). 공개 — 비밀 정보 금지
-                 staff.html, desk.html, guest.html, admin.html(→ 6단계에서 hub 로 대체), js/, css/
-                 hub/ (1단계에서 신규), s/ (3단계 설문 응답), contract/ (4단계 계약앱 온라인판)
+                 staff.html, desk.html, guest.html, admin.html(hub 로 자동 이동하는 안내만 남음, 6단계에서 삭제), js/, css/
+                 hub/ (통합관리, 1단계 완료: 홈·프로젝트·인력·근태·방문예약방명록·설정), s/ (3단계 설문 응답), contract/ (4단계 계약앱 온라인판)
 apps/contract/   분양계약관리 소스 (src/ → node build.js → 분양계약관리.html). 자체 CLAUDE.md 적용
                  gas/ 는 구 동기화 서버 — 4단계에서 통합 서버로 교체 후 legacy/ 로 이동
 apps/survey-gas/ 설문관리 Apps Script (구). 3단계에서 D1 로 이전 후 legacy/ 로 이동. 자체 CLAUDE.md 적용
 docs/            통합구성안.md(설계 기준), 근태_spec.md(근태·방문·방명록 기능 명세), 배포가이드.md, 사용설명서.md
-                 근태_CLAUDE_원본.md(참고용 보관), 데이터사전.md·권한표.md(1단계에서 작성)
+                 근태_CLAUDE_원본.md(참고용 보관), 데이터사전.md·권한표.md(1단계 작성 — 표·열·권한을 바꾸면 함께 고친다)
 private/         git 제외. 계약 초기데이터·백업, D1 내보내기, 0단계 이동 전 백업
 ```
 - 근태·방문·방명록·텔레그램 기능의 세부 동작은 `docs/근태_spec.md` 가 기준이다 (프로젝트 범위 등 통합 관련 변경은 통합구성안이 우선).
 - 하위 폴더 CLAUDE.md 규칙은 그 앱 코드를 만질 때 계속 적용된다. 이 파일과 충돌하면 이 파일이 우선.
-- 서버 명령은 `server/` 에서 실행: `cd server && npx wrangler@4 deploy`. 로컬 테스트는 `test/run.mjs` 맨 위 주석 순서대로.
+- 서버 명령은 `server/` 에서 실행: `cd server && npx wrangler@4 deploy`. 로컬 테스트는 `test/run.mjs` 맨 위 주석 순서대로(DB 비우기 `scripts/reset-local.sql` → `schema.sql` → 시드 → 서버 → 시험). 코드를 고친 뒤에는 `node test/check-scope.mjs` 도 돌린다.
 
 ## 절대 규칙
 1. **단순하게.** 프레임워크(React/Vue 등)·TypeScript·번들러 없음. 화면은 순수 HTML/CSS/JS, 서버는 순수 JS(ES 모듈). 서버는 npm 패키지 없이 `npx wrangler@4` 로 실행만.

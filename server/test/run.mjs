@@ -1,5 +1,6 @@
 // 통합 테스트: 로컬에서 띄운 서버(wrangler dev)를 실제 HTTP 로 호출한다.
-//   1) node scripts/make-seed.mjs  → 출력된 초기 비밀번호를 ADMIN_PW 로 넘긴다
+//   0) (다시 돌릴 때) npx wrangler@4 d1 execute DB --local --file=scripts/reset-local.sql  → 이어서 --file=schema.sql
+//   1) node scripts/make-seed.mjs  → npx wrangler@4 d1 execute DB --local --file=.seed.sql  → 출력된 초기 비밀번호를 ADMIN_PW 로 넘긴다
 //   2) wrangler dev --local --port 8787 --var TELEGRAM_API_BASE:http://127.0.0.1:9999 --var TELEGRAM_TOKEN:testtoken --var RESEND_API_BASE:http://127.0.0.1:9998 --var RESEND_API_KEY:testkey
 //   3) ADMIN_PW=... node test/run.mjs
 // 가짜 텔레그램 서버(포트 9999)를 이 스크립트가 직접 띄워서 호출 메시지를 가로챈다. 실제 텔레그램으로는 보내지 않는다.
@@ -44,8 +45,10 @@ await new Promise((r) => fakeMail.listen(9998, '127.0.0.1', r));
 
 // ---------- 도우미 ----------
 let pass = 0, failed = 0;
-const call = async (action, data, token = '', deviceKey = '') =>
-  (await fetch(BASE, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, token, deviceKey, data: data || {} }) })).json();
+// projectId 를 따로 주지 않으면 첫 현장(P01). 다른 현장이나 "현장 없음"(null)을 시험할 때만 직접 넘긴다
+const P1 = 'P01';
+const call = async (action, data, token = '', deviceKey = '', projectId = P1) =>
+  (await fetch(BASE, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, token, deviceKey, projectId: projectId || undefined, data: data || {} }) })).json();
 const check = (label, cond, extra = '') => {
   if (cond) { pass++; console.log('[통과] ' + label + (extra ? ' → ' + extra : '')); }
   else { failed++; console.log('[실패] ' + label + (extra ? ' → ' + extra : '')); }
@@ -53,6 +56,21 @@ const check = (label, cond, extra = '') => {
 const expectErr = (label, res, part, code) => check(label, res.ok === false && (!part || res.error.includes(part)) && (!code || res.code === code), res.error || '(성공해 버림)');
 const expectOk = (label, res) => check(label, res.ok === true, res.ok ? '' : res.error);
 const webhook = (body, secret = SECRET) => fetch(BASE + '/?tg=' + secret, { method: 'POST', body: JSON.stringify(body) });
+// 로컬 DB 를 직접 조회한다 (로그처럼 API 로 볼 수 없는 값 확인용)
+const query = async (command) => {
+  let out;
+  for (let i = 0; ; i++) {
+    try {
+      out = execFileSync('npx', ['wrangler@4', 'd1', 'execute', 'DB', '--local', '--json', '--command', JSON.stringify(command)], { cwd: root, shell: true, stdio: 'pipe', windowsHide: true }).toString();
+      break;
+    } catch (e) {
+      if (i >= 2) throw new Error('DB 조회 실패: ' + (e.stderr || e.stdout || e.message));
+      await waitReady();
+    }
+  }
+  await waitReady(); // DB 파일에 접근하면 개발 서버가 잠깐 다시 시작될 수 있다
+  return JSON.parse(out.slice(out.indexOf('[')))[0].results;
+};
 const sql = (command) => {
   writeFileSync(join(root, '.test.sql'), command + ';');
   execFileSync('npx', ['wrangler@4', 'd1', 'execute', 'DB', '--local', '--file=.test.sql'], { cwd: root, shell: true, stdio: 'pipe', windowsHide: true });
@@ -87,12 +105,12 @@ try {
   expectOk('비밀번호 변경', await call('account.changePassword', { oldPassword: ADMIN_PW, newPassword: 'TestPass' + uniq.slice(0, 4) + 'a1' }, admin));
   expectOk('변경 후 관리자 기능', await call('admin.staffList', {}, admin));
   expectErr('틀린 비밀번호', await call('account.login', { loginId: 'admin', password: 'wrongpass1' }), '올바르지 않습니다');
-  const orgs = (await call('public.orgs')).data;
+  const orgs = (await call('public.orgs', { projectCode: 'site1' })).data;
   check('가입용 조직 목록 (영업 직군, 본부·팀)', orgs.jobs.some((j) => j.name === '영업') && orgs.heads.length >= 1 && orgs.teams.length >= 1);
 
   // ===== 1단계: 가입·승인·로그인·기기 =====
   const A = person(1), B = person(2);
-  const base = (p, extra) => ({ name: p.name, nickname: '별' + p.name.slice(-3), phone: p.phone, pin: p.pin, job: '상담사', rrn: '000101-3000000', bank: '국민', accountNo: '000-000-000000', holder: p.name, consent: true, ...extra });
+  const base = (p, extra) => ({ projectCode: 'site1', name: p.name, nickname: '별' + p.name.slice(-3), phone: p.phone, pin: p.pin, job: '상담사', rrn: '000101-3000000', bank: '국민', accountNo: '000-000-000000', holder: p.name, consent: true, ...extra });
   expectErr('동의 없이 가입 거부', await call('staff.signup', base(A, { consent: false }), '', A.dev), '동의');
   expectErr('영업 직군인데 팀 없음 → 거부', await call('staff.signup', base(A, { job: '영업' }), '', A.dev), '본부');
   expectOk('가입 신청', await call('staff.signup', base(A), '', A.dev));
@@ -135,7 +153,7 @@ try {
   expectOk('초기화된 PIN으로 로그인', await call('staff.login', { phone: B.phone, pin: reset.data.pin }, '', B.dev));
   B.pin = reset.data.pin;
   const deskPw = 'Desk' + uniq.slice(0, 4) + 'a9';
-  expectOk('데스크 계정 추가', await call('admin.saveAccount', { loginId: 'desk' + uniq.slice(0, 4), name: '데스크', role: '데스크', password: deskPw, active: true }, admin));
+  expectOk('데스크 계정 추가', await call('admin.saveAccount', { loginId: 'desk' + uniq.slice(0, 4), name: '데스크', role: '데스크', password: deskPw, active: true, projectIds: [P1] }, admin));
   const deskLogin = await call('account.login', { loginId: 'desk' + uniq.slice(0, 4), password: deskPw });
   expectOk('데스크 로그인', deskLogin);
   expectOk('데스크 비밀번호 변경', await call('account.changePassword', { oldPassword: deskPw, newPassword: 'DeskNew' + uniq.slice(0, 4) + 'x1' }, deskLogin.data.token));
@@ -152,7 +170,7 @@ try {
   const accList0 = (await call('admin.accounts', {}, admin)).data.accounts;
   check('이메일은 소문자로 저장', accList0.find((a) => a.loginId === rAdmin).email === 'reset@test.example');
   const deskAcc = accList0.find((a) => a.loginId === 'desk' + uniq.slice(0, 4));
-  expectOk('데스크 계정에 이메일을 넣어도', await call('admin.saveAccount', { id: deskAcc.id, loginId: deskAcc.loginId, name: deskAcc.name, role: '데스크', active: true, email: 'desk@test.example' }, admin));
+  expectOk('데스크 계정에 이메일을 넣어도', await call('admin.saveAccount', { id: deskAcc.id, loginId: deskAcc.loginId, name: deskAcc.name, role: '데스크', active: true, email: 'desk@test.example', projectIds: deskAcc.projectIds }, admin));
   check('데스크 계정에는 이메일이 저장되지 않음', (await call('admin.accounts', {}, admin)).data.accounts.find((a) => a.id === deskAcc.id).email === '');
 
   const m0 = mails.length;
@@ -403,7 +421,7 @@ try {
 
   // 방명록: 태블릿(방명록 계정) 입력 → 데스크 확인·수정·담당 지정 → 호출
   const kioskPw = 'Kiosk' + uniq.slice(0, 4) + 'z7';
-  expectOk('방명록 계정 추가', await call('admin.saveAccount', { loginId: 'kiosk' + uniq.slice(0, 4), name: '태블릿', role: '방명록', password: kioskPw, active: true }, admin));
+  expectOk('방명록 계정 추가', await call('admin.saveAccount', { loginId: 'kiosk' + uniq.slice(0, 4), name: '태블릿', role: '방명록', password: kioskPw, active: true, projectIds: [P1] }, admin));
   const kLogin = await call('account.login', { loginId: 'kiosk' + uniq.slice(0, 4), password: kioskPw });
   expectOk('방명록 계정 로그인 (비밀번호 변경 강제 없음)', kLogin);
   check('방명록 계정은 변경 강제 없음', kLogin.data.account.mustChangePassword === false);
@@ -549,6 +567,215 @@ try {
   check('허용되지 않은 사이트에는 CORS 허용 헤더 없음', !cors.headers.get('access-control-allow-origin'));
   const cors2 = await fetch(BASE, { method: 'OPTIONS', headers: { Origin: 'https://kunbada.github.io' } });
   check('GitHub Pages 주소는 허용', cors2.headers.get('access-control-allow-origin') === 'https://kunbada.github.io');
+  // ===== 1단계: 현장(프로젝트) 범위 — 다른 현장의 데이터에는 접근할 수 없다 =====
+  const plist = await call('project.list', {}, admin, '', null);
+  expectOk('관리자: 현장 목록', plist);
+  check('첫 현장(P01, 코드 site1)이 있음', plist.data.projects.some((p) => p.id === P1 && p.code === 'site1'));
+  expectErr('현장 코드 형식 검사', await call('project.save', { name: 'B현장', code: 'A_B' }, admin, '', null), '현장 코드');
+  expectErr('현장 이름 필수', await call('project.save', { name: ' ' }, admin, '', null), '이름');
+  expectErr('현장 상태 검사', await call('project.save', { name: 'x', status: '??' }, admin, '', null), '상태');
+  const codeB = 'siteb' + uniq.slice(0, 3);
+  const pB = await call('project.save', { name: 'B현장', code: codeB, kind: 'APT', status: '진행', moneyLabel: '분양가' }, admin, '', null);
+  expectOk('현장 생성 (B현장)', pB);
+  const P2 = pB.data.id;
+  expectErr('현장 코드 중복 거부', await call('project.save', { name: 'C현장', code: codeB }, admin, '', null), '이미 사용');
+  const orgsB0 = (await call('admin.orgs', {}, admin, '', P2)).data.orgs;
+  check('새 현장에는 기본 직군만 만들어짐 (영업 포함, 본부·팀 없음)', orgsB0.filter((o) => o.kind === '직군').length === 5 && orgsB0.some((o) => o.name === '영업') && !orgsB0.some((o) => o.kind !== '직군'));
+  check('새 현장 기본 설정', (await call('admin.settings', {}, admin, '', P2)).data.settings['GPS허용거리m'] === '200');
+  expectErr('존재하지 않는 현장을 가리키면 거부', await call('admin.staffList', {}, admin, '', 'PNOPE'), '접근할 수 없습니다', 'FORBIDDEN');
+  expectErr('현장 없이 현장 업무 action → 거부', await call('admin.staffList', {}, admin, '', null), '현장을 선택', 'NO_PROJECT');
+
+  // --- 계정: 역할별 현장 지정 규칙 ---
+  const acctBase = (loginId, role, projectIds, extra) => ({ loginId, name: loginId, role, password: 'Pw' + uniq.slice(0, 4) + 'x1', active: true, projectIds, ...extra });
+  const sfx = uniq.slice(0, 4);
+  expectErr('보조관리자는 담당 현장 필수', await call('admin.saveAccount', acctBase('subx' + sfx, '보조관리자', []), admin, '', null), '현장');
+  expectErr('데스크는 현장 1개만 지정', await call('admin.saveAccount', acctBase('deskx' + sfx, '데스크', [P1, P2]), admin, '', null), '1개');
+  expectErr('없는 현장 지정 거부', await call('admin.saveAccount', acctBase('subx' + sfx, '보조관리자', ['PNOPE']), admin, '', null), '존재하지 않는');
+  expectOk('보조관리자 A (P01 담당)', await call('admin.saveAccount', acctBase('suba' + sfx, '보조관리자', [P1]), admin, '', null));
+  expectOk('보조관리자 B (B현장 담당)', await call('admin.saveAccount', acctBase('subb' + sfx, '보조관리자', [P2]), admin, '', null));
+  expectOk('열람 계정 (P01)', await call('admin.saveAccount', acctBase('view' + sfx, '열람', [P1]), admin, '', null));
+  expectOk('데스크 A (P01)', await call('admin.saveAccount', acctBase('deska' + sfx, '데스크', [P1]), admin, '', null));
+  expectOk('데스크 B (B현장)', await call('admin.saveAccount', acctBase('deskb' + sfx, '데스크', [P2]), admin, '', null));
+  expectOk('방명록 B (B현장)', await call('admin.saveAccount', acctBase('kiosb' + sfx, '방명록', [P2]), admin, '', null));
+  const loginAs = async (loginId) => {
+    const r = await call('account.login', { loginId, password: 'Pw' + sfx + 'x1' });
+    if (r.ok && r.data.account.mustChangePassword) await call('account.changePassword', { oldPassword: 'Pw' + sfx + 'x1', newPassword: 'Pw' + sfx + 'y2' }, r.data.token, '', null);
+    return r;
+  };
+  const lSubA = await loginAs('suba' + sfx), lSubB = await loginAs('subb' + sfx), lView = await loginAs('view' + sfx);
+  const subA = lSubA.data.token, subB = lSubB.data.token, viewer = lView.data.token;
+  const deskA = (await loginAs('deska' + sfx)).data.token, deskB = (await loginAs('deskb' + sfx)).data.token, kioskB = (await loginAs('kiosb' + sfx)).data.token;
+  const meA = await call('account.me', {}, subA, '', null);
+  check('내 정보(account.me): 역할과 담당 현장', meA.ok && meA.data.account.role === '보조관리자' && meA.data.projects.length === 1 && meA.data.projects[0].id === P1);
+  check('보조관리자 A 로그인 응답에는 담당 현장(P01)만', lSubA.data.projects.length === 1 && lSubA.data.projects[0].id === P1, JSON.stringify(lSubA.data.projects));
+  check('보조관리자는 급여 원문·지급 확정 권한 기본 불가', lSubA.data.account.allowPayroll === false && lSubA.data.account.allowPayConfirm === false);
+  check('관리자 로그인 응답에는 전체 현장', (await call('account.login', { loginId: rAdmin2, password: rpw0 })).data.projects.length >= 2);
+
+  // --- 보조관리자: 담당 현장만 ---
+  expectOk('보조관리자 A: 자기 현장 직원 목록', await call('admin.staffList', {}, subA, '', P1));
+  expectErr('보조관리자 A: 다른 현장(B현장) 직원 목록 → 거부', await call('admin.staffList', {}, subA, '', P2), '접근할 수 없습니다', 'FORBIDDEN');
+  expectErr('보조관리자 B: P01 직원 목록 → 거부', await call('admin.staffList', {}, subB, '', P1), '접근할 수 없습니다', 'FORBIDDEN');
+  expectErr('보조관리자: 현장 미선택 → 거부', await call('admin.staffList', {}, subA, '', null), '현장을 선택', 'NO_PROJECT');
+  const plistA = await call('project.list', {}, subA, '', null);
+  check('보조관리자 현장 목록에는 담당 현장만', plistA.ok && plistA.data.projects.length === 1 && plistA.data.projects[0].id === P1);
+  for (const [label, action, data] of [
+    ['현장 생성', 'project.save', { name: '무단 현장' }], ['계정 목록', 'admin.accounts', {}], ['계정 저장', 'admin.saveAccount', acctBase('hack' + sfx, '관리자', [])],
+    ['설정 저장', 'admin.saveSettings', { values: { 'GPS허용거리m': '300' } }], ['직원 현장 이동', 'admin.moveStaff', { staffId: idA, toProjectId: P2, job: '상담사' }]
+  ]) expectErr('보조관리자는 관리자 전용 action 불가: ' + label, await call(action, data, subA, '', action.startsWith('project.') || action.startsWith('admin.acc') ? null : P1), '권한이 없습니다', 'FORBIDDEN');
+  expectErr('열람 계정은 아직 직원 관리 불가', await call('admin.staffList', {}, viewer, '', P1), '권한이 없습니다', 'FORBIDDEN');
+  check('열람 계정도 담당 현장 목록은 받음', (await call('project.list', {}, viewer, '', null)).data.projects.length === 1);
+
+  // --- B현장 조직·가입 ---
+  expectOk('보조관리자 B: B현장에 본부 추가', await call('admin.saveOrg', { kind: '본부', name: 'B본부', order: 1 }, subB, '', P2));
+  const headB = (await call('admin.orgs', {}, subB, '', P2)).data.orgs.find((o) => o.kind === '본부').id;
+  expectOk('보조관리자 B: B현장에 팀 추가', await call('admin.saveOrg', { kind: '팀', name: 'B팀', parentId: headB, order: 1 }, subB, '', P2));
+  const orgsB = (await call('admin.orgs', {}, subB, '', P2)).data.orgs;
+  const teamB = orgsB.find((o) => o.kind === '팀').id;
+  expectErr('B현장에서 P01 조직(OH01)을 수정할 수 없음', await call('admin.saveOrg', { id: 'OH01', kind: '본부', name: '탈취', order: 1 }, subB, '', P2), '찾을 수 없습니다');
+  expectErr('B현장 팀을 P01 본부(OH01) 아래에 만들 수 없음', await call('admin.saveOrg', { kind: '팀', name: '잘못된팀', parentId: 'OH01', order: 1 }, subB, '', P2), '소속 본부');
+  expectErr('P01에서 B현장 조직을 수정할 수 없음', await call('admin.saveOrg', { id: headB, kind: '본부', name: '탈취', order: 1 }, subA, '', P1), '찾을 수 없습니다');
+  const pubB = (await call('public.orgs', { projectCode: codeB })).data;
+  const pubA = (await call('public.orgs', { projectCode: 'site1' })).data;
+  check('가입 화면 조직은 현장별 (B현장: B본부만, P01 조직 없음)', pubB.siteName === 'B현장' && pubB.heads.length === 1 && pubB.heads[0].name === 'B본부' && !pubB.heads.some((x) => x.id === 'OH01'));
+  check('가입 화면 조직은 현장별 (P01: B본부 없음)', !pubA.heads.some((x) => x.id === headB) && pubA.heads.some((x) => x.id === 'OH01'));
+  expectErr('틀린 현장 코드 → 가입 링크 오류', await call('public.orgs', { projectCode: 'nopecode' }), '가입 링크가 올바르지');
+  expectErr('현장 코드 없이 가입 화면 조회 불가', await call('public.orgs', {}), '가입 링크가 올바르지');
+
+  const S1 = person(21), S2 = person(22);
+  expectErr('B현장 가입에 P01 본부를 고르면 거부', await call('staff.signup', base(S1, { projectCode: codeB, job: '영업', headId: 'OH01', teamId: 'OT011' }), '', S1.dev), '본부');
+  expectErr('가입 링크 없이는 가입 불가', await call('staff.signup', base(S1, { projectCode: '' }), '', S1.dev), '가입 링크가 올바르지');
+  expectOk('B현장 가입 (영업, B본부/B팀)', await call('staff.signup', base(S1, { projectCode: codeB, job: '영업', headId: headB, teamId: teamB }), '', S1.dev));
+  const listB = (await call('admin.staffList', {}, subB, '', P2)).data.staff;
+  const idS1 = listB.find((x) => x.phone === S1.phone).id;
+  check('B현장 직원 목록에 S1 (B본부/B팀)', listB.length === 1 && listB[0].id === idS1 && listB[0].headName === 'B본부' && listB[0].teamName === 'B팀');
+  check('P01 직원 목록에는 S1 없음', !(await call('admin.staffList', {}, subA, '', P1)).data.staff.some((x) => x.id === idS1) && !(await call('admin.staffList', {}, admin, '', P1)).data.staff.some((x) => x.id === idS1));
+
+  // --- 다른 현장 직원 번호(id)를 알아내도 건드릴 수 없다 ---
+  for (const [label, action, data] of [
+    ['승인', 'admin.approve', {}], ['반려', 'admin.reject', { reason: '탈취' }], ['퇴사', 'admin.retire', {}], ['PIN 초기화', 'admin.resetPin', {}],
+    ['기기변경 승인', 'admin.approveDevice', {}], ['급여정보 보기', 'admin.payrollGet', {}],
+    ['수정', 'admin.update', { name: '탈취', phone: '010' + rnd(), job: '영업', headId: 'OH01', teamId: 'OT011', grade: '직원' }]
+  ]) {
+    const arg = { staffId: idS1, ...data };
+    check('보조관리자 A(P01)가 B현장 직원 ' + label + ' 불가', (await call(action, arg, subA, '', P1)).ok === false);
+    check('관리자도 P01 화면에서는 B현장 직원 ' + label + ' 불가', (await call(action, arg, admin, '', P1)).ok === false);
+  }
+  expectErr('P01 화면에서 B현장 직원 승인 → 찾을 수 없음', await call('admin.approve', { staffId: idS1 }, subA, '', P1), '직원을 찾을 수 없습니다');
+  expectErr('급여정보 원문: 허용 안 된 보조관리자는 자기 현장이어도 불가', await call('admin.payrollReveal', { staffId: idA }, subA, '', P1), '권한', 'FORBIDDEN');
+  expectErr('급여정보 원문: 관리자도 다른 현장 직원은 못 봄', await call('admin.payrollReveal', { staffId: idS1 }, admin, '', P1), '급여정보가 없습니다');
+  check('B현장 직원은 여전히 승인 대기', (await call('admin.staffList', {}, subB, '', P2)).data.staff[0].status === '대기');
+
+  expectOk('보조관리자 B: B현장 직원 승인', await call('admin.approve', { staffId: idS1 }, subB, '', P2));
+  const payB = await call('admin.payrollGet', { staffId: idS1 }, subB, '', P2);
+  check('보조관리자 급여정보는 마스킹', payB.ok && payB.data.rrn === '000101-3******' && payB.data.accountNo === '******0000');
+  expectErr('보조관리자 B: 원문 보기 권한 없음', await call('admin.payrollReveal', { staffId: idS1 }, subB, '', P2), '권한', 'FORBIDDEN');
+  const accB = (await call('admin.accounts', {}, admin, '', null)).data.accounts.find((a) => a.loginId === 'subb' + sfx);
+  check('계정 목록에 담당 현장·권한 표시', accB.projectIds.length === 1 && accB.projectIds[0] === P2 && accB.allowPayroll === false);
+  expectOk('관리자가 보조관리자 B에게 급여 원문 보기 허용', await call('admin.saveAccount', { id: accB.id, loginId: accB.loginId, name: accB.name, role: '보조관리자', active: true, projectIds: [P2], allowPayroll: true }, admin, '', null));
+  const revB = await call('admin.payrollReveal', { staffId: idS1 }, subB, '', P2);
+  check('허용된 보조관리자는 원문 보기 가능', revB.ok && revB.data.rrn === '000101-3000000');
+  expectErr('허용돼도 다른 현장 직원의 원문은 못 봄', await call('admin.payrollReveal', { staffId: idA }, subB, '', P2), '급여정보가 없습니다');
+  const logRows = (await query(`SELECT user, project_id FROM logs WHERE action = '급여정보열람' AND target = '${idS1}'`));
+  check('원문 열람이 현장·사용자와 함께 기록됨', logRows.length === 1 && logRows[0].user === 'subb' + sfx && logRows[0].project_id === P2, JSON.stringify(logRows));
+  check('현장 생성이 기록됨', (await query(`SELECT 1 AS x FROM logs WHERE action = '현장생성' AND project_id = '${P2}'`)).length === 1);
+
+  // --- 직원앱: 소속 현장으로 들어가고, 다른 현장은 접근 불가 ---
+  const loginS1 = await call('staff.login', { phone: S1.phone, pin: S1.pin }, '', S1.dev, null);
+  expectOk('B현장 직원 로그인', loginS1);
+  check('로그인 응답에 소속 현장 (B현장)', loginS1.data.project && loginS1.data.project.id === P2 && loginS1.data.project.name === 'B현장');
+  const tokS1 = loginS1.data.token;
+  check('내 정보에 소속 현장', (await call('staff.me', {}, tokS1, S1.dev, null)).data.project.id === P2);
+  expectErr('직원이 다른 현장(P01)을 가리키면 거부', await call('reservation.list', { tab: '예정' }, tokS1, S1.dev, P1), '접근할 수 없습니다', 'FORBIDDEN');
+  expectOk('직원이 자기 현장을 가리키면 허용', await call('reservation.list', { tab: '예정' }, tokS1, S1.dev, P2));
+
+  // --- 근태: QR·거리 기준·출근 기록이 현장별 ---
+  const qrA = (await call('admin.currentQr', {}, admin, '', P1)).data.qr;
+  check('B현장은 아직 QR 없음', (await call('admin.currentQr', {}, subB, '', P2)).data.issued === false);
+  expectErr('QR 이 없으면 출근 실패 (P01 QR 이 있어도 B현장에는 무효)', await call('attendance.checkin', { qr: qrA, lat: 35.1, lng: 129.0, accuracy: 5 }, tokS1, S1.dev, null), '아직 발급되지 않았습니다');
+  const issuedB = await call('admin.issueQr', { lat: 35.1, lng: 129.0, accuracy: 8 }, subB, '', P2);
+  expectOk('보조관리자 B: B현장 QR 발급', issuedB);
+  check('P01 QR 은 그대로', (await call('admin.currentQr', {}, admin, '', P1)).data.qr === qrA);
+  expectErr('B현장 직원이 P01 QR 로 출근 → 실패', await call('attendance.checkin', { qr: qrA, lat: 35.1003, lng: 129.0003, accuracy: 5 }, tokS1, S1.dev, null), '오늘 QR이 아닙니다');
+  const ckB = await call('attendance.checkin', { qr: issuedB.data.qr, lat: 35.1003, lng: 129.0003, accuracy: 5 }, tokS1, S1.dev, null);
+  expectOk('B현장 QR 로 출근', ckB);
+  const dayB = (await call('admin.attendance', { date: today }, subB, '', P2)).data;
+  const dayA = (await call('admin.attendance', { date: today }, admin, '', P1)).data;
+  check('B현장 출근 현황에는 S1 만', dayB.present.length === 1 && dayB.present[0].id === idS1 && dayB.activeCount === 1);
+  check('P01 출근 현황에는 S1 없음', !dayA.present.some((p) => p.id === idS1) && !dayA.absent.some((p) => p.id === idS1));
+  check('출근 기록에 현장이 저장됨', (await query(`SELECT project_id FROM attendance WHERE staff_id = '${idS1}' AND result = '성공'`))[0].project_id === P2);
+  expectOk('B현장 GPS 허용거리 변경', await call('admin.saveSettings', { values: { 'GPS허용거리m': '2000' } }, admin, '', P2));
+  check('설정은 현장별 (B현장 2000, P01 은 그대로 200)', (await call('admin.settings', {}, admin, '', P2)).data.settings['GPS허용거리m'] === '2000' && (await call('admin.settings', {}, admin, '', P1)).data.settings['GPS허용거리m'] === '200');
+
+  // --- 예약: 같은 뒤 5자리도 현장이 다르면 별개 ---
+  expectOk('P01 에 예약된 번호를 B현장에서도 예약 가능 (현장별 중복 판정)', await call('reservation.create', { last5: r5, date: today }, tokS1, S1.dev, null));
+  const resB = (await call('reservation.list', { tab: '예정' }, tokS1, S1.dev, null)).data.reservations;
+  check('B현장 직원 예약 목록에는 자기 것만', resB.length === 1 && resB[0].last5 === r5);
+  check('관리자 예약 현황은 현장별 (B현장 1건, P01 은 B현장 건 제외)',
+    (await call('admin.reservations', { from: today, to: today }, subB, '', P2)).data.reservations.length === 1
+    && (await call('admin.reservations', { from: today, to: today }, admin, '', P1)).data.reservations.every((r) => !r.staff || r.staff.name !== S1.name));
+
+  // --- 데스크·방명록: 계정에 고정된 현장 ---
+  expectErr('데스크 A(P01 고정)가 B현장을 가리키면 거부', await call('desk.todayVisits', {}, deskA, '', P2), '접근할 수 없습니다', 'FORBIDDEN');
+  expectErr('데스크 B(B현장 고정)가 P01 을 가리키면 거부', await call('desk.todayVisits', {}, deskB, '', P1), '접근할 수 없습니다', 'FORBIDDEN');
+  const lookB = await call('desk.lookup', { last5: r5 }, deskB, '', null);
+  check('데스크 B 조회: B현장 예약(S1)만', lookB.ok && lookB.data.reservations.length === 1 && lookB.data.reservations[0].staff.id === idS1, JSON.stringify(lookB.data));
+  const lookA = await call('desk.lookup', { last5: r5 }, deskA, '', null);
+  check('데스크 A 조회: P01 예약만 (S1 없음)', lookA.ok && lookA.data.reservations.length >= 1 && lookA.data.reservations.every((r) => r.staff && r.staff.id !== idS1));
+  const orgB = (await call('desk.orgs', {}, deskB, '', null)).data;
+  check('데스크 화면 조직은 자기 현장 것', orgB.siteName === 'B현장' && orgB.heads.length === 1 && orgB.heads[0].id === headB);
+  check('방명록 계정도 자기 현장 조직', (await call('desk.orgs', {}, kioskB, '', null)).data.siteName === 'B현장');
+  expectErr('데스크 B 가 P01 직원을 지명 호출 → 거부', await call('desk.registerVisit', { kind: '지명', staffId: idA }, deskB, '', null), '활동 중이 아닙니다');
+  expectErr('데스크 B 가 P01 방문 기록을 재호출 → 거부', await call('desk.recall', { visitId: reg.data.visitId }, deskB, '', null), '방문 기록을 찾을 수 없습니다');
+  expectErr('데스크 B 가 P01 예약으로 방문 접수 → 거부', await call('desk.registerVisit', { kind: '예약', reservationId: mine.id, last5: r5 }, deskB, '', null), '오늘 예약을 찾을 수 없습니다');
+  check('데스크 B 직원 검색에는 B현장 직원만', (await call('desk.searchStaff', { q: '' }, deskB, '', null)).data.staff.every((x) => x.id === idS1));
+  check('데스크 B 예약명단에는 B현장 예약만', (await call('desk.reservationList', { date: today }, deskB, '', null)).data.reservations.every((x) => x.staff && x.staff.id === idS1));
+  const gB = '010' + rnd();
+  expectOk('방명록 B 제출', await call('guest.submit', { name: 'B고객' + uniq, phone: gB, companions: 0, consent: true }, kioskB, '', null));
+  const glB = (await call('desk.guestList', {}, deskB, '', null)).data.guests;
+  const glA = (await call('desk.guestList', {}, deskA, '', null)).data.guests;
+  check('B현장 방명록 목록에는 B현장 건만', glB.length === 1 && glB[0].name === 'B고객' + uniq);
+  check('P01 방명록 목록에는 B현장 건 없음', !glA.some((g) => g.name === 'B고객' + uniq));
+  expectErr('데스크 B 가 P01 방명록 건을 수정 → 거부', await call('desk.guestSave', { id: g1[0].id, name: '탈취', phone: gPhone, companions: 0 }, deskB, '', null), '찾을 수 없습니다');
+  expectErr('데스크 B 가 P01 방명록 건을 삭제 → 거부', await call('desk.guestDelete', { id: g1[0].id }, deskB, '', null), '찾을 수 없습니다');
+  expectErr('데스크 B 가 P01 방명록 건을 호출 → 거부', await call('desk.guestCall', { id: g1[0].id }, deskB, '', null), '찾을 수 없습니다');
+  expectErr('방명록 담당 지정에 P01 본부 사용 → 거부', await call('desk.guestSave', { id: glB[0].id, name: 'B고객' + uniq, phone: gB, companions: 0, headId: 'OH01', staffNone: true }, deskB, '', null), '본부를 확인');
+  expectErr('방명록 담당 지정에 P01 직원 사용 → 거부', await call('desk.guestSave', { id: glB[0].id, name: 'B고객' + uniq, phone: gB, companions: 0, headId: headB, teamId: teamB, staffId: idA }, deskB, '', null), '담당자가 아닙니다');
+  expectOk('방명록 담당 지정(B현장 직원)', await call('desk.guestSave', { id: glB[0].id, name: 'B고객' + uniq, phone: gB, companions: 0, headId: headB, teamId: teamB, staffId: idS1 }, deskB, '', null));
+  const gsB = (await call('admin.guestStats', { from: today, to: today }, subB, '', P2)).data.total;
+  const gsA = (await call('admin.guestStats', { from: today, to: today }, admin, '', P1)).data.total;
+  check('방명록 통계는 현장별 (B현장 1팀, P01 은 B현장 건 제외)', gsB.teams === 1 && gsA.teams === gt.teams);
+  check('방명록 내보내기는 현장별 + 기록됨', (await call('admin.guestbook', { from: today, to: today }, subB, '', P2)).data.guests.length === 1
+    && (await query(`SELECT 1 AS x FROM logs WHERE action = '방명록내보내기' AND project_id = '${P2}'`)).length === 1);
+  const dashB = (await call('admin.dashboard', {}, subB, '', P2)).data;
+  check('대시보드는 현장별 (B현장: 활동 1명, 출근 1명)', dashB.today.activeStaff === 1 && dashB.today.attendance === 1 && dashB.today.reservations === 1, JSON.stringify(dashB.today));
+
+  // --- 담당 현장 변경은 즉시 반영 ---
+  const accA = (await call('admin.accounts', {}, admin, '', null)).data.accounts.find((a) => a.loginId === 'suba' + sfx);
+  expectOk('보조관리자 A 에게 B현장도 지정', await call('admin.saveAccount', { id: accA.id, loginId: accA.loginId, name: accA.name, role: '보조관리자', active: true, projectIds: [P1, P2] }, admin, '', null));
+  expectOk('지정 직후 B현장 접근 가능', await call('admin.staffList', {}, subA, '', P2));
+  expectOk('다시 P01 만 지정', await call('admin.saveAccount', { id: accA.id, loginId: accA.loginId, name: accA.name, role: '보조관리자', active: true, projectIds: [P1] }, admin, '', null));
+  expectErr('회수 직후 B현장 접근 불가', await call('admin.staffList', {}, subA, '', P2), '접근할 수 없습니다', 'FORBIDDEN');
+
+  // --- 종료된 현장은 가입을 받지 않는다 ---
+  const pC = await call('project.save', { name: '종료현장', code: 'done' + uniq.slice(0, 3), status: '종료' }, admin, '', null);
+  expectOk('종료 상태 현장 생성', pC);
+  expectErr('종료된 현장 가입 링크 → 거부', await call('public.orgs', { projectCode: 'done' + uniq.slice(0, 3) }), '종료된 현장');
+
+  // --- 현장 이동 (관리자 전용): 소속·조직 재지정, 직급 초기화, 기록 보존 ---
+  const attA = (await query(`SELECT COUNT(*) AS n FROM attendance WHERE staff_id = '${idA}' AND project_id = '${P1}'`))[0].n;
+  expectErr('같은 현장으로는 이동 불가', await call('admin.moveStaff', { staffId: idA, toProjectId: P1, job: '상담사' }, admin, '', P1), '이미 이 현장');
+  expectErr('퇴사한 직원은 이동 불가', await call('admin.moveStaff', { staffId: idB, toProjectId: P2, job: '상담사' }, admin, '', P1), '퇴사');
+  expectErr('종료된 현장으로는 이동 불가', await call('admin.moveStaff', { staffId: idA, toProjectId: pC.data.id, job: '상담사' }, admin, '', P1), '종료된 현장');
+  expectErr('이동할 현장에 없는 직군 → 거부', await call('admin.moveStaff', { staffId: idA, toProjectId: P2, job: '없는직군' }, admin, '', P1), '직군');
+  expectErr('영업 직군은 새 현장의 본부/팀을 골라야 함', await call('admin.moveStaff', { staffId: idA, toProjectId: P2, job: '영업', headId: 'OH01', teamId: 'OT011' }, admin, '', P1), '본부');
+  expectOk('P01 직원 A 를 B현장으로 이동', await call('admin.moveStaff', { staffId: idA, toProjectId: P2, job: '상담사' }, admin, '', P1));
+  expectErr('이동하면 이전 로그인은 무효', await call('staff.me', {}, tokA3, A.dev, null), null, 'AUTH');
+  const reA = await call('staff.login', { phone: A.phone, pin: A.pin }, '', A.dev, null);
+  check('다시 로그인하면 B현장으로 들어감', reA.ok && reA.data.project.id === P2 && reA.data.staff.grade === '직원');
+  check('이동한 직원이 B현장 목록에 있고 P01 에는 없음', (await call('admin.staffList', {}, subB, '', P2)).data.staff.some((x) => x.id === idA) && !(await call('admin.staffList', {}, admin, '', P1)).data.staff.some((x) => x.id === idA));
+  check('지난 출근 기록은 이전 현장(P01)에 그대로', (await query(`SELECT COUNT(*) AS n FROM attendance WHERE staff_id = '${idA}' AND project_id = '${P1}'`))[0].n === attA && attA >= 1, String(attA));
+  check('이동이 기록됨', (await query(`SELECT content FROM logs WHERE action = '직원현장이동' AND target = '${idA}'`)).length === 1);
+  expectErr('이동 후 P01 화면에서는 그 직원을 건드릴 수 없음', await call('admin.resetPin', { staffId: idA }, subA, '', P1), '직원을 찾을 수 없습니다');
 } catch (e) {
   failed++;
   console.log('[실패] 테스트 중 예외: ' + (e && e.stack ? e.stack : e));

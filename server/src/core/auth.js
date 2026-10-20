@@ -1,5 +1,5 @@
 // 로그인, 세션, 기기키 확인. 모든 action 은 세션 → 역할 → (직원이면) deviceKey 순으로 확인한다.
-import { AppError, s, all, first, run, nowStr, hashSecret, safeEqual, sha256Hex, writeLog } from './util.js';
+import { AppError, s, all, first, run, hashSecret, safeEqual, sha256Hex, writeLog } from './util.js';
 import { sendMail, mailConfigured } from './mail.js';
 
 export const MAX_FAILS = 5;
@@ -7,6 +7,13 @@ export const MAX_FAILS = 5;
 // 방명록 태블릿은 매번 로그인할 수 없으니 30일 (분실 시 관리자가 계정을 중지하면 즉시 무효)
 const LIFETIME_MS = { staff: 30 * 24 * 3600 * 1000, account: 12 * 3600 * 1000 };
 const KIOSK_LIFETIME_MS = 30 * 24 * 3600 * 1000;
+
+export const projectBrief = (p) => ({ id: p.id, code: p.code, name: p.name, status: p.status });
+
+const accountView = (a) => ({
+  name: a.name, role: a.role, mustChangePassword: !!a.must_change_password,
+  allowPayroll: a.role === '관리자' || !!a.allow_payroll, allowPayConfirm: a.role === '관리자' || !!a.allow_pay_confirm
+});
 
 export function checkPasswordPolicy(pw) {
   if (pw.length < 8 || !/[A-Za-z]/.test(pw) || !/\d/.test(pw)) {
@@ -39,8 +46,19 @@ export function destroyUserSessions(env, kind, userId) {
 
 // ---------- 요청 인증 ----------
 
-export async function authenticate(env, req, roles) {
-  const ctx = { role: 'public', token: s(req.token), deviceKey: s(req.deviceKey) };
+// 계정 역할 이름(한국어) → 서버 안에서 쓰는 역할 코드
+const ACCOUNT_ROLE = { '관리자': 'admin', '보조관리자': 'sub', '계약담당': 'contract', '열람': 'viewer', '방명록': 'kiosk', '데스크': 'desk' };
+export const ACCOUNT_ROLES = Object.keys(ACCOUNT_ROLE);
+// 접근 가능한 현장을 계정에 지정해 두는 역할 / 현장 1개에 고정되는 역할
+export const MULTI_PROJECT_ROLES = ['보조관리자', '계약담당', '열람'];
+export const FIXED_PROJECT_ROLES = ['데스크', '방명록'];
+
+// 모든 action 은 세션 → 역할 → 이 사용자가 이 현장에 접근 가능한지 → (직원이면) deviceKey 순으로 확인한다.
+// def.roles: 부를 수 있는 역할 ('public' = 로그인 불필요, 'desk' 는 관리자·보조관리자도 가능)
+// def.scope === 'global': 현장과 무관한 action (계정·프로젝트 관리, 로그인 등). 그 외에는 ctx.projectId 가 반드시 정해진다.
+export async function authenticate(env, req, def) {
+  const roles = def.roles;
+  const ctx = { role: 'public', token: s(req.token), deviceKey: s(req.deviceKey), projectId: '' };
   if (roles.includes('public')) return ctx;
 
   const session = await getSession(env, ctx.token);
@@ -55,13 +73,49 @@ export async function authenticate(env, req, roles) {
   } else {
     const account = await first(env, 'SELECT * FROM accounts WHERE id = ?', session.user_id);
     if (!account || !account.active) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
-    ctx.role = account.role === '관리자' ? 'admin' : account.role === '방명록' ? 'kiosk' : 'desk';
+    ctx.role = ACCOUNT_ROLE[account.role] || 'none';
     ctx.account = account;
   }
 
-  const allowed = roles.includes(ctx.role) || (ctx.role === 'admin' && roles.includes('desk'));
+  const managerRole = ctx.role === 'admin' || ctx.role === 'sub';
+  const allowed = roles.includes(ctx.role) || (managerRole && roles.includes('desk'));
   if (!allowed) throw new AppError('권한이 없습니다.', 'FORBIDDEN');
+  if (def.scope !== 'global') await resolveProject(env, req, ctx);
   return ctx;
+}
+
+// 요청이 가리키는 현장을 정하고, 이 사용자가 접근할 수 있는지 확인한다
+async function resolveProject(env, req, ctx) {
+  const asked = s(req.projectId);
+  let projectId = asked;
+  if (ctx.role === 'staff') {
+    // 영업사원은 가입한 현장 하나뿐. 다른 현장을 가리키는 요청은 거부한다
+    projectId = ctx.staff.project_id;
+    if (asked && asked !== projectId) throw new AppError('이 현장에 접근할 수 없습니다.', 'FORBIDDEN');
+  } else if (ctx.role === 'desk' || ctx.role === 'kiosk') {
+    // 데스크·방명록 계정은 지정된 현장 1개에 고정 (요청에 다른 현장을 써도 무시하지 않고 거부)
+    const rows = await all(env, 'SELECT project_id FROM account_projects WHERE account_id = ?', ctx.account.id);
+    if (rows.length !== 1) throw new AppError('이 계정에 담당 현장이 지정되지 않았습니다. 관리자에게 문의해 주세요.', 'NO_PROJECT');
+    projectId = rows[0].project_id;
+    if (asked && asked !== projectId) throw new AppError('이 현장에 접근할 수 없습니다.', 'FORBIDDEN');
+  } else {
+    if (!projectId) throw new AppError('현장을 선택해 주세요.', 'NO_PROJECT');
+    if (ctx.role !== 'admin') {
+      const ok = await first(env, 'SELECT 1 FROM account_projects WHERE account_id = ? AND project_id = ?', ctx.account.id, projectId);
+      if (!ok) throw new AppError('이 현장에 접근할 수 없습니다.', 'FORBIDDEN');
+    }
+  }
+  const project = await first(env, 'SELECT * FROM projects WHERE id = ?', projectId);
+  if (!project) throw new AppError('이 현장에 접근할 수 없습니다.', 'FORBIDDEN');
+  ctx.projectId = project.id;
+  ctx.project = project;
+}
+
+// 이 계정이 접근할 수 있는 현장 목록 (관리자는 전체)
+export async function accessibleProjects(env, account) {
+  if (account.role === '관리자') return all(env, 'SELECT * FROM projects ORDER BY created_at, id');
+  return all(env,
+    `SELECT p.* FROM projects p JOIN account_projects ap ON ap.project_id = p.id WHERE ap.account_id = ? ORDER BY p.created_at, p.id`, account.id);
 }
 
 // ---------- 관리자·데스크 로그인 ----------
@@ -84,7 +138,8 @@ export async function accountLogin(env, data) {
 
   return {
     token: await createSession(env, 'account', acc.id, acc.role === '방명록' ? KIOSK_LIFETIME_MS : LIFETIME_MS.account),
-    account: { name: acc.name, role: acc.role, mustChangePassword: !!acc.must_change_password }
+    account: accountView(acc),
+    projects: (await accessibleProjects(env, acc)).map(projectBrief)
   };
 }
 
@@ -97,6 +152,11 @@ export async function accountChangePassword(env, data, ctx) {
   await run(env, 'UPDATE accounts SET password_hash = ?, must_change_password = 0 WHERE id = ?', await hashSecret(env, newPw), ctx.account.id);
   await writeLog(env, ctx.account.login_id, '비밀번호변경', ctx.account.id);
   return {};
+}
+
+// 로그인 상태로 화면을 다시 열었을 때 내 정보와 접근 가능한 현장을 받아 간다
+export async function accountMe(env, data, ctx) {
+  return { account: accountView(ctx.account), projects: (await accessibleProjects(env, ctx.account)).map(projectBrief) };
 }
 
 export async function authLogout(env, data, ctx) {

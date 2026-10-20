@@ -46,7 +46,7 @@
   });
 
   async function enterApp() {
-    var o = await Api.call('public.orgs');
+    var o = await Api.call('desk.orgs');
     orgData = o;
     if (o.siteName) $('#siteName').textContent = o.siteName + ' · 안내데스크';
     show('app');

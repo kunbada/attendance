@@ -11,9 +11,10 @@ function requireLeader(ctx) {
 }
 
 // 이 사람이 관리할 수 있는 직원을 고르는 SQL 조건
+// 소속 현장(project_id)을 항상 함께 건다
 function scopeOf(me) {
-  if (me.grade === '팀장' && me.team_id) return { where: `team_id = ? AND grade = '직원' AND id <> ?`, params: [me.team_id, me.id] };
-  if (me.grade === '본부장' && me.head_id) return { where: `head_id = ? AND grade IN ('직원', '팀장') AND id <> ?`, params: [me.head_id, me.id] };
+  if (me.grade === '팀장' && me.team_id) return { where: `project_id = ? AND team_id = ? AND grade = '직원' AND id <> ?`, params: [me.project_id, me.team_id, me.id] };
+  if (me.grade === '본부장' && me.head_id) return { where: `project_id = ? AND head_id = ? AND grade IN ('직원', '팀장') AND id <> ?`, params: [me.project_id, me.head_id, me.id] };
   return { where: '1 = 0', params: [] }; // 소속이 비어 있으면 아무도 관리할 수 없다
 }
 
@@ -29,7 +30,7 @@ const who = (me) => me.name + '(' + me.grade + ')';
 export async function leaderStaffList(env, data, ctx) {
   const me = requireLeader(ctx);
   const sc = scopeOf(me);
-  const names = await orgNameMap(env);
+  const names = await orgNameMap(env, me.project_id);
   const rows = await all(env,
     `SELECT * FROM staff WHERE ${sc.where} AND status IN ('대기', '활동') ORDER BY status, grade DESC, name`, ...sc.params);
   const view = (r) => ({
@@ -48,8 +49,8 @@ export async function leaderApprove(env, data, ctx) {
   const me = requireLeader(ctx);
   const row = await findInScope(env, me, data.staffId);
   if (row.status !== '대기') throw new AppError('승인 대기 중인 직원이 아닙니다.');
-  await run(env, `UPDATE staff SET status = '활동', reject_reason = '', approved_at = ? WHERE id = ? AND status = '대기'`, nowStr(), row.id);
-  await writeLog(env, who(me), '직원승인', row.id, row.name);
+  await run(env, `UPDATE staff SET status = '활동', reject_reason = '', approved_at = ? WHERE id = ? AND project_id = ? AND status = '대기'`, nowStr(), row.id, me.project_id);
+  await writeLog(env, who(me), '직원승인', row.id, row.name, me.project_id);
   return {};
 }
 
@@ -59,8 +60,8 @@ export async function leaderReject(env, data, ctx) {
   if (row.status !== '대기') throw new AppError('승인 대기 중인 직원이 아닙니다.');
   const reason = s(data.reason).trim();
   if (!reason) throw new AppError('반려 사유를 입력해 주세요.');
-  await run(env, `UPDATE staff SET status = '반려', reject_reason = ? WHERE id = ? AND status = '대기'`, reason, row.id);
-  await writeLog(env, who(me), '직원반려', row.id, row.name + ' / ' + reason);
+  await run(env, `UPDATE staff SET status = '반려', reject_reason = ? WHERE id = ? AND project_id = ? AND status = '대기'`, reason, row.id, me.project_id);
+  await writeLog(env, who(me), '직원반려', row.id, row.name + ' / ' + reason, me.project_id);
   return {};
 }
 
@@ -68,8 +69,8 @@ export async function leaderRetire(env, data, ctx) {
   const me = requireLeader(ctx);
   const row = await findInScope(env, me, data.staffId);
   if (row.status !== '활동') throw new AppError('활동 중인 직원만 퇴사 처리할 수 있습니다.');
-  await run(env, `UPDATE staff SET status = '퇴사', device_change_request = '' WHERE id = ?`, row.id);
+  await run(env, `UPDATE staff SET status = '퇴사', device_change_request = '' WHERE id = ? AND project_id = ?`, row.id, me.project_id);
   await destroyUserSessions(env, 'staff', row.id);
-  await writeLog(env, who(me), '직원퇴사', row.id, row.name);
+  await writeLog(env, who(me), '직원퇴사', row.id, row.name, me.project_id);
   return {};
 }

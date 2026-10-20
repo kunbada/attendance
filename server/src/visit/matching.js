@@ -1,9 +1,9 @@
-// 방명록 고객의 "예약 있음" / "방문이력 있음" 찾기와 담당자 추천.
+// 방명록 고객의 "예약 있음" / "방문이력 있음" 찾기와 담당자 추천. 모두 같은 현장(projectId) 안에서만 찾는다.
 //  - 예약: 같은 뒤 5자리의 예약 (오늘 예정·오늘 방문 처리된 건, 또는 오늘 이후 예정). 예약 중복 기준이 '뒤5자리+성별'이면 성별도 맞춘다.
 //  - 방문이력: 이전 방명록(전화번호가 같으면 '동일 번호', 뒤 5자리만 같으면 '뒤 5자리 일치')과 이전 방문 접수 기록
 //  - 추천 담당자: 예약 담당자 → 방문이력의 가장 최근 담당자(동일 번호 우선). 활동 중이고 본부가 있는 직원만.
 // 목록 하나를 한 번에 계산하도록 뒤 5자리를 모아 DB 에 묻는다 (D1 은 한 질의에 변수 100개 제한).
-import { all, getSettings } from './util.js';
+import { all, getSettings } from '../core/util.js';
 
 const chunk = (arr, n) => {
   const out = [];
@@ -17,12 +17,12 @@ const usable = (st, head) => st && head && st === '활동'; // 활동 직원 + �
  * items: [{ key, phone, last5, gender, createdAt?, excludeId? }]  date: 기준 날짜(오늘)
  * 반환: { [key]: { reservation, history, suggest } }
  */
-export async function computeMatches(env, items, date) {
+export async function computeMatches(env, projectId, items, date) {
   const out = {};
   items.forEach((i) => { out[i.key] = { reservation: null, history: null, suggest: null }; });
   const last5s = [...new Set(items.map((i) => i.last5).filter(Boolean))];
   if (!last5s.length) return out;
-  const byGender = (await getSettings(env))['예약중복기준'] === '뒤5자리+성별';
+  const byGender = (await getSettings(env, projectId))['예약중복기준'] === '뒤5자리+성별';
 
   const resv = [], hist = [], vis = [];
   for (const part of chunk(last5s, 80)) {
@@ -31,17 +31,17 @@ export async function computeMatches(env, items, date) {
       `SELECT r.id, r.last5, r.gender, r.visit_date, r.status, r.staff_id, r.created_at,
               s.name AS s_name, s.status AS s_status, s.head_id AS s_head, s.team_id AS s_team
        FROM reservations r LEFT JOIN staff s ON s.id = r.staff_id
-       WHERE r.last5 IN (${ph}) AND ((r.status = '예정' AND r.visit_date >= ?) OR (r.status = '방문' AND r.visit_date = ?))`, ...part, date, date));
+       WHERE r.project_id = ? AND r.last5 IN (${ph}) AND ((r.status = '예정' AND r.visit_date >= ?) OR (r.status = '방문' AND r.visit_date = ?))`, projectId, ...part, date, date));
     hist.push(...await all(env,
       `SELECT g.id, g.phone, g.last5, g.visit_date, g.created_at, g.staff_id,
               s.name AS s_name, s.status AS s_status, s.head_id AS s_head, s.team_id AS s_team
-       FROM guestbook g LEFT JOIN staff s ON s.id = g.staff_id WHERE g.last5 IN (${ph}) AND g.visit_date <= ?`, ...part, date));
+       FROM guestbook g LEFT JOIN staff s ON s.id = g.staff_id WHERE g.project_id = ? AND g.last5 IN (${ph}) AND g.visit_date <= ?`, projectId, ...part, date));
     // 방명록으로 호출한 방문(kind=방명록)은 방명록 기록에 이미 들어 있으니 중복해서 세지 않는다
     vis.push(...await all(env,
       `SELECT v.id, v.last5, v.visited_at, v.staff_id, v.kind,
               s.name AS s_name, s.status AS s_status, s.head_id AS s_head, s.team_id AS s_team
        FROM visits v LEFT JOIN staff s ON s.id = v.staff_id
-       WHERE v.last5 IN (${ph}) AND v.visited_at < ? AND v.kind <> '방명록'`, ...part, date + ' 00:00:00'));
+       WHERE v.project_id = ? AND v.last5 IN (${ph}) AND v.visited_at < ? AND v.kind <> '방명록'`, projectId, ...part, date + ' 00:00:00'));
   }
 
   for (const it of items) {

@@ -1,5 +1,5 @@
 // 텔레그램 봇: 연결 코드 발급, 호출 발송, 웹훅(연결·[확인] 버튼) 처리
-import { AppError, s, all, first, run, nowStr, randomToken, safeEqual, getSettings, orgNameMap, writeLog } from './util.js';
+import { AppError, s, all, first, run, nowStr, randomToken, safeEqual, getSettings, orgNameMap, writeLog } from '../core/util.js';
 
 const CODE_LIFETIME_MS = 10 * 60 * 1000;
 
@@ -24,7 +24,7 @@ const customerTag = (last5) => (last5 ? ' [' + last5 + ']' : '');
 
 // 호출 메시지: "[호출] 1본부 1팀 홍길동님 [12345] 고객 도착". 본부·팀이 없는 직군은 조직을 뺀다.
 async function orgLabel(env, staff) {
-  const names = await orgNameMap(env);
+  const names = await orgNameMap(env, staff.project_id);
   return [names[staff.head_id], names[staff.team_id]].filter(Boolean).join(' ');
 }
 
@@ -46,9 +46,9 @@ export async function sendCallMessage(env, staff, visitId, last5, notifyLeaders 
 // 담당 팀장·본부장(텔레그램 연결된 사람)에게 알림. 확인 버튼은 없다. 호출받은 본인에게는 중복으로 보내지 않는다.
 async function notifyLeadersOfCall(env, staff, who, last5) {
   const leaders = await all(env,
-    `SELECT id, telegram_id FROM staff WHERE status = '활동' AND telegram_id <> '' AND id <> ?
+    `SELECT id, telegram_id FROM staff WHERE project_id = ? AND status = '활동' AND telegram_id <> '' AND id <> ?
        AND ((grade = '팀장' AND team_id <> '' AND team_id = ?) OR (grade = '본부장' AND head_id <> '' AND head_id = ?))`,
-    staff.id, staff.team_id, staff.head_id);
+    staff.project_id, staff.id, staff.team_id, staff.head_id);
   const sentTo = new Set([staff.telegram_id]);
   for (const l of leaders) {
     if (sentTo.has(l.telegram_id)) continue;
@@ -60,7 +60,7 @@ async function notifyLeadersOfCall(env, staff, who, last5) {
 // ---------- 직원: 연결 ----------
 
 export async function staffTelegramLink(env, data, ctx) {
-  const bot = (await getSettings(env))['텔레그램봇이름'];
+  const bot = (await getSettings(env, ctx.projectId))['텔레그램봇이름'];
   if (!bot) throw new AppError('텔레그램 봇이 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.');
   const code = randomToken(8);
   await run(env, 'UPDATE staff SET telegram_link_code = ?, telegram_link_issued_at = ? WHERE id = ?', code, Date.now(), ctx.staff.id);

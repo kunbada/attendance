@@ -1,5 +1,5 @@
-// 초기 데이터(설정·조직)와 관리자 계정을 만드는 SQL 을 .seed.sql 로 쓴다.
-//   node scripts/make-seed.mjs            → 설정·조직 기본값 + admin 계정(새 임시 비밀번호)
+// 초기 데이터(첫 현장·조직)와 관리자 계정을 만드는 SQL 을 .seed.sql 로 쓴다.
+//   node scripts/make-seed.mjs            → 첫 현장(P01)·조직 기본값 + admin 계정(새 임시 비밀번호)
 // 비밀 값(SALT, PAYROLL_KEY, TELEGRAM_SECRET)은 .dev.vars 에 한 번 만들어 두고 계속 같은 값을 쓴다.
 // .dev.vars 와 .seed.sql 은 git 에 올라가지 않는다 (.gitignore).
 import { createHash, randomBytes, randomInt } from 'node:crypto';
@@ -43,20 +43,20 @@ for (let i = 0; i < 8; i++) password += letters[randomInt(letters.length)];
 for (let i = 0; i < 2; i++) password += digits[randomInt(digits.length)];
 
 const sql = [];
-[
-  ['현장명', '', '화면 상단에 표시되는 현장 이름'],
-  ['GPS허용거리m', '200', '출근 QR 기준점에서 이 거리(m) 안이어야 출근 인정'],
-  ['예약중복기준', '뒤5자리', '뒤5자리 / 뒤5자리+성별'],
-  ['텔레그램봇이름', '', '@ 없이 봇 사용자명 (예: my_site_bot)']
-].forEach(([k, v, d]) => sql.push(`INSERT OR IGNORE INTO settings (key, value, description) VALUES (${q(k)}, ${q(v)}, ${q(d)});`));
+sql.push(`INSERT OR IGNORE INTO settings (key, value, description) VALUES ('텔레그램봇이름', '', '@ 없이 봇 사용자명 (예: my_site_bot). 모든 현장이 같은 봇을 쓴다');`);
 
-// 처음 쓸 수 있도록 예시 본부·팀을 넣어 둔다. 실제 조직에 맞게 관리자 화면 > 설정 > 조직 에서 고치면 된다.
-['영업', '홍보단', '상담사', '도우미', '아르바이트'].forEach((name, i) =>
-  sql.push(`INSERT OR IGNORE INTO orgs (id, kind, name, parent_id, sort_order, active) VALUES ('OJ0${i + 1}', '직군', ${q(name)}, '', ${i + 1}, 1);`));
+// 첫 현장 하나와 예시 조직. 현장 이름·코드는 관리자 화면(통합관리 > 프로젝트)에서 고치거나 새 현장을 추가하면 된다.
+// 이미 운영 중인 DB 에는 쓰지 않는다 (그쪽은 migrations/005_projects.sql 이 첫 현장 P01 을 만든다)
+const PID = 'P01';
+sql.push(`INSERT OR IGNORE INTO projects (id, code, name, status, created_at) VALUES ('${PID}', 'site1', '기본 현장', '진행', datetime('now', '+9 hours'));`);
+[['GPS허용거리m', '200'], ['예약중복기준', '뒤5자리']].forEach(([k, v]) =>
+  sql.push(`INSERT OR IGNORE INTO project_settings (project_id, key, value) VALUES ('${PID}', ${q(k)}, ${q(v)});`));
+const orgSql = (id, kind, name, parent, order) =>
+  `INSERT OR IGNORE INTO orgs (id, project_id, kind, name, parent_id, sort_order, active) VALUES ('${id}', '${PID}', '${kind}', ${q(name)}, '${parent}', ${order}, 1);`;
+['영업', '홍보단', '상담사', '도우미', '아르바이트'].forEach((name, i) => sql.push(orgSql('OJ0' + (i + 1), '직군', name, '', i + 1)));
 ['1본부', '2본부'].forEach((name, i) => {
-  sql.push(`INSERT OR IGNORE INTO orgs (id, kind, name, parent_id, sort_order, active) VALUES ('OH0${i + 1}', '본부', ${q(name)}, '', ${i + 1}, 1);`);
-  ['1팀', '2팀'].forEach((team, j) =>
-    sql.push(`INSERT OR IGNORE INTO orgs (id, kind, name, parent_id, sort_order, active) VALUES ('OT0${i + 1}${j + 1}', '팀', ${q(team)}, 'OH0${i + 1}', ${j + 1}, 1);`));
+  sql.push(orgSql('OH0' + (i + 1), '본부', name, '', i + 1));
+  ['1팀', '2팀'].forEach((team, j) => sql.push(orgSql('OT0' + (i + 1) + (j + 1), '팀', team, 'OH0' + (i + 1), j + 1)));
 });
 
 // 관리자 계정: 이미 있으면 비밀번호만 새로 정하고(잠김 해제) 첫 로그인 때 바꾸게 한다

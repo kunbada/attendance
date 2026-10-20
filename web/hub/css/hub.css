@@ -1,0 +1,12 @@
+/* 통합관리(hub) 전용 스타일. 공통 스타일은 ../css/style.css */
+.topbar .top-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.topbar .project-pick { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.topbar .project-pick select { width: auto; max-width: 220px; height: 34px; padding: 0 8px; }
+.topbar .who { font-size: 14px; opacity: .9; }
+.sub-tabs { display: flex; gap: 6px; margin: 0 0 14px; flex-wrap: wrap; }
+.sub-tabs .btn { width: auto; min-height: 36px; padding: 0 14px; }
+.sub-tabs .btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.project-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.project-card .meta { color: var(--muted); font-size: 14px; }
+.check { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.check input { width: 20px; height: 20px; }

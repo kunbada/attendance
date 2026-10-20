@@ -3,91 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>관리자</title>
+  <title>관리자 → 통합관리</title>
+  <meta http-equiv="refresh" content="0; url=hub/">
   <link rel="icon" href="icon.svg">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
-  <link rel="stylesheet" href="css/style.css?v=20261012a">
 </head>
 <body>
-  <div class="topbar admin no-print">
-    <h1 id="siteName">관리자</h1>
-    <button type="button" class="btn small hidden" id="btn-logout">로그아웃</button>
-  </div>
-
-  <main>
-    <!-- 로그인 -->
-    <section id="screen-login" class="screen hidden">
-      <form id="form-login" class="card" autocomplete="off">
-        <h2>관리자 로그인</h2>
-        <label class="field"><span class="field-label">아이디</span><input id="login-id" type="text" required></label>
-        <label class="field"><span class="field-label">비밀번호</span><input id="login-pw" type="password" required></label>
-        <button type="submit" class="btn primary">로그인</button>
-        <button type="button" class="linkbtn" id="btn-forgot">비밀번호를 잊으셨나요?</button>
-      </form>
-    </section>
-
-    <!-- 비밀번호 초기화: 계정에 등록된 이메일로 인증 코드 -->
-    <section id="screen-reset" class="screen hidden">
-      <form id="form-reset1" class="card" autocomplete="off">
-        <h2>관리자 비밀번호 초기화</h2>
-        <p class="muted">관리자 계정에 등록된 이메일 주소로 인증 코드(6자리)를 보냅니다.</p>
-        <label class="field"><span class="field-label">아이디</span><input id="rs-id" type="text" required></label>
-        <button type="submit" class="btn primary">인증 코드 보내기</button>
-        <button type="button" class="linkbtn" id="btn-reset-back">← 로그인으로</button>
-      </form>
-      <form id="form-reset2" class="card hidden" autocomplete="off">
-        <h2>인증 코드와 새 비밀번호</h2>
-        <p class="muted" id="rs-note">이메일로 받은 6자리 코드를 입력해 주세요. 코드는 10분 동안 유효합니다.</p>
-        <label class="field"><span class="field-label">인증 코드 (6자리)</span><input id="rs-code" type="text" inputmode="numeric" maxlength="6" required></label>
-        <label class="field"><span class="field-label">새 비밀번호</span><input id="rs-new" type="password" required></label>
-        <label class="field"><span class="field-label">새 비밀번호 확인</span><input id="rs-new2" type="password" required></label>
-        <p class="muted">8자 이상, 영문과 숫자를 함께 써 주세요.</p>
-        <button type="submit" class="btn primary">비밀번호 변경</button>
-        <button type="button" class="linkbtn" id="btn-reset-resend">코드를 못 받았어요 (1분 뒤 다시 받기)</button>
-        <button type="button" class="linkbtn" id="btn-reset-back2">← 로그인으로</button>
-      </form>
-    </section>
-
-    <!-- 첫 로그인 비밀번호 변경 -->
-    <section id="screen-changepw" class="screen hidden">
-      <form id="form-changepw" class="card" autocomplete="off">
-        <h2>비밀번호를 변경해 주세요</h2>
-        <p class="muted">초기·임시 비밀번호로는 다른 기능을 쓸 수 없습니다. 8자 이상, 영문과 숫자를 함께 써 주세요.</p>
-        <label class="field"><span class="field-label">현재 비밀번호</span><input id="cp-old" type="password" required></label>
-        <label class="field"><span class="field-label">새 비밀번호</span><input id="cp-new" type="password" required></label>
-        <label class="field"><span class="field-label">새 비밀번호 확인</span><input id="cp-new2" type="password" required></label>
-        <button type="submit" class="btn primary">변경</button>
-      </form>
-    </section>
-  </main>
-
-  <!-- 메인 -->
-  <main class="wide screen hidden" id="screen-app">
-    <div class="tabs no-print">
-      <button type="button" class="tab active" data-tab="dashboard">대시보드</button>
-      <button type="button" class="tab" data-tab="staff">직원 관리</button>
-      <button type="button" class="tab" data-tab="qr">QR 생성</button>
-      <button type="button" class="tab" data-tab="attendance">근태 현황</button>
-      <button type="button" class="tab" data-tab="visits">예약·방문</button>
-      <button type="button" class="tab" data-tab="guestbook">방명록</button>
-      <button type="button" class="tab" data-tab="settings">설정</button>
-    </div>
-    <div id="tab-dashboard"></div>
-    <div id="tab-staff" class="hidden"></div>
-    <div id="tab-qr" class="hidden"></div>
-    <div id="tab-attendance" class="hidden"></div>
-    <div id="tab-visits" class="hidden"></div>
-    <div id="tab-guestbook" class="hidden"></div>
-    <div id="tab-settings" class="hidden"></div>
-  </main>
-
-  <!-- QR 생성 라이브러리 (가입 링크용, 버전 고정) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <!-- 대시보드 차트 (버전 고정) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="js/config.js?v=20261012a"></script>
-  <script src="js/api.js?v=20261012a"></script>
-  <script src="js/common.js?v=20261012a"></script>
-  <script src="js/admin.js?v=20261012a"></script>
+  <!-- 관리자 화면은 통합관리(hub)로 옮겨졌다. 북마크가 남아 있어도 자동으로 이동한다. -->
+  <p style="font-family:sans-serif;padding:24px">통합관리 화면으로 이동합니다. 이동하지 않으면 <a href="hub/">여기</a>를 눌러 주세요.</p>
+  <script>location.replace('hub/' + location.hash);</script>
 </body>
 </html>
