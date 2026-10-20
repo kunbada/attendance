@@ -18,6 +18,12 @@
     e.preventDefault();
     runBusy($('#form-login button[type=submit]'), async function () {
       var res = await Api.call('account.login', { loginId: $('#login-id').value.trim(), password: $('#login-pw').value });
+      if (res.account.role !== '데스크') {
+        Api.setToken(res.token);
+        try { await Api.call('auth.logout'); } catch (err) { /* 무시 */ }
+        Api.setToken('');
+        throw new Error('데스크 계정이 아닙니다. 관리자는 통합관리(hub)에서 로그인해 주세요.');
+      }
       Api.setToken(res.token);
       $('#login-pw').value = '';
       if (res.account.mustChangePassword) show('changepw');

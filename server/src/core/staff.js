@@ -214,6 +214,6 @@ export async function staffRequestDeviceChange(env, data, ctx) {
   if (await deviceInUse(env, newKey, row.id)) throw new AppError('이 휴대폰은 이미 다른 직원에게 등록되어 있습니다.');
 
   await run(env, 'UPDATE staff SET device_change_request = ? WHERE id = ?', newKey, row.id);
-  await writeLog(env, row.name, '기기변경요청', row.id);
+  await writeLog(env, row.name, '기기변경요청', row.id, '', row.project_id);
   return {};
 }

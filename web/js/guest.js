@@ -85,15 +85,21 @@
     show('form');
   });
 
+  // 계정에 고정된 현장 이름을 제목에 보여 준다 (로그인한 뒤에만 알 수 있다)
+  function loadTitle() {
+    Api.call('desk.orgs').then(function (o) { if (o.siteName) $('#siteName').textContent = o.siteName + ' 방명록'; }).catch(function () { /* 현장명 표시는 생략 */ });
+  }
+
   // ---------- 태블릿 로그인 ----------
   $('#form-login').addEventListener('submit', function (e) {
     e.preventDefault();
     runBusy($('#form-login button[type=submit]'), async function () {
       var res = await Api.call('account.login', { loginId: $('#login-id').value.trim(), password: $('#login-pw').value });
-      if (res.account.role !== '방명록' && res.account.role !== '데스크' && res.account.role !== '관리자') throw new Error('사용할 수 없는 계정입니다.');
+      if (res.account.role !== '방명록' && res.account.role !== '데스크') throw new Error('사용할 수 없는 계정입니다. 방명록 계정(또는 데스크 계정)으로 로그인해 주세요.');
       Api.setToken(res.token);
       $('#login-pw').value = '';
       show('form');
+      loadTitle();
       if (pending) await submit(pending); // 로그인이 풀려서 못 보낸 입력이 있으면 이어서 제출
     });
   });
@@ -116,7 +122,7 @@
   ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(function (ev) { $('#siteName').addEventListener(ev, holdEnd); });
 
   renderChoices();
-  Api.call('desk.orgs').then(function (o) { if (o.siteName) $('#siteName').textContent = o.siteName + ' 방명록'; }).catch(function () { /* 현장명 표시는 생략 */ });
   show(Api.getToken() ? 'form' : 'login');
+  if (Api.getToken()) loadTitle();
   touch();
 })();

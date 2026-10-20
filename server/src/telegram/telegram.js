@@ -108,7 +108,7 @@ async function handleStart(env, msg) {
     return;
   }
   await run(env, `UPDATE staff SET telegram_id = ?, telegram_link_code = '' WHERE id = ?`, chatId, staff.id); // 코드는 한 번만 쓸 수 있다
-  await writeLog(env, staff.name, '텔레그램연결', staff.id);
+  await writeLog(env, staff.name, '텔레그램연결', staff.id, '', staff.project_id);
   await telegramApi(env, 'sendMessage', { chat_id: chatId, text: '연결되었습니다 (' + staff.name + ')' });
 }
 
