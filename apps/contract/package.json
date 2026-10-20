@@ -1,0 +1,13 @@
+{
+  "name": "bunyang-contract-app",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "mock": "node tools/mockgas.js",
+    "gas:push": "cd gas && clasp push -f",
+    "test": "node tools/smoke.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
+  }
+}

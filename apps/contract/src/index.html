@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>분양계약관리</title>
+<style>/*CSS*/</style>
+</head>
+<body>
+<main id="view"><div class="empty">불러오는 중…</div></main>
+<div id="toast"></div>
+<div id="printRoot"></div>
+<script>/*XLSX*/</script>
+<script>
+/*APP*/
+boot().catch(e => { document.getElementById('view').innerHTML = '<div class="banner">시작 오류: ' + e.message + '<br>크롬 또는 엣지 최신 버전에서 열어주세요.</div>'; console.error(e); });
+</script>
+</body>
+</html>

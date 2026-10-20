@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{--accent:#2f6fb3;--accent-d:#1f4f86;--accent-t:#eaf2fb;--on:#fff;--bg:#f5f6fa;--line:#e6e9f0;--text:#18212f;--sub:#6b7686;--ok:#2e8b57;--err:#d64545;--shadow:0 1px 2px rgba(16,24,40,.04),0 6px 18px rgba(16,24,40,.05)}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:14px;line-height:1.5}
+  header{background:rgba(255,255,255,.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:10px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+  .brand{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800;letter-spacing:-.3px;margin-right:4px}
+  .brand i{width:26px;height:26px;border-radius:8px;background:linear-gradient(145deg,var(--accent),var(--accent-d));display:inline-block}
+  header select{padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:14px;min-width:200px}
+  nav{display:flex;gap:2px;background:#f0f2f7;padding:3px;border-radius:12px;max-width:100%;overflow-x:auto}
+  nav button{background:transparent;color:var(--sub);border:0;padding:7px 14px;border-radius:9px;font-size:13.5px;cursor:pointer;font-family:inherit;transition:.15s;white-space:nowrap}
+  nav button:hover{color:var(--text)}
+  nav button.on{background:#fff;color:var(--accent-d);font-weight:700;box-shadow:0 1px 3px rgba(16,24,40,.1)}
+  header .r{margin-left:auto;display:flex;gap:10px;align-items:center;position:relative}
+  header a,header .lk{color:var(--sub);font-size:13px;text-decoration:none;cursor:pointer;background:none;border:0;font-family:inherit}
+  header a:hover,header .lk:hover{color:var(--accent)}
+  .dot{width:26px;height:26px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1.5px var(--line);background:var(--accent);cursor:pointer;padding:0}
+  #themePop{position:absolute;top:38px;right:0;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 12px 32px rgba(16,24,40,.14);width:230px;z-index:30}
+  #themePop[hidden]{display:none}
+  #themePop .t{font-size:12px;color:var(--sub);margin-bottom:8px}
+  .sw{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .sw button{width:28px;height:28px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1.5px var(--line);cursor:pointer;padding:0}
+  .sw button.on{box-shadow:0 0 0 2.5px var(--text)}
+  .sw input[type=color]{width:28px;height:28px;padding:0;border:0;background:none;cursor:pointer;border-radius:50%}
+  main{max-width:1200px;margin:0 auto;padding:24px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:16px;box-shadow:var(--shadow)}
+  .card h3{margin:0 0 14px;font-size:15px;letter-spacing:-.2px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .grid{display:grid;gap:16px}
+  .g4{grid-template-columns:repeat(4,1fr)} .g2{grid-template-columns:1fr 1fr}
+  @media(max-width:800px){.g4{grid-template-columns:1fr 1fr}.g2{grid-template-columns:1fr}main{padding:14px}}
+  .kpi{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
+  .kpi .l{color:var(--sub);font-size:12px;font-weight:500}.kpi .v{font-size:28px;font-weight:800;margin-top:4px;color:var(--accent-d);letter-spacing:-.5px}
+  .chart{position:relative;height:260px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  th{background:#f8f9fc;font-weight:600;color:var(--sub);font-size:12px}
+  th:first-child{border-radius:8px 0 0 8px}th:last-child{border-radius:0 8px 8px 0}
+  td.n,th.n{text-align:right}
+  input,select,textarea{padding:9px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;font-family:inherit;background:#fff;color:var(--text);transition:.15s}
+  input:focus,select:focus,textarea:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-t)}
+  input[type=checkbox]{accent-color:var(--accent)}
+  textarea{width:100%;resize:vertical}
+  button.b{padding:9px 16px;border-radius:10px;border:0;background:var(--accent);color:var(--on);cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;font-family:inherit;transition:.15s}
+  button.b:hover{background:var(--accent-d)}
+  button.s{padding:6px 11px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--text);cursor:pointer;font-size:12px;white-space:nowrap;font-family:inherit;transition:.15s}
+  button.s:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-t)}
+  button.danger{color:var(--err)}
+  button.danger:hover{border-color:var(--err);color:var(--err);background:#fdf0f0}
+  .tag{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#e6f5ec;color:var(--ok)}
+  .tag.off{background:#f0f1f4;color:#8a93a1}
+  .muted{color:var(--sub);font-size:12px}
+  .empty{color:var(--sub);text-align:center;padding:40px}
+  .link{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--sub);word-break:break-all}
+  .qcard{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:#fbfcfe}
+  .qcard .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .qcard .top input.tt{flex:1;min-width:220px}
+  .fld{margin-bottom:14px}.fld label{display:block;font-size:12px;color:var(--sub);margin-bottom:5px;font-weight:500}
+  .fld input{width:100%}
+  #login{max-width:360px;margin:120px auto;background:#fff;border:1px solid var(--line);border-radius:20px;padding:36px 30px;text-align:center;box-shadow:0 18px 44px rgba(16,24,40,.1)}
+  #login .brand{justify-content:center;margin:0 0 4px;font-size:19px}
+  #login input{width:100%;margin:18px 0 10px;padding:13px}
+  #login button{width:100%;padding:13px;font-size:14px}
+  #modal{position:fixed;inset:0;background:rgba(16,24,40,.45);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;z-index:20}
+  #modal[hidden]{display:none}
+  #modal .box{background:#fff;border-radius:18px;padding:24px;width:min(480px,92vw);max-height:90vh;overflow:auto;box-shadow:0 24px 60px rgba(16,24,40,.25)}
+  #modal h3{margin:0 0 16px}
+  #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18212f;color:#fff;padding:11px 20px;border-radius:12px;opacity:0;transition:.3s;pointer-events:none;z-index:30;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+  #toast.on{opacity:1}#toast.err{background:var(--err)}
+  #loading{position:fixed;top:0;left:0;right:0;height:3px;background:var(--accent);z-index:40;display:none}
+  .quick button{margin:0 6px 6px 0}
+</style>
+</head>
+<body>
+<div id="loading"></div>
+
+<div id="login">
+  <div class="brand"><i></i>사전판촉 설문</div><div class="muted">관리자 로그인</div>
+  <input type="password" id="pw" placeholder="관리자 비밀번호" onkeydown="if(event.key==='Enter')login()">
+  <button class="b" onclick="login()">로그인</button>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div class="brand"><i></i>사전판촉 설문</div>
+    <select id="projSel" onchange="curProject=this.value;renderAll()"></select>
+    <nav id="tabs">
+      <button data-t="dash" class="on">대시보드</button>
+      <button data-t="survey">설문</button>
+      <button data-t="link">팀·조 / 배포링크</button>
+      <button data-t="proj">프로젝트</button>
+    </nav>
+    <div class="r">
+      <button class="dot" id="themeBtn" title="화면 컬러" onclick="toggleTheme(event)"></button>
+      <div id="themePop" hidden><div class="t">관리자 화면 컬러</div><div class="sw" id="adminSw"></div></div>
+      <a id="sheetLink" target="_blank">원본 시트 열기</a>
+      <button class="lk" onclick="logout()">로그아웃</button>
+    </div>
+  </header>
+  <main>
+    <section id="t-dash"></section>
+    <section id="t-survey" hidden></section>
+    <section id="t-link" hidden></section>
+    <section id="t-proj" hidden></section>
+  </main>
+</div>
+
+<div id="modal" hidden><div class="box">
+  <h3 id="mTitle"></h3><div id="mBody"></div>
+  <div class="row" style="justify-content:flex-end;margin-top:16px">
+    <button class="s" onclick="closeModal()">닫기</button><button class="b" id="mOk">저장</button>
+  </div>
+</div></div>
+<div id="toast"></div>
+
+<script>
+/* ===================== 컬러 테마 ===================== */
+const SWATCHES = ['#2f6fb3','#0f766e','#16a34a','#7c3aed','#db2777','#ea580c','#dc2626','#334155'];
+function applyTheme(hex){
+  hex = /^#[0-9a-f]{6}$/i.test(hex||'') ? hex.toLowerCase() : '#2f6fb3';
+  const c=[1,3,5].map(i=>parseInt(hex.substr(i,2),16));
+  const h2=a=>'#'+a.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+  const lum=(.299*c[0]+.587*c[1]+.114*c[2])/255, st=document.documentElement.style;
+  st.setProperty('--accent',hex); st.setProperty('--accent-d',h2(c.map(v=>v*.72)));
+  st.setProperty('--accent-t',h2(c.map(v=>v*.09+255*.91))); st.setProperty('--on',lum>.68?'#18212f':'#ffffff');
+  return hex;
+}
+function swatchHtml(cur, fn){
+  return SWATCHES.map(c=>`<button type="button" class="${c===cur?'on':''}" style="background:${c}" onclick="${fn}('${c}')"></button>`).join('')+
+    `<input type="color" value="${cur||'#2f6fb3'}" title="직접 선택" onchange="${fn}(this.value)">`;
+}
+let adminColor = '#2f6fb3';
+try{ adminColor = localStorage.getItem('svtheme') || adminColor; }catch(e){}
+adminColor = applyTheme(adminColor);
+function setAdminTheme(c){
+  adminColor = applyTheme(c);
+  try{ localStorage.setItem('svtheme',adminColor); }catch(e){}
+  $('#adminSw').innerHTML = swatchHtml(adminColor,'setAdminTheme');
+  if (!$('#app').hidden && curTab==='dash') renderDash();
+}
+function toggleTheme(ev){ ev.stopPropagation(); const p=$('#themePop'); p.hidden=!p.hidden; if(!p.hidden) $('#adminSw').innerHTML=swatchHtml(adminColor,'setAdminTheme'); }
+document.addEventListener('click',e=>{ const p=$('#themePop'); if(p && !p.hidden && !p.contains(e.target)) p.hidden=true; });
+
+/* ===================== 상태 & 공통 ===================== */
+let PW = sessionStorage.getItem('svpw') || '';
+let D = {projects:[],surveys:[],teams:[],counts:{},baseUrl:'',sheetUrl:''};
+let curProject = '', curTab = 'dash', editing = null, charts = {};
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today = () => new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
+
+function api(fn, ...args){
+  $('#loading').style.display='block';
+  return new Promise((res,rej)=>{
+    google.script.run
+      .withSuccessHandler(r=>{ $('#loading').style.display='none'; res(r); })
+      .withFailureHandler(e=>{ $('#loading').style.display='none'; toast(e.message||String(e),true); rej(e); })
+      [fn](PW, ...args);
+  });
+}
+function toast(m, err){ const t=$('#toast'); t.textContent=m; t.className='on'+(err?' err':''); clearTimeout(t._h); t._h=setTimeout(()=>t.className='',2600); }
+function openModal(title, html, onOk, okLabel){
+  $('#mTitle').textContent=title; $('#mBody').innerHTML=html; $('#modal').hidden=false;
+  const ok=$('#mOk'); ok.hidden=!onOk; ok.textContent=okLabel||'저장';
+  ok.onclick=async()=>{ try{ if(await onOk()!==false) closeModal(); }catch(e){} };
+}
+function closeModal(){ $('#modal').hidden=true; }
+async function copyText(t){
+  try{ await navigator.clipboard.writeText(t); }
+  catch(e){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  toast('복사되었습니다');
+}
+const proj = id => D.projects.find(p=>p.id===id) || {};
+const surv = id => D.surveys.find(s=>s.id===id) || {};
+const linkOf = (sid, code) => (D.surveyBaseUrl || D.baseUrl) + '?s=' + encodeURIComponent(sid) + (code ? '&t=' + encodeURIComponent(code) : '');
+
+/* ===================== 로그인 ===================== */
+async function login(){
+  PW = $('#pw').value || PW;
+  try{ await api('adminLogin'); sessionStorage.setItem('svpw',PW); start(); }
+  catch(e){ sessionStorage.removeItem('svpw'); }
+}
+function logout(){ sessionStorage.removeItem('svpw'); location.reload(); }
+async function start(){ $('#login').hidden=true; $('#app').hidden=false; await reload(); }
+async function reload(){
+  D = await api('adminInit');
+  $('#sheetLink').href = D.sheetUrl;
+  const sel=$('#projSel');
+  sel.innerHTML = '<option value="">전체 프로젝트</option>' + D.projects.map(p=>'<option value="'+p.id+'">'+esc(p.name)+(p.status==='종료'?' (종료)':'')+'</option>').join('');
+  if (curProject && !D.projects.some(p=>p.id===curProject)) curProject='';
+  sel.value = curProject;
+  renderAll();
+}
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
+  curTab=b.dataset.t; document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  ['dash','survey','link','proj'].forEach(t=>$('#t-'+t).hidden = t!==curTab);
+  editing=null; renderAll();
+});
+function renderAll(){
+  if (curTab==='dash') renderDash();
+  if (curTab==='survey') editing ? renderEditor() : renderSurveys();
+  if (curTab==='link') renderLinks();
+  if (curTab==='proj') renderProjects();
+}
+const needProject = el => { el.innerHTML='<div class="card empty">상단에서 프로젝트를 먼저 선택해 주세요.</div>'; };
+
+/* ===================== 대시보드 ===================== */
+let dashFilter = {surveyId:'', from:'', to:''};
+function renderDash(){
+  const el=$('#t-dash');
+  const svs = D.surveys.filter(s=>!curProject||s.projectId===curProject);
+  if (dashFilter.surveyId && !svs.some(s=>s.id===dashFilter.surveyId)) dashFilter.surveyId='';
+  el.innerHTML = `
+    <div class="card row">
+      <select id="fSurvey"><option value="">전체 설문</option>${svs.map(s=>`<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select>
+      <input type="date" id="fFrom" value="${dashFilter.from}"> ~ <input type="date" id="fTo" value="${dashFilter.to}">
+      <button class="b" onclick="loadStats()">조회</button>
+      <button class="s" onclick="$('#fFrom').value=$('#fTo').value=today();loadStats()">오늘</button>
+      <button class="s" onclick="$('#fFrom').value=$('#fTo').value='';loadStats()">전체기간</button>
+    </div>
+    <div class="grid g4" id="kpis"></div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>일자별 응답 추이</h3><div class="chart"><canvas id="cDate"></canvas></div></div>
+      <div class="card"><h3 id="c2t"></h3><div class="chart"><canvas id="c2"></canvas></div></div>
+    </div>
+    <div class="grid g2">
+      <div class="card"><h3>팀별 응답</h3><div class="chart"><canvas id="cTeam"></canvas></div></div>
+      <div class="card"><h3>팀·조별 응답 현황</h3><div id="groupTbl" style="max-height:260px;overflow:auto"></div></div>
+    </div>
+    <div id="qCharts"></div>`;
+  $('#fSurvey').value = dashFilter.surveyId;
+  loadStats();
+}
+async function loadStats(){
+  dashFilter = {surveyId:$('#fSurvey').value, from:$('#fFrom').value, to:$('#fTo').value};
+  const st = await api('getStats', {projectId:curProject, surveyId:dashFilter.surveyId, from:dashFilter.from, to:dashFilter.to});
+  const svs = D.surveys.filter(s=>!curProject||s.projectId===curProject);
+  const teams = D.teams.filter(t=>!curProject||t.projectId===curProject);
+  $('#kpis').innerHTML = [
+    ['응답 수 (조회기간)', st.total], ['오늘 응답', st.today],
+    ['진행중 설문', svs.filter(s=>s.status==='진행').length], ['등록 팀·조', teams.length]
+  ].map(k=>`<div class="kpi"><div class="l">${k[0]}</div><div class="v">${Number(k[1]).toLocaleString()}</div></div>`).join('');
+
+  // 일자별 (빈 날짜 0으로 채움)
+  const days = Object.keys(st.byDate).sort(); const labels=[], vals=[];
+  if (days.length){
+    for (let d=new Date(days[0]); d<=new Date(days[days.length-1]); d.setDate(d.getDate()+1)){
+      const k=d.toISOString().slice(0,10); labels.push(k.slice(5)); vals.push(st.byDate[k]||0);
+    }
+  }
+  drawChart('cDate','line',labels,vals);
+
+  if (!curProject){
+    $('#c2t').textContent='프로젝트별 응답';
+    drawChart('c2','bar',Object.keys(st.byProject),Object.values(st.byProject));
+  } else {
+    $('#c2t').textContent='설문별 응답';
+    const ids=Object.keys(st.bySurvey);
+    drawChart('c2','bar',ids.map(i=>surv(i).title||i),ids.map(i=>st.bySurvey[i]));
+  }
+  const tl = st.byTeam.map(t=>(curProject?'':t.project+' · ')+t.team);
+  drawChart('cTeam','bar',tl,st.byTeam.map(t=>t.count),{indexAxis:'y',scales:{x:{beginAtZero:true,ticks:{precision:0}}}});
+
+  $('#groupTbl').innerHTML = st.byGroup.length ? `<table><tr>${curProject?'':'<th>프로젝트</th>'}<th>팀</th><th>조</th><th class="n">오늘</th><th class="n">누적(기간)</th></tr>
+    ${st.byGroup.map(g=>`<tr>${curProject?'':`<td>${esc(g.project)}</td>`}<td>${esc(g.team)}</td><td>${esc(g.group)}</td><td class="n">${g.today}</td><td class="n"><b>${g.count}</b></td></tr>`).join('')}
+    <tr><td colspan="${curProject?2:3}"><b>합계</b></td><td class="n"><b>${st.byGroup.reduce((a,g)=>a+g.today,0)}</b></td><td class="n"><b>${st.total}</b></td></tr></table>`
+    : '<div class="empty">데이터가 없습니다</div>';
+
+  // 문항별 분포
+  Object.keys(charts).filter(k=>k.startsWith('q_')).forEach(k=>{charts[k].destroy();delete charts[k];});
+  const qc=$('#qCharts');
+  if (st.questions && st.questions.length){
+    qc.innerHTML = '<div class="grid g2">'+st.questions.map((q,i)=>`<div class="card"><h3>${esc(q.title)} <span class="muted">(응답 ${q.n}명${q.type==='checkbox'?', 복수선택':''})</span></h3><div class="chart" style="height:${Math.max(160,Object.keys(q.dist).length*34)}px"><canvas id="q_${i}"></canvas></div></div>`).join('')+'</div>';
+    st.questions.forEach((q,i)=>drawChart('q_'+i,'bar',Object.keys(q.dist),Object.values(q.dist),{indexAxis:'y',scales:{x:{beginAtZero:true,ticks:{precision:0}}}}));
+  } else qc.innerHTML = dashFilter.surveyId ? '' : '<div class="card muted">설문을 선택하면 문항별 응답 분포가 표시됩니다.</div>';
+}
+function drawChart(id,type,labels,data,opt){
+  if (charts[id]) charts[id].destroy();
+  const c=document.getElementById(id); if(!c||typeof Chart==='undefined') return;
+  const ac=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#2f6fb3';
+  charts[id]=new Chart(c,{type,data:{labels,datasets:[{data,backgroundColor:type==='line'?ac+'22':ac+'cc',borderColor:ac,tension:.35,pointRadius:3,fill:type==='line',borderRadius:type==='bar'?6:0}]},
+    options:Object.assign({responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}},opt||{})});
+}
+
+/* ===================== 프로젝트 ===================== */
+function renderProjects(){
+  const el=$('#t-proj');
+  el.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">프로젝트 목록</h3><button class="b" onclick="editProject()">+ 새 프로젝트</button></div>
+  ${D.projects.length?`<table><tr><th>프로젝트명</th><th>사업지</th><th>메모</th><th>상태</th><th class="n">설문</th><th class="n">응답</th><th></th></tr>
+  ${D.projects.map(p=>{const sv=D.surveys.filter(s=>s.projectId===p.id);const n=sv.reduce((a,s)=>a+(D.counts[s.id]||0),0);
+    return `<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.site)}</td><td class="muted">${esc(p.memo)}</td><td><span class="tag ${p.status==='종료'?'off':''}">${esc(p.status)}</span></td><td class="n">${sv.length}</td><td class="n">${n}</td>
+    <td class="n"><button class="s" onclick="editProject('${p.id}')">수정</button> <button class="s danger" onclick="delProject('${p.id}')">삭제</button></td></tr>`}).join('')}</table>`
+  :'<div class="empty">등록된 프로젝트가 없습니다.</div>'}</div>`;
+}
+function editProject(id){
+  const p = id?proj(id):{status:'진행'};
+  openModal(id?'프로젝트 수정':'새 프로젝트',`
+    <div class="fld"><label>프로젝트명 *</label><input id="pName" value="${esc(p.name)}" placeholder="예) 김천 부곡동 ○○아파트"></div>
+    <div class="fld"><label>사업지</label><input id="pSite" value="${esc(p.site)}"></div>
+    <div class="fld"><label>메모</label><input id="pMemo" value="${esc(p.memo)}"></div>
+    <div class="fld"><label>상태</label><select id="pStatus"><option>진행</option><option>종료</option></select></div>`,
+  async()=>{
+    const nid = await api('saveProject',{id:id||'',name:$('#pName').value,site:$('#pSite').value,memo:$('#pMemo').value,status:$('#pStatus').value});
+    if(!id) curProject=nid; toast('저장되었습니다'); await reload();
+  });
+  $('#pStatus').value=p.status||'진행';
+}
+async function delProject(id){
+  if(!confirm('이 프로젝트와 등록된 팀·조를 삭제할까요?')) return;
+  await api('deleteProject',id); toast('삭제되었습니다'); await reload();
+}
+
+/* ===================== 설문 목록 ===================== */
+function renderSurveys(){
+  const el=$('#t-survey'); if(!curProject) return needProject(el);
+  const svs=D.surveys.filter(s=>s.projectId===curProject);
+  el.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">${esc(proj(curProject).name)} · 설문 목록</h3><button class="b" onclick="newSurvey()">+ 새 설문</button></div>
+  ${svs.length?`<table><tr><th>설문 제목</th><th class="n">문항</th><th>상태</th><th class="n">응답</th><th>수정일</th><th></th></tr>
+  ${svs.map(s=>`<tr><td><b>${esc(s.title)}</b></td><td class="n">${s.questions.length}</td><td><span class="tag ${s.status==='진행'?'':'off'}">${esc(s.status)}</span></td><td class="n">${D.counts[s.id]||0}</td><td class="muted">${esc(String(s.updatedAt).slice(0,16))}</td>
+   <td class="n"><button class="s" onclick="editSurvey('${s.id}')">편집</button>
+   <button class="s" onclick="dupSurvey('${s.id}')">복제</button>
+   <button class="s" onclick="window.open(linkOf('${s.id}',''),'_blank')">미리보기</button>
+   <button class="s" onclick="goLinks('${s.id}')">배포링크</button>
+   ${s.rawGid!=null?`<button class="s" onclick="window.open(D.sheetUrl+'#gid=${s.rawGid}','_blank')">RAW 시트</button>`:''}
+   <button class="s" onclick="toggleSurvey('${s.id}')">${s.status==='진행'?'마감':'재개'}</button>
+   <button class="s danger" onclick="delSurvey('${s.id}')">삭제</button></td></tr>`).join('')}</table>`
+  :'<div class="empty">설문이 없습니다. [+ 새 설문]으로 만들어 주세요.</div>'}</div>`;
+}
+function goLinks(sid){ linkSurvey=sid; document.querySelector('#tabs button[data-t=link]').click(); }
+async function toggleSurvey(id){ const s=surv(id); await api('setSurveyStatus',id,s.status==='진행'?'마감':'진행'); await reload(); }
+async function delSurvey(id){ if(!confirm('설문을 삭제할까요? (응답이 있으면 삭제되지 않습니다)')) return; await api('deleteSurvey',id); toast('삭제되었습니다'); await reload(); }
+function newSurvey(){ editing={projectId:curProject,title:'',description:'',consentText:'',theme:'',status:'진행',questions:[]}; renderEditor(); }
+function editSurvey(id){ editing=JSON.parse(JSON.stringify(surv(id))); renderEditor(); }
+function dupSurvey(id){ const s=JSON.parse(JSON.stringify(surv(id))); delete s.id; delete s.rawSheet; delete s.rawGid; s.title+=' (복사)'; s.status='진행'; s.questions.forEach(q=>delete q.id); editing=s; renderEditor(); }
+
+/* ===================== 설문 편집기 ===================== */
+const QTYPES = {text:'단답형',textarea:'장문형',phone:'휴대폰번호',number:'숫자',radio:'객관식(단일)',checkbox:'객관식(복수)',select:'드롭다운'};
+const QUICK = [
+  {type:'text',title:'성함',required:true},
+  {type:'phone',title:'연락처',required:true},
+  {type:'radio',title:'연령대',required:true,options:['20대 이하','30대','40대','50대','60대 이상']},
+  {type:'radio',title:'거주지역',options:['사업지 인근(동일 동)','동일 구','동일 시 타 구','인근 시·군','기타 지역']},
+  {type:'radio',title:'주택 보유 현황',options:['무주택','1주택','2주택 이상']},
+  {type:'checkbox',title:'관심 평형',options:['59㎡','74㎡','84㎡','그 외']},
+  {type:'checkbox',title:'분양 정보를 알게 된 경로',options:['현수막','문자·카톡','지인 소개','인터넷·SNS','신문·전단','기타']},
+  {type:'radio',title:'청약 의향',options:['매우 있음','있음','보통','없음']},
+  {type:'textarea',title:'기타 문의사항'}
+];
+const CONSENT = '1. 수집 항목: 성함, 연락처, 설문 응답 내용\n2. 수집·이용 목적: 분양 정보 안내 및 상담, 마케팅 자료 분석\n3. 보유·이용 기간: 분양 종료 시까지 (목적 달성 후 즉시 파기)\n4. 귀하는 동의를 거부할 권리가 있으며, 거부 시 설문 참여가 제한됩니다.';
+
+function renderEditor(){
+  const e=editing, el=$('#t-survey');
+  el.innerHTML = `<div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">${e.id?'설문 편집':'새 설문'} <span class="muted">· ${esc(proj(e.projectId).name)}</span></h3>
+      <div class="row"><button class="s" onclick="editing=null;renderSurveys()">취소</button><button class="b" onclick="saveSurveyNow()">저장</button></div></div>
+    ${e.id && D.counts[e.id] ? '<div class="muted" style="margin-bottom:10px">⚠ 이미 응답이 있는 설문입니다. 문항 삭제·선택지 변경 시 기존 통계와 어긋날 수 있습니다.</div>':''}
+    <div class="fld"><label>설문 제목 *</label><input value="${esc(e.title)}" onchange="editing.title=this.value" placeholder="예) ○○아파트 사전 관심고객 설문"></div>
+    <div class="fld"><label>응답자 화면 컬러 <span class="muted">— 설문 링크로 들어온 화면의 톤이 바뀝니다</span></label>
+      <div class="sw" id="svSw">${swatchHtml(e.theme||'','setSurveyTheme')}</div></div>
+    <div class="fld"><label>안내 문구</label><textarea rows="2" onchange="editing.description=this.value">${esc(e.description)}</textarea></div>
+    <div class="fld"><label>개인정보 수집·이용 동의 문구 (입력 시 응답자 동의 필수) <button class="s" onclick="editing.consentText=CONSENT;renderEditor()">기본 문구 넣기</button></label>
+      <textarea rows="4" onchange="editing.consentText=this.value">${esc(e.consentText)}</textarea></div>
+  </div>
+  <div class="card"><h3>문항 (${e.questions.length})</h3><div id="qList"></div>
+    <div class="row" style="margin-top:6px"><button class="b" onclick="addQ({type:'radio',title:'',options:[]})">+ 문항 추가</button></div>
+    <div class="quick" style="margin-top:14px"><div class="muted" style="margin-bottom:6px">자주 쓰는 문항 빠르게 추가</div>
+      ${QUICK.map((q,i)=>`<button class="s" onclick="addQ(QUICK[${i}])">${esc(q.title)}</button>`).join('')}</div>
+  </div>`;
+  renderQs();
+}
+function setSurveyTheme(c){ editing.theme=c; $('#svSw').innerHTML=swatchHtml(c,'setSurveyTheme'); }
+function renderQs(){
+  const qs=editing.questions;
+  $('#qList').innerHTML = qs.map((q,i)=>`<div class="qcard"><div class="top">
+      <b>${i+1}.</b>
+      <select onchange="qset(${i},'type',this.value);renderQs()">${Object.entries(QTYPES).map(([k,v])=>`<option value="${k}" ${q.type===k?'selected':''}>${v}</option>`).join('')}</select>
+      <input class="tt" value="${esc(q.title)}" placeholder="문항 제목" onchange="qset(${i},'title',this.value)">
+      <label><input type="checkbox" ${q.required?'checked':''} onchange="qset(${i},'required',this.checked)"> 필수</label>
+      <button class="s" onclick="moveQ(${i},-1)">▲</button><button class="s" onclick="moveQ(${i},1)">▼</button>
+      <button class="s danger" onclick="editing.questions.splice(${i},1);renderEditor()">삭제</button></div>
+      ${['radio','checkbox','select'].includes(q.type)?`<textarea rows="${Math.max(3,(q.options||[]).length+1)}" style="margin-top:8px" placeholder="선택지를 한 줄에 하나씩 입력" onchange="qset(${i},'options',this.value.split('\\n').map(x=>x.trim()).filter(Boolean))">${esc((q.options||[]).join('\n'))}</textarea>`:''}
+    </div>`).join('') || '<div class="muted">문항을 추가해 주세요.</div>';
+}
+function qset(i,k,v){ editing.questions[i][k]=v; }
+function addQ(q){ editing.questions.push(JSON.parse(JSON.stringify(Object.assign({required:false,options:[]},q)))); renderEditor(); }
+function moveQ(i,d){ const a=editing.questions,j=i+d; if(j<0||j>=a.length) return; [a[i],a[j]]=[a[j],a[i]]; renderQs(); }
+async function saveSurveyNow(){
+  if (document.activeElement) document.activeElement.blur();   // onchange 반영
+  await new Promise(r=>setTimeout(r,0));
+  const e=editing;
+  await api('saveSurvey',{id:e.id||'',projectId:e.projectId,title:e.title,description:e.description,consentText:e.consentText,theme:e.theme||'',status:e.status,questions:e.questions});
+  toast('저장되었습니다'); editing=null; await reload();
+}
+
+/* ===================== 팀·조 / 배포링크 ===================== */
+let linkSurvey='';
+function renderLinks(){
+  const el=$('#t-link'); if(!curProject) return needProject(el);
+  const teams=D.teams.filter(t=>t.projectId===curProject).sort((a,b)=>String(a.team).localeCompare(b.team,'ko',{numeric:true})||String(a.group).localeCompare(b.group,'ko',{numeric:true}));
+  const svs=D.surveys.filter(s=>s.projectId===curProject);
+  if(!svs.some(s=>s.id===linkSurvey)) linkSurvey=(svs.find(s=>s.status==='진행')||svs[0]||{}).id||'';
+  el.innerHTML = `<div class="grid g2" style="align-items:start">
+   <div class="card"><h3>팀·조 관리 <span class="muted">(${teams.length})</span></h3>
+     ${teams.length?`<table><tr><th>팀</th><th>조</th><th>링크코드</th><th></th></tr>${teams.map(t=>`<tr><td>${esc(t.team)}</td><td>${esc(t.group)}</td><td class="link">${esc(t.code)}</td>
+      <td class="n"><button class="s" onclick="editTeam('${t.id}')">수정</button> <button class="s danger" onclick="delTeam('${t.id}')">삭제</button></td></tr>`).join('')}</table>`:'<div class="muted">등록된 팀·조가 없습니다.</div>'}
+     <div class="fld" style="margin-top:14px"><label>일괄 추가 — 한 줄에 "팀,조" 형식 (조가 없으면 팀만)</label>
+       <textarea id="bulkTeams" rows="5" placeholder="1팀,A조&#10;1팀,B조&#10;2팀,A조&#10;홍보팀"></textarea></div>
+     <button class="b" onclick="addTeams()">추가</button>
+     <div class="muted" style="margin-top:8px">링크코드는 자동 발급되며, 팀·조 이름을 수정해도 코드(=배포된 링크)는 유지됩니다.</div>
+   </div>
+   <div class="card"><h3>배포 링크</h3>
+     ${svs.length?`<div class="row" style="margin-bottom:12px"><select id="lnkSv" onchange="linkSurvey=this.value;renderLinks()">${svs.map(s=>`<option value="${s.id}" ${s.id===linkSurvey?'selected':''}>${esc(s.title)}${s.status!=='진행'?' (마감)':''}</option>`).join('')}</select>
+       <button class="s" onclick="copyAll()">전체 복사(엑셀용)</button></div>
+     <table><tr><th>대상</th><th>링크</th><th></th></tr>
+       <tr><td class="muted">공통(팀 미지정)</td><td class="link">${esc(linkOf(linkSurvey,''))}</td><td class="n"><button class="s" onclick="copyText(linkOf(linkSurvey,''))">복사</button> <button class="s" onclick="showQR('공통 링크','')">QR</button></td></tr>
+       ${teams.map(t=>`<tr><td><b>${esc(t.team)}</b> ${esc(t.group)}</td><td class="link">${esc(linkOf(linkSurvey,t.code))}</td>
+        <td class="n"><button class="s" onclick="copyText(linkOf(linkSurvey,'${t.code}'))">복사</button> <button class="s" onclick="showQR(${esc(JSON.stringify(t.team+' '+t.group))},'${t.code}')">QR</button></td></tr>`).join('')}
+     </table>`:'<div class="muted">먼저 [설문] 탭에서 설문을 만들어 주세요.</div>'}
+   </div></div>`;
+}
+async function addTeams(){
+  const list=$('#bulkTeams').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const [team,group]=l.split(/[,\t]/).map(x=>(x||'').trim()); return {team,group:group||''};});
+  if(!list.length) return toast('추가할 팀·조를 입력하세요',true);
+  const n=await api('saveTeams',curProject,list); toast(n+'개 추가되었습니다 (중복 제외)'); await reload();
+}
+function editTeam(id){
+  const t=D.teams.find(x=>x.id===id);
+  openModal('팀·조 수정',`<div class="fld"><label>팀</label><input id="eTeam" value="${esc(t.team)}"></div><div class="fld"><label>조</label><input id="eGroup" value="${esc(t.group)}"></div>
+    <div class="muted">링크코드 ${esc(t.code)} 는 그대로 유지됩니다.</div>`,
+    async()=>{ await api('saveTeams',curProject,[{id,team:$('#eTeam').value,group:$('#eGroup').value}]); toast('수정되었습니다'); await reload(); });
+}
+async function delTeam(id){ if(!confirm('삭제하면 이 팀·조에 배포한 링크는 "미지정"으로 집계됩니다. 삭제할까요?')) return; await api('deleteTeam',id); await reload(); }
+function copyAll(){
+  const s=surv(linkSurvey), teams=D.teams.filter(t=>t.projectId===curProject);
+  const lines=['설문\t팀\t조\t링크', s.title+'\t공통\t\t'+linkOf(linkSurvey,'')].concat(teams.map(t=>[s.title,t.team,t.group,linkOf(linkSurvey,t.code)].join('\t')));
+  copyText(lines.join('\n'));
+}
+function showQR(label, code){
+  const url=linkOf(linkSurvey,code);
+  openModal('QR 코드 · '+label,`<div style="text-align:center"><div id="qrBox" style="display:inline-block;padding:12px;background:#fff"></div>
+    <div style="margin-top:8px;font-weight:600">${esc(surv(linkSurvey).title)}</div><div class="muted">${esc(label)}</div>
+    <div class="muted" style="margin-top:10px">다운로드가 안 되면 QR 이미지를 우클릭(길게 눌러) 저장하세요.</div></div>`,
+    ()=>{ const c=$('#qrBox canvas'); const a=document.createElement('a'); a.href=c.toDataURL('image/png'); a.download='QR_'+label.replace(/\s+/g,'_')+'.png'; a.click(); return false; },'PNG 다운로드');
+  new QRCode($('#qrBox'),{text:url,width:240,height:240,correctLevel:QRCode.CorrectLevel.M});
+}
+
+/* ===================== 시작 ===================== */
+if (PW) { $('#pw').value=''; login(); }
+</script>
+</body>
+</html>

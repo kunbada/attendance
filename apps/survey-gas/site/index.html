@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>설문조사</title>
+<style>
+  html,body{margin:0;height:100%;background:#f5f6fa}
+  iframe{position:fixed;inset:0;width:100%;height:100%;border:0}
+</style>
+</head>
+<body>
+<script>
+  // Apps Script 웹앱(/exec) 주소. 재배포해도 배포 ID가 같으면 바뀌지 않는다.
+  var EXEC = 'https://script.google.com/macros/s/AKfycbyQKdYmNwDGqQYyCHN1bK8rr1d7D-zyTbDAK9DtcxFyr4P5zU0yhH_2unXDHX5ot5y-Sw/exec';
+  // ?s=설문ID&t=팀조코드 를 그대로 넘긴다.
+  var f = document.createElement('iframe');
+  f.src = EXEC + location.search;
+  f.title = '설문조사';
+  f.allow = 'clipboard-write';
+  document.body.appendChild(f);
+</script>
+</body>
+</html>

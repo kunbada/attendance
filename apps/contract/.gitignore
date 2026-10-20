@@ -1,0 +1,8 @@
+node_modules/
+backup/
+*.json.bak
+# 개인정보 포함 — 저장소에 올리지 말 것
+초기데이터_*.json
+*_백업*.json
+*_최신백업.json
+gas/.clasp.json

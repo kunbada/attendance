@@ -1,18 +1,31 @@
+# 공통
 node_modules/
-.clasprc.json
-.clasp.json
 .env
 .env.*
 *.log
 .DS_Store
 Thumbs.db
-
-# Cloudflare Worker
-worker/.dev.vars
-worker/.wrangler/
-worker/.seed.sql
-worker/.dev.vars.*
-worker/.test.sql
+.clasprc.json
 .secrets.json
-worker/.telegram-token
-worker/.resend-key
+
+# 개인정보·백업 — 저장소(공개)에 절대 올리지 말 것
+private/
+**/backup/
+**/초기데이터_*.json
+*_백업*.json
+*_최신백업.json
+*.json.bak
+*.xlsx
+
+# 통합 서버 (Cloudflare Worker) — 비밀 값·로컬 DB
+server/.dev.vars
+server/.dev.vars.*
+server/.wrangler/
+server/.seed.sql
+server/.test.sql
+server/.telegram-token
+server/.resend-key
+
+# 계약관리 구 Apps Script 서버: Code.gs 안에 실제 TOKEN 이 있어 제외 (4단계에서 통합 서버로 교체 후 폐기)
+apps/contract/gas/Code.gs
+apps/contract/gas/.clasp.json
