@@ -87,24 +87,60 @@
     box.innerHTML = '';
     var csvBtn = h('button', { type: 'button', class: 'btn small' }, 'CSV 다운로드');
     csvBtn.addEventListener('click', function () {
-      var head = ['성명', '예명', '직군', '본부', '팀', '출근일수'];
+      var head = ['성명', '예명', '직군', '본부', '팀', '출근일수(원본)', '인정 근무일수(보정 반영)'];
       for (var d = 1; d <= m.daysInMonth; d++) head.push(d + '일');
       var rows = [head].concat(m.staff.map(function (p) {
-        var r = [p.name, p.nickname, p.job, p.headName, p.teamName, p.days.length];
-        for (var d = 1; d <= m.daysInMonth; d++) r.push(p.days.indexOf(d) >= 0 ? 'O' : '');
+        var r = [p.name, p.nickname, p.job, p.headName, p.teamName, p.days.length, p.workDays];
+        for (var d = 1; d <= m.daysInMonth; d++) r.push(p.adjusts[d] ? p.adjusts[d].kind : (p.days.indexOf(d) >= 0 ? 'O' : ''));
         return r;
       }));
       downloadCsv('근태_' + m.month + '.csv', rows);
     });
-    box.appendChild(h('div', { class: 'toolbar' }, csvBtn));
-    box.appendChild(simpleTable(['성명(예명)', '직군 / 소속', '출근일수', '출근한 날'], m.staff.map(function (p) {
+    box.appendChild(h('div', { class: 'toolbar' }, csvBtn,
+      h('span', { class: 'muted' }, '출근 기록은 고치지 않고, [보정]으로 인정/불인정/반일을 덮어씁니다. 정산(용역관리)은 보정까지 반영한 "인정 근무일수"로 계산합니다.')));
+    box.appendChild(simpleTable(['성명(예명)', '직군 / 소속', '출근일수(원본)', '인정 근무일수', '보정', '출근한 날', ''], m.staff.map(function (p) {
+      var adjTxt = Object.keys(p.adjusts).map(Number).sort(function (a, b) { return a - b; }).map(function (d) {
+        return (m.month.slice(5) + '-' + ('0' + d).slice(-2)).replace('-', '/') + ' ' + p.adjusts[d].kind;
+      }).join(', ');
+      var btn = h('button', { type: 'button', class: 'btn small' }, '보정');
+      btn.addEventListener('click', function () { openAdjust(p, m, function () { return loadMonth(box); }); });
       return h('tr', null, h('td', null, nameCell(p)), h('td', null, orgCell(p)), h('td', null, p.days.length + '일'),
-        h('td', { class: 'muted' }, p.days.join(', ')));
+        h('td', null, h('strong', null, p.workDays + '일')), h('td', null, adjTxt), h('td', { class: 'muted' }, p.days.join(', ')),
+        h('td', null, p.moved ? '' : btn));
     })));
   }
 
-  Hub.register({
-    key: 'attendance', label: '근태',
+  // 근태 보정 창: 날짜를 고르고 인정 / 불인정 / 반일 중 선택 (사유 입력), 이미 있는 보정은 해제할 수 있다
+  function openAdjust(p, m, reload) {
+    var date = h('input', { type: 'date', value: m.month + '-01', min: m.month + '-01', max: m.month + '-' + ('0' + m.daysInMonth).slice(-2), style: DATE_STYLE });
+    var kind = h('select', null, option('인정', '인정 — 출근 기록이 없어도 1일로 인정'), option('불인정', '불인정 — 출근 기록이 있어도 0일'), option('반일', '반일 — 0.5일'));
+    var reason = h('input', { type: 'text', maxLength: 100, placeholder: '예: 출근 QR 오류, 오후 조퇴' });
+    var info = h('p', { class: 'muted' });
+    function syncInfo() {
+      var d = Number(date.value.slice(8, 10));
+      var cur = p.adjusts[d];
+      var worked = p.days.indexOf(d) >= 0;
+      info.textContent = date.value + ' — 출근 기록 ' + (worked ? '있음' : '없음') + (cur ? ' / 현재 보정: ' + cur.kind + (cur.reason ? ' (' + cur.reason + ')' : '') : '');
+      if (cur) { kind.value = cur.kind; reason.value = cur.reason || ''; }
+    }
+    date.addEventListener('change', syncInfo);
+    syncInfo();
+    modal('근태 보정 — ' + p.name, h('div', null, field('날짜', date), info, field('보정', kind), field('사유', reason)), [
+      {
+        label: '저장', primary: true, onClick: async function (close) {
+          await Api.call('admin.adjustSave', { staffId: p.id, date: date.value, kind: kind.value, reason: reason.value });
+          close(); await reload(); toast('보정했습니다.');
+        }
+      },
+      {
+        label: '보정 해제', onClick: async function (close) {
+          await Api.call('admin.adjustDelete', { staffId: p.id, date: date.value });
+          close(); await reload(); toast('보정을 해제했습니다.');
+        }
+      }]);
+  }
+
+  Hub.section('attendance', {
     render: async function (root) {
       root.innerHTML = '';
       var qrBox = h('div'), attBox = h('div');

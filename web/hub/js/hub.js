@@ -153,7 +153,37 @@ var Hub = (function () {
   });
 
   // ---------- 메뉴 ----------
+  // 화면 조각(section)은 각 파일이 등록하고, 메뉴 구성(순서·묶음)은 menus.js 한 곳에서 정한다.
+  var sections = {};
+  function section(key, def) { sections[key] = def; }
   function register(menu) { menus.push(menu); }
+
+  // 묶음 메뉴: 위쪽에 하위 탭(예: 인사관리 > 현장인력관리 / 현장근태관리)을 두고 선택한 화면 조각을 그린다
+  function group(menu) {
+    var chosen = menu.items[0].section;
+    register({
+      key: menu.key, label: menu.label, adminOnly: menu.adminOnly, needsProject: menu.needsProject,
+      render: async function (root) {
+        root.innerHTML = '';
+        var box = h('div');
+        if (menu.items.length > 1) {
+          var bar = h('div', { class: 'sub-tabs no-print' });
+          menu.items.forEach(function (it) {
+            var b = h('button', { type: 'button', class: 'btn' + (chosen === it.section ? ' active' : '') }, it.label);
+            b.addEventListener('click', function () {
+              chosen = it.section;
+              $$('.btn', bar).forEach(function (x) { x.classList.toggle('active', x === b); });
+              runBusy(null, function () { return sections[chosen].render(box); });
+            });
+            bar.appendChild(b);
+          });
+          root.appendChild(bar);
+        }
+        root.appendChild(box);
+        await sections[chosen].render(box);
+      }
+    });
+  }
 
   function visibleMenus() {
     return menus.filter(function (m) { return !m.adminOnly || isAdmin(); });
@@ -220,7 +250,7 @@ var Hub = (function () {
   }
 
   return {
-    state: state, show: show, register: register, open: open, refresh: refresh, boot: boot,
+    state: state, show: show, register: register, section: section, group: group, sections: sections, open: open, refresh: refresh, boot: boot,
     DATE_STYLE: DATE_STYLE, todayLocal: todayLocal, downloadCsv: downloadCsv, simpleTable: simpleTable,
     nameCell: nameCell, orgCell: orgCell, statCard: statCard,
     isAdmin: isAdmin, currentProject: currentProject, orgsOf: orgsOf,

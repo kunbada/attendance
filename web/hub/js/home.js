@@ -63,5 +63,5 @@
       }))));
   }
 
-  Hub.register({ key: 'home', label: '홈', render: render });
+  Hub.section('home', { render: render });
 })();

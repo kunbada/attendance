@@ -1,5 +1,6 @@
 // 근태: 관리자 QR 발급, 직원 출근 판정, 관리자 근태 현황
 import { AppError, s, all, first, run, todayStr, timeStr, nowStr, newId, randomToken, getSettings, orgNameMap, staffBrief, writeLog } from '../core/util.js';
+import { collectWork } from '../pay/calc.js';
 
 const numOrNull = (v) => {
   if (v === '' || v === null || v === undefined) return null;
@@ -110,8 +111,26 @@ export async function adminAttendance(env, data, ctx) {
     const rows = await all(env, `SELECT staff_id, date FROM attendance WHERE project_id = ? AND result = '성공' AND date >= ? AND date <= ?`, pid, month + '-01', month + '-31');
     const daysOf = {};
     rows.forEach((r) => { (daysOf[r.staff_id] = daysOf[r.staff_id] || new Set()).add(Number(r.date.slice(8, 10))); });
-    const staff = (await all(env, 'SELECT * FROM staff WHERE project_id = ?', pid)).filter((r) => r.status === '활동' || daysOf[r.id]);
-    const list = staff.map((r) => ({ ...staffBrief(r, names), days: [...(daysOf[r.id] || [])].sort((a, b) => a - b) }));
+    // 관리자 보정(인정/불인정/반일)과 보정까지 반영한 인정 근무일수 (정산 기준)
+    const work = await collectWork(env, pid, month + '-01', month + '-31');
+    const adj = await all(env, 'SELECT staff_id, date, kind, reason FROM attendance_adjust WHERE project_id = ? AND date >= ? AND date <= ?', pid, month + '-01', month + '-31');
+    const adjOf = {};
+    adj.forEach((a) => { ((adjOf[a.staff_id] = adjOf[a.staff_id] || {})[Number(a.date.slice(8, 10))]) = { kind: a.kind, reason: a.reason }; });
+    const staffAdjusted = new Set([...Object.keys(adjOf)]);
+    const staff2 = (await all(env, 'SELECT * FROM staff WHERE project_id = ?', pid)).filter((r) => r.status === '활동' || daysOf[r.id] || staffAdjusted.has(r.id));
+    const list = staff2.map((r) => ({
+      ...staffBrief(r, names), days: [...(daysOf[r.id] || [])].sort((a, b) => a - b), adjusts: adjOf[r.id] || {},
+      workDays: (work[r.id] || []).reduce((n, d) => n + d.units, 0) / 2
+    }));
+    // 다른 현장으로 이동한 직원도 이 현장에서 일한 날이 있으면 이름만 보여 준다 (정산 대상이므로)
+    const known = new Set(staff2.map((r) => r.id));
+    const gone = [...new Set([...Object.keys(daysOf), ...Object.keys(adjOf)])].filter((id) => !known.has(id));
+    for (let i = 0; i < gone.length; i += 80) {
+      const part = gone.slice(i, i + 80);
+      (await all(env, `SELECT id, name FROM staff WHERE id IN (${part.map(() => '?').join(',')})`, ...part)).forEach((r) => {
+        list.push({ id: r.id, name: r.name + ' (타 현장 이전)', nickname: '', job: '', headName: '', teamName: '', days: [...(daysOf[r.id] || [])].sort((x, y) => x - y), adjusts: adjOf[r.id] || {}, workDays: (work[r.id] || []).reduce((n, d) => n + d.units, 0) / 2, moved: true });
+      });
+    }
     list.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     const y = Number(month.slice(0, 4)), mo = Number(month.slice(5, 7));
     return { month, daysInMonth: new Date(y, mo, 0).getDate(), staff: list };

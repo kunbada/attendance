@@ -257,6 +257,37 @@
   });
   $('#btn-approve-back').addEventListener('click', function () { runBusy($('#btn-approve-back'), showHome); });
 
+  // ---------- 내 지급내역 ----------
+  function won(n) { return Number(n || 0).toLocaleString('ko-KR') + '원'; }
+
+  async function loadMyPay() {
+    var res = await Api.call('staff.myPay');
+    var box = $('#mp-list');
+    box.innerHTML = '';
+    if (!res.pays.length) { box.appendChild(h('p', { class: 'muted' }, '확정된 지급내역이 아직 없습니다.')); return; }
+    res.pays.forEach(function (p) {
+      var days = h('div', { class: 'muted hidden', style: 'margin-top:8px' }, p.detail.map(function (d) {
+        return h('div', null, d.date + ' · ' + d.note + ' · ' + d.days + '일 · ' + won(d.amount));
+      }));
+      var more = h('button', { type: 'button', class: 'linkbtn' }, '날짜별 내역 보기');
+      more.addEventListener('click', function () { days.classList.toggle('hidden'); });
+      box.appendChild(h('div', { class: 'card' },
+        h('div', null, h('strong', null, p.project), ' ', h('span', { class: 'badge ' + (p.status === '지급완료' ? 'ok' : 'warn') }, p.status)),
+        h('div', { class: 'muted' }, p.from + ' ~ ' + p.to + ' · ' + p.days + '일'),
+        h('div', { class: 'stat' }, h('span', null, '지급액'), h('strong', null, won(p.gross))),
+        p.adjustAmount ? h('div', { class: 'stat' }, h('span', null, '조정 (' + p.adjustMemo + ')'), h('span', null, won(p.adjustAmount))) : null,
+        h('div', { class: 'stat' }, h('span', null, '공제 (소득세 ' + won(p.incomeTax) + ' + 지방소득세 ' + won(p.localTax) + ')'), h('span', null, '-' + won(p.incomeTax + p.localTax))),
+        h('div', { class: 'stat' }, h('span', null, '실지급액'), h('strong', { style: 'font-size:20px' }, won(p.net))),
+        p.paidAt ? h('div', { class: 'muted' }, '지급 처리 ' + p.paidAt.slice(0, 10)) : null,
+        more, days));
+    });
+  }
+
+  $('#btn-mypay').addEventListener('click', function () {
+    runBusy($('#btn-mypay'), async function () { await loadMyPay(); show('mypay'); });
+  });
+  $('#btn-mypay-back').addEventListener('click', function () { runBusy($('#btn-mypay-back'), showHome); });
+
   // ---------- 텔레그램 연결 ----------
   $('#btn-telegram').addEventListener('click', function () {
     var btn = $('#btn-telegram');

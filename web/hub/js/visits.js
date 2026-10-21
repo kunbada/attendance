@@ -151,8 +151,7 @@
   }
 
   var view = 'visits';
-  Hub.register({
-    key: 'visits', label: '방문·예약·방명록',
+  Hub.section('visits', {
     render: async function (root) {
       root.innerHTML = '';
       var box = h('div');

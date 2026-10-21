@@ -18,7 +18,7 @@ server/          통합 서버 = Cloudflare Worker + D1 (기존 근태 서버. �
                  src/ = index.js(ACTIONS 표) + core/(인증·프로젝트·인력·조직·계정) attendance/ visit/ guestbook/ telegram/ report/
 web/             GitHub Pages 로 배포 (.github/workflows/pages.yml 이 web/ 만 올림). 공개 — 비밀 정보 금지
                  staff.html, desk.html, guest.html, admin.html(hub 로 자동 이동하는 안내만 남음, 6단계에서 삭제), js/, css/
-                 hub/ (통합관리. 현재 홈·프로젝트·인력·근태·방문예약방명록·설정 → 최종 메뉴: 홈-프로젝트-인사관리-고객관리-계약관리-출납관리-용역관리-설정, 구성안 6장), s/ (3단계 설문 응답), contract/ (4단계 계약앱 온라인판)
+                 hub/ (통합관리. 메뉴 구성은 hub/js/menus.js 한 곳. 현재 홈-프로젝트-인사관리-고객관리-용역관리-설정, 최종 홈-프로젝트-인사관리-고객관리-계약관리-출납관리-용역관리-설정, 구성안 6장), s/ (3단계 설문 응답), contract/ (4단계 계약앱 온라인판)
 apps/contract/   분양계약관리 소스 (src/ → node build.js → 분양계약관리.html). 자체 CLAUDE.md 적용
                  gas/ 는 구 동기화 서버 — 4단계에서 통합 서버로 교체 후 legacy/ 로 이동
 apps/survey-gas/ 설문관리 Apps Script (구). 3단계에서 D1 로 이전 후 legacy/ 로 이동. 자체 CLAUDE.md 적용

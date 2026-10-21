@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
 const src = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
-const SCOPED = ['staff', 'orgs', 'qr_issues', 'attendance', 'reservations', 'visits', 'guestbook'];
+const SCOPED = ['staff', 'orgs', 'qr_issues', 'attendance', 'reservations', 'visits', 'guestbook', 'attendance_adjust', 'staff_pay', 'pay_runs', 'pay_items'];
 
 // [파일 조각, SQL 조각, 이유]
 const EXEMPT = [
@@ -23,6 +23,8 @@ const EXEMPT = [
   ['telegram/telegram.js', "FROM staff WHERE id = ?", '위 방문 기록의 담당 직원 확인'],
   ['telegram/telegram.js', "UPDATE visits SET acked_at", '위에서 본인 확인이 끝난 방문 기록만 바꾼다'],
   ['visit/visit.js', "SELECT id, name FROM staff WHERE id IN", '다른 현장으로 이동한 직원의 이름만 읽는다 (지난 예약·방문 기록의 담당자 표시용, 전화번호 등은 읽지 않음)'],
+  ['attendance/attendance.js', "SELECT id, name FROM staff WHERE id IN", '다른 현장으로 이동한 직원의 이름만 읽는다 (이 현장에서 일한 기록의 직원 표시용)'],
+  ['pay/runs.js', "SELECT id, name FROM staff WHERE id IN", '다른 현장으로 이동한 직원도 이 현장 정산 대상이라 이름만 읽는다'],
   ['core/leader.js', "${sc.where}", '조건 문자열 scopeOf() 가 project_id 를 항상 포함해 만든다 (팀장·본부장 시험으로 확인)'],
   ['visit/visit.js', "${conds.join(' AND ')}", '조건 배열 conds 의 첫 항목이 s.project_id = ? 이다 (데스크 직원 검색 시험으로 확인)']
 ];

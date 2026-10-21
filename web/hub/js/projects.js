@@ -79,5 +79,5 @@
       }]);
   }
 
-  Hub.register({ key: 'projects', label: '프로젝트', needsProject: false, render: render });
+  Hub.section('projects', { render: render });
 })();

@@ -823,6 +823,182 @@ try {
   check('지난 출근 기록은 이전 현장(P01)에 그대로', (await query(`SELECT COUNT(*) AS n FROM attendance WHERE staff_id = '${idA}' AND project_id = '${P1}'`))[0].n === attA && attA >= 1, String(attA));
   check('이동이 기록됨', (await query(`SELECT content FROM logs WHERE action = '직원현장이동' AND target = '${idA}'`)).length === 1);
   expectErr('이동 후 P01 화면에서는 그 직원을 건드릴 수 없음', await call('admin.resetPin', { staffId: idA }, subA, '', P1), '직원을 찾을 수 없습니다');
+  // ===== 2단계: 근태 보정 + 용역관리(일급 정산) =====
+  // 금액은 아래 주석의 수작업 계산과 대조한다 (일당 × 일수, 소득세 3%·지방소득세 0.3% 각각 원 단위 절사)
+  const codePP = 'pay' + uniq.slice(0, 4);
+  const pPP = await call('project.save', { name: '정산현장', code: codePP, status: '진행' }, admin, '', null);
+  expectOk('정산 시험용 현장 생성', pPP);
+  const PP = pPP.data.id;
+  const pmk = async (i, extra) => {
+    const p = person(40 + i);
+    expectOk('정산 시험 직원 가입 ' + i, await call('staff.signup', base(p, { projectCode: codePP, job: '상담사', ...extra }), '', p.dev));
+    const id = (await call('admin.staffList', {}, admin, '', PP)).data.staff.find((x) => x.phone === p.phone).id;
+    await call('admin.approve', { staffId: id }, admin, '', PP);
+    return { ...p, id };
+  };
+  const W1 = await pmk(1), W2 = await pmk(2), W3 = await pmk(3), W4 = await pmk(4), W5 = await pmk(5), W6 = await pmk(6), W7 = await pmk(7);
+  let tcount = 0;
+  const patt = (pid, w, days) => days.map((d) => `INSERT INTO attendance (id, project_id, date, staff_id, time, device_key, result, distance_m) VALUES ('TT${uniq.slice(0, 3)}${++tcount}', '${pid}', '2026-09-${String(d).padStart(2, '0')}', '${w.id}', '09:00:00', '${w.dev}', '성공', 10)`).join(';\n');
+  const prange = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
+  await sql([patt(PP, W1, prange(1, 20)), patt(PP, W2, prange(1, 7)), patt(PP, W3, [1, 2, 3]), patt(PP, W4, prange(7, 11)), patt(PP, W5, [1]), patt(PP, W6, [1]), patt(PP, W7, [1, 2, 3])].join(';\n'));
+
+  const setPay = (w, o) => call('pay.settingSave', { staffId: w.id, effectiveFrom: '2026-01-01', cycle: '월', dailyEnabled: true, feeEnabled: false, withhold: true, ...o }, admin, '', PP);
+  expectErr('일당은 0 이상 정수', await setPay(W1, { dailyWage: -5 }), '일당');
+  expectErr('일당은 정수', await setPay(W1, { dailyWage: 1000.5 }), '일당');
+  expectErr('일급 대상인데 일당 0 → 거부', await setPay(W1, { dailyWage: 0 }), '일당을 입력');
+  expectErr('지급 주기 검사', await setPay(W1, { dailyWage: 100000, cycle: '년' }), '주기');
+  expectErr('적용 시작일 형식 검사', await setPay(W1, { dailyWage: 100000, effectiveFrom: '2026/01/01' }), '적용 시작일');
+  expectOk('W1 일당 100,000 월', await setPay(W1, { dailyWage: 100000 }));
+  expectOk('W2 일당 85,000 월', await setPay(W2, { dailyWage: 85000 }));
+  expectOk('W3 일당 33,333 월', await setPay(W3, { dailyWage: 33333 }));
+  expectOk('W4 일당 150,000 주, 공제 없음', await setPay(W4, { dailyWage: 150000, cycle: '주', withhold: false }));
+  expectOk('W6 일급 대상 아님', await setPay(W6, { dailyWage: 0, dailyEnabled: false }));
+  expectOk('W7 일당 50,000 월', await setPay(W7, { dailyWage: 50000 }));
+  const psl = (await call('pay.settingList', {}, subA, '', P1)).data.staff;
+  check('지급 설정 목록은 그 현장 직원만 (P01 화면에 정산현장 직원 없음)', !psl.some((x) => x.id === W1.id));
+  const slPP = (await call('pay.settingList', {}, admin, '', PP)).data.staff;
+  const w1s = slPP.find((x) => x.id === W1.id);
+  check('지급 설정 목록: 현재 설정과 기본값(상담사는 수수료 대상 아님)', w1s.current.dailyWage === 100000 && w1s.current.cycle === '월' && w1s.defaults.feeEnabled === false && slPP.find((x) => x.id === W5.id).current === null);
+  expectOk('설정 이력: 같은 직원 다른 적용일', await setPay(W1, { dailyWage: 100000, effectiveFrom: '2099-01-01' }));
+  check('미래 적용 설정은 upcoming 으로 분리', (await call('pay.settingList', {}, admin, '', PP)).data.staff.find((x) => x.id === W1.id).upcoming.length === 1);
+  expectErr('다른 현장 직원 설정은 못 바꿈', await call('pay.settingSave', { staffId: W1.id, dailyWage: 1, cycle: '월' }, admin, '', P1), '직원을 찾을 수 없습니다');
+
+  // --- 근태 보정 ---
+  const padj = (w, date, kind, reason, pid = PP, tk = admin) => call('admin.adjustSave', { staffId: w.id, date, kind, reason }, tk, '', pid);
+  expectErr('보정 구분 검사', await padj(W1, '2026-09-05', '결근', ''), '보정 구분');
+  expectErr('오늘 이후 날짜는 보정 불가', await padj(W1, '2999-01-01', '인정', ''), '오늘 이후');
+  expectErr('다른 현장 직원은 보정 불가', await padj(W1, '2026-09-05', '인정', '', P1), '직원을 찾을 수 없습니다');
+  expectOk('W1 9/5 불인정 (출근 기록은 그대로, 인정 일수만 0)', await padj(W1, '2026-09-05', '불인정', '현장 이탈'));
+  expectOk('W1 9/10 반일', await padj(W1, '2026-09-10', '반일', '오후 조퇴'));
+  expectOk('W1 9/21 인정 (출근 기록 없음)', await padj(W1, '2026-09-21', '인정', '출근 QR 오류'));
+  expectOk('W2 9/4 반일', await padj(W2, '2026-09-04', '반일', ''));
+  expectOk('W3 9/2 반일', await padj(W3, '2026-09-02', '반일', ''));
+  expectOk('보정 임시 등록', await padj(W3, '2026-09-30', '인정', '임시'));
+  expectOk('보정 해제', await call('admin.adjustDelete', { staffId: W3.id, date: '2026-09-30' }, admin, '', PP));
+  const pmA = (await call('admin.attendance', { month: '2026-09' }, admin, '', PP)).data;
+  const mW1 = pmA.staff.find((x) => x.id === W1.id);
+  check('월별 근태: 보정 반영 인정 근무일수 19.5일, 보정 표시, 원본 출근일수 20일', mW1.workDays === 19.5 && mW1.adjusts[5].kind === '불인정' && mW1.adjusts[21].kind === '인정' && mW1.days.length === 20, JSON.stringify([mW1.workDays, mW1.days.length]));
+  const psa = await call('admin.adjustSave', { staffId: W1.id, date: '2026-09-05', kind: '인정' }, subA, '', PP);
+  expectErr('P01 보조관리자는 정산현장 근태 보정 불가', psa, '접근할 수 없습니다', 'FORBIDDEN');
+
+  // --- 현장 이동 직후에도 이전 현장 실적은 이전 현장 정산에 남는다 ---
+  expectOk('W7 을 B현장(P2)으로 이동', await call('admin.moveStaff', { staffId: W7.id, toProjectId: P2, job: '상담사' }, admin, '', PP));
+  await sql(patt(P2, W7, [20, 21]));
+  expectOk('W7 B현장 일당 70,000 월', await call('pay.settingSave', { staffId: W7.id, effectiveFrom: '2026-01-01', dailyWage: 70000, cycle: '월', dailyEnabled: true, withhold: true }, admin, '', P2));
+  const mAfter = (await call('admin.attendance', { month: '2026-09' }, admin, '', PP)).data.staff.find((x) => x.id === W7.id);
+  check('정산현장 월별 근태에 이동한 W7 이 이름 + (타 현장 이전)으로 남음 (3일)', mAfter && /타 현장 이전/.test(mAfter.name) && mAfter.workDays === 3);
+
+  // --- 정산 회차 만들기 ---
+  const pcreate = (o) => call('pay.runCreate', { cycle: '월', from: '2026-09-01', to: '2026-09-30', ...o }, admin, '', PP);
+  expectErr('월 정산은 같은 달 안에서', await pcreate({ to: '2026-10-05' }), '같은 달');
+  expectErr('주 정산은 7일 이내', await pcreate({ cycle: '주', from: '2026-09-01', to: '2026-09-08' }), '7일');
+  expectErr('시작일이 더 늦으면 거부', await pcreate({ from: '2026-09-30', to: '2026-09-01' }), '시작일');
+  expectErr('오늘 이후는 정산 불가', await pcreate({ from: '2999-01-01', to: '2999-01-31' }), '오늘 이후');
+  expectErr('주기 검사', await pcreate({ cycle: '일' }), '주기');
+  const prun1 = await pcreate({ title: '9월 월급여' });
+  expectOk('9월 월 정산 회차 작성', prun1);
+  // 수작업 계산: W1 1,950,000 (세금 58,500+5,850) / W2 552,500 (16,575+1,657) / W3 83,332 (2,499+249) / W7 150,000 (4,500+450)
+  check('회차 합계: 4명, 총액 2,735,832, 공제 90,280, 실지급 2,645,552', prun1.data.people === 4 && prun1.data.gross === 2735832 && prun1.data.tax === 90280 && prun1.data.net === 2645552, JSON.stringify(prun1.data));
+  const pwhy = Object.fromEntries(prun1.data.notIncluded.map((x) => [x.name, x.reason]));
+  check('제외된 사람과 이유: W4(주기 다름), W5(설정 없음), W6(일급 대상 아님)', /주기/.test(pwhy[W4.name]) && /설정/.test(pwhy[W5.name]) && /대상이 아닙니다/.test(pwhy[W6.name]), JSON.stringify(pwhy));
+  const pg1 = (await call('pay.runGet', { runId: prun1.data.id }, admin, '', PP)).data;
+  const pit = (id) => pg1.items.find((x) => x.staffId === id);
+  check('W1 명세: 19.5일, 1,950,000 / 소득세 58,500 / 지방세 5,850 / 실지급 1,885,650', pit(W1.id).days === 19.5 && pit(W1.id).gross === 1950000 && pit(W1.id).incomeTax === 58500 && pit(W1.id).localTax === 5850 && pit(W1.id).net === 1885650);
+  check('W2 명세: 6.5일, 552,500 / 16,575 / 1,657(절사) / 534,268', pit(W2.id).days === 6.5 && pit(W2.id).gross === 552500 && pit(W2.id).incomeTax === 16575 && pit(W2.id).localTax === 1657 && pit(W2.id).net === 534268);
+  check('W3 명세: 일당 33,333 반일 16,666(절사) → 83,332 / 2,499 / 249 / 80,584', pit(W3.id).gross === 83332 && pit(W3.id).incomeTax === 2499 && pit(W3.id).localTax === 249 && pit(W3.id).net === 80584);
+  check('이동한 W7 도 이전 현장(정산현장) 정산에 3일 150,000 으로 포함', pit(W7.id).days === 3 && pit(W7.id).gross === 150000);
+  check('명세에 날짜별 내역(불인정·반일·인정 표시)', pit(W1.id).detail.some((d) => d.date === '2026-09-05' && d.units === 0 && /불인정/.test(d.note)) && pit(W1.id).detail.some((d) => d.date === '2026-09-21' && d.units === 2 && /인정/.test(d.note)));
+  expectErr('같은 기간 회차를 또 만들면 이미 포함된 사람은 제외되어 대상 없음', await pcreate({}), '대상이 없습니다');
+  const prun2 = await pcreate({ cycle: '주', from: '2026-09-07', to: '2026-09-13', title: '9월 2주차' });
+  expectOk('주 정산 회차 (W4 만 대상)', prun2);
+  check('주 회차: W4 5일 × 150,000 = 750,000, 공제 없음', prun2.data.people === 1 && prun2.data.gross === 750000 && prun2.data.tax === 0 && prun2.data.net === 750000, JSON.stringify(prun2.data));
+  const plist0 = (await call('pay.runList', {}, admin, '', PP)).data.runs;
+  check('회차 목록', plist0.length === 2 && plist0.every((r) => r.status === '작성'));
+  check('다른 현장(P01)에서는 회차 목록이 비어 있음', (await call('pay.runList', {}, admin, '', P1)).data.runs.length === 0);
+  expectErr('다른 현장에서 회차 열기 → 찾을 수 없음', await call('pay.runGet', { runId: prun1.data.id }, admin, '', P1), '찾을 수 없습니다');
+  expectErr('다른 현장 보조관리자가 회차 열기 → 접근 거부', await call('pay.runGet', { runId: prun1.data.id }, subA, '', PP), '접근할 수 없습니다', 'FORBIDDEN');
+  for (const [label, action, data] of [['확정', 'pay.runConfirm', {}], ['삭제', 'pay.runDelete', {}], ['재계산', 'pay.runRecalc', {}], ['검토', 'pay.runReview', {}]]) {
+    expectErr('다른 현장 화면에서 회차 ' + label + ' 불가', await call(action, { runId: prun1.data.id, ...data }, admin, '', P1), '찾을 수 없습니다');
+  }
+
+  // --- 조정 금액 ---
+  expectErr('조정 금액은 정수', await call('pay.itemSave', { runId: prun1.data.id, staffId: W2.id, adjustAmount: 100.5, adjustMemo: 'x' }, admin, '', PP), '정수');
+  expectErr('조정에는 사유 필수', await call('pay.itemSave', { runId: prun1.data.id, staffId: W2.id, adjustAmount: -2500, adjustMemo: '' }, admin, '', PP), '사유');
+  expectErr('조정 후 금액이 음수가 될 수 없음', await call('pay.itemSave', { runId: prun1.data.id, staffId: W2.id, adjustAmount: -9999999, adjustMemo: '과다' }, admin, '', PP), '0원보다');
+  expectOk('W2 조정 -2,500 (사유 입력)', await call('pay.itemSave', { runId: prun1.data.id, staffId: W2.id, adjustAmount: -2500, adjustMemo: '선지급 차감' }, admin, '', PP));
+  const pg1b = (await call('pay.runGet', { runId: prun1.data.id }, admin, '', PP)).data;
+  const pw2b = pg1b.items.find((x) => x.staffId === W2.id);
+  check('조정 후 W2: 550,000 / 16,500 / 1,650 / 531,850, 회차 합계 갱신', pw2b.gross === 550000 && pw2b.incomeTax === 16500 && pw2b.localTax === 1650 && pw2b.net === 531850 && pg1b.totals.gross === 2733332 && pg1b.totals.tax === 90198 && pg1b.totals.net === 2643134, JSON.stringify(pg1b.totals));
+
+  // --- 검토 → 확정 ---
+  const subPPpw = 'Pw' + sfx + 'x1';
+  expectOk('정산현장 보조관리자(확정 권한 없음)', await call('admin.saveAccount', acctBase('sppa' + sfx, '보조관리자', [PP]), admin, '', null));
+  expectOk('정산현장 보조관리자(확정·급여 원문 허용)', await call('admin.saveAccount', acctBase('sppb' + sfx, '보조관리자', [PP], { allowPayConfirm: true, allowPayroll: true }), admin, '', null));
+  const spA = (await loginAs('sppa' + sfx)).data.token, spB = (await loginAs('sppb' + sfx)).data.token;
+  expectErr('작성 상태에서는 확정 불가', await call('pay.runConfirm', { runId: prun1.data.id }, admin, '', PP), '검토 상태');
+  expectOk('보조관리자도 검토 요청 가능', await call('pay.runReview', { runId: prun1.data.id }, spA, '', PP));
+  expectErr('권한 없는 보조관리자는 확정 불가', await call('pay.runConfirm', { runId: prun1.data.id }, spA, '', PP), '확정 권한', 'FORBIDDEN');
+  expectOk('조정하면 검토가 풀리고 다시 작성 상태로', await call('pay.itemSave', { runId: prun1.data.id, staffId: W2.id, adjustAmount: -2500, adjustMemo: '선지급 차감' }, admin, '', PP));
+  check('작성 상태로 돌아감', (await call('pay.runGet', { runId: prun1.data.id }, admin, '', PP)).data.run.status === '작성');
+  expectOk('다시 검토', await call('pay.runReview', { runId: prun1.data.id }, admin, '', PP));
+  expectOk('관리자 확정', await call('pay.runConfirm', { runId: prun1.data.id }, admin, '', PP));
+  const pcfg = (await call('pay.runGet', { runId: prun1.data.id }, admin, '', PP)).data;
+  check('확정 상태 + 확정자 기록', pcfg.run.status === '확정' && pcfg.run.confirmedBy === 'admin' && pcfg.run.confirmedAt !== '');
+  expectErr('확정된 회차는 조정 불가', await call('pay.itemSave', { runId: prun1.data.id, staffId: W1.id, adjustAmount: 1000, adjustMemo: 'x' }, admin, '', PP), '확정');
+  expectErr('확정된 회차는 재계산 불가', await call('pay.runRecalc', { runId: prun1.data.id }, admin, '', PP), '확정');
+  expectErr('확정된 회차는 삭제 불가', await call('pay.runDelete', { runId: prun1.data.id }, admin, '', PP), '확정');
+  expectErr('확정된 기간의 근태 보정은 불가 (다음 회차의 조정으로)', await padj(W1, '2026-09-06', '불인정', 'x'), '확정된 정산');
+  expectErr('확정된 기간의 근태 보정 해제도 불가', await call('admin.adjustDelete', { staffId: W1.id, date: '2026-09-05' }, admin, '', PP), '확정된 정산');
+  check('확정 뒤 근태 보정이 막혀도 정산 금액은 그대로', (await call('pay.runGet', { runId: prun1.data.id }, admin, '', PP)).data.totals.net === 2643134);
+
+  // --- 주 회차: 검토 후 근태가 바뀌면 확정 거부 → 재계산 ---
+  expectOk('주 회차 검토', await call('pay.runReview', { runId: prun2.data.id }, admin, '', PP));
+  expectOk('검토 후 W4 9/12 인정으로 근태 보정', await padj(W4, '2026-09-12', '인정', '현장 지원'));
+  expectErr('검토 이후 근태가 바뀌면 확정 거부', await call('pay.runConfirm', { runId: prun2.data.id }, admin, '', PP), '바뀌었습니다');
+  const prc = await call('pay.runRecalc', { runId: prun2.data.id }, admin, '', PP);
+  check('재계산: W4 6일 900,000', prc.ok && prc.data.gross === 900000 && prc.data.net === 900000, JSON.stringify(prc.data));
+  expectOk('다시 검토', await call('pay.runReview', { runId: prun2.data.id }, admin, '', PP));
+  expectOk('확정 권한을 받은 보조관리자가 확정', await call('pay.runConfirm', { runId: prun2.data.id }, spB, '', PP));
+  expectErr('확정 전에는 지급완료 불가 / 권한 없는 보조관리자 불가', await call('pay.runPaid', { runId: prun2.data.id }, spA, '', PP), '확정 권한', 'FORBIDDEN');
+  expectOk('지급완료 처리', await call('pay.runPaid', { runId: prun2.data.id }, spB, '', PP));
+  check('지급완료 상태', (await call('pay.runGet', { runId: prun2.data.id }, admin, '', PP)).data.run.status === '지급완료');
+  expectErr('지급완료 후에는 삭제 불가', await call('pay.runDelete', { runId: prun2.data.id }, admin, '', PP), '지급완료');
+
+  // --- 이체 파일 ---
+  const punconf = await pcreate({ cycle: '주', from: '2026-09-14', to: '2026-09-20' });
+  check('대상 없는 기간은 회차를 만들지 않음', punconf.ok === false);
+  expectErr('권한 없는 보조관리자는 이체 파일 불가', await call('pay.transferExport', { runId: prun1.data.id }, spA, '', PP), '이체 파일', 'FORBIDDEN');
+  const ptr = await call('pay.transferExport', { runId: prun1.data.id }, admin, '', PP);
+  expectOk('관리자 이체 파일 데이터', ptr);
+  const trw1 = ptr.data.rows.find((x) => x.name === W1.name);
+  check('이체 데이터: 은행·계좌 원문·예금주·실지급액', trw1 && trw1.bank === '국민' && trw1.accountNo === '000-000-000000' && trw1.holder === W1.name && trw1.amount === 1885650 && ptr.data.rows.length === 4, JSON.stringify(trw1));
+  expectOk('급여 원문 허용 보조관리자도 가능', await call('pay.transferExport', { runId: prun1.data.id }, spB, '', PP));
+  const trLogs = await query(`SELECT user FROM logs WHERE action = '이체파일' AND project_id = '${PP}'`);
+  check('이체 파일 생성이 기록됨 (2건)', trLogs.length === 2, JSON.stringify(trLogs));
+  const prun3 = await call('pay.runCreate', { cycle: '주', from: '2026-09-21', to: '2026-09-27' }, admin, '', PP);
+  check('(참고) 근태 없는 기간은 만들어지지 않음', prun3.ok === false);
+
+  // --- 이전 현장 / 현재 현장 정산이 각각 맞게 ---
+  const runP2 = await call('pay.runCreate', { cycle: '월', from: '2026-09-01', to: '2026-09-30', title: 'B현장 9월' }, admin, '', P2);
+  expectOk('B현장 9월 정산 (이동 후 근무)', runP2);
+  check('B현장 회차: W7 2일 × 70,000 = 140,000 / 4,200 / 420 / 135,380 (정산현장 근무분은 섞이지 않음)', runP2.data.people === 1 && runP2.data.gross === 140000 && runP2.data.tax === 4620 && runP2.data.net === 135380, JSON.stringify(runP2.data));
+  expectOk('B현장 회차 검토', await call('pay.runReview', { runId: runP2.data.id }, admin, '', P2));
+  expectOk('B현장 회차 확정', await call('pay.runConfirm', { runId: runP2.data.id }, admin, '', P2));
+
+  // --- 직원앱 내 지급내역 ---
+  const lw7 = await call('staff.login', { phone: W7.phone, pin: W7.pin }, '', W7.dev, null);
+  expectOk('W7 로그인 (B현장 소속)', lw7);
+  const pmy = await call('staff.myPay', {}, lw7.data.token, W7.dev, null);
+  check('내 지급내역: 이전 현장(정산현장) 150,000 + 현재 현장(B현장) 140,000 두 건', pmy.ok && pmy.data.pays.length === 2 && pmy.data.pays.some((p) => p.project === '정산현장' && p.gross === 150000 && p.net === 145050 && p.days === 3) && pmy.data.pays.some((p) => p.project === 'B현장' && p.net === 135380 && p.days === 2), JSON.stringify(pmy.data && pmy.data.pays.map((p) => [p.project, p.gross])));
+  check('내 지급내역 응답에 주민번호·계좌·다른 직원 정보 없음', !/rrn|account|주민|000101|국민/.test(JSON.stringify(pmy)) && !JSON.stringify(pmy).includes(W1.name));
+  const lw1 = await call('staff.login', { phone: W1.phone, pin: W1.pin }, '', W1.dev, null);
+  const pmy1 = (await call('staff.myPay', {}, lw1.data.token, W1.dev, null)).data.pays;
+  check('다른 직원 W1 의 내역은 자기 것만 (1건 1,950,000 - 공제 후 1,885,650)', pmy1.length === 1 && pmy1[0].net === 1885650 && pmy1[0].detail.length === 21);
+  const lw3 = await call('staff.login', { phone: W3.phone, pin: W3.pin }, '', W3.dev, null);
+  check('확정되지 않은 회차는 직원에게 보이지 않음', (await call('pay.runCreate', { cycle: '월', from: '2026-08-01', to: '2026-08-31' }, admin, '', PP)).ok === false && (await call('staff.myPay', {}, lw3.data.token, W3.dev, null)).data.pays.length === 1);
+  expectErr('관리자 아닌 직원은 정산 기능 불가', await call('pay.runList', {}, lw3.data.token, W3.dev, null), '권한');
+  expectErr('데스크는 정산 기능 불가', await call('pay.runList', {}, deskA, '', null), '권한');
+  check('정산 확정·지급완료·조정이 기록됨', (await query(`SELECT action FROM logs WHERE project_id = '${PP}' AND action IN ('정산확정', '지급완료', '정산조정', '근태보정', '지급설정')`)).length >= 8);
 } catch (e) {
   failed++;
   console.log('[실패] 테스트 중 예외: ' + (e && e.stack ? e.stack : e));

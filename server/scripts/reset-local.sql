@@ -16,3 +16,7 @@ DROP TABLE IF EXISTS logs;
 DROP TABLE IF EXISTS tg_updates;
 DROP TABLE IF EXISTS guestbook;
 DROP TABLE IF EXISTS password_resets;
+DROP TABLE IF EXISTS attendance_adjust;
+DROP TABLE IF EXISTS staff_pay;
+DROP TABLE IF EXISTS pay_runs;
+DROP TABLE IF EXISTS pay_items;

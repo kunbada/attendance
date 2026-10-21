@@ -352,8 +352,7 @@
     else box.appendChild(signupLinkCard());
   }
 
-  Hub.register({
-    key: 'people', label: '인력',
+  Hub.section('people', {
     render: async function (root) {
       root.innerHTML = '';
       box = h('div');

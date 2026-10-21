@@ -13,6 +13,9 @@ import { adminAccounts, adminSaveAccount } from './core/accounts.js';
 import { projectList, projectSave, adminSettings, adminSaveSettings } from './core/projects.js';
 import { leaderStaffList, leaderApprove, leaderReject, leaderRetire } from './core/leader.js';
 import { adminCurrentQr, adminIssueQr, attendanceCheckin, adminAttendance } from './attendance/attendance.js';
+import { adminAdjustSave, adminAdjustDelete } from './attendance/adjust.js';
+import { paySettingList, paySettingSave } from './pay/staffpay.js';
+import { payRunList, payRunCreate, payRunGet, payRunRecalc, payRunReview, payRunConfirm, payRunPaid, payRunDelete, payItemSave, payTransferExport, staffMyPay } from './pay/runs.js';
 import { reservationCreate, reservationList, reservationUpdate, reservationCancel } from './visit/reservation.js';
 import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit/visit.js';
 import { staffTelegramLink, handleTelegram } from './telegram/telegram.js';
@@ -33,6 +36,7 @@ const ACTIONS = {
   'staff.requestDeviceChange': { roles: ['public'], fn: staffRequestDeviceChange },
   'staff.me': { roles: ['staff'], fn: staffMe },
   'staff.telegramLink': { roles: ['staff'], fn: staffTelegramLink },
+  'staff.myPay': { roles: ['staff'], fn: staffMyPay },
   'reservation.create': { roles: ['staff'], fn: reservationCreate },
   'reservation.list': { roles: ['staff'], fn: reservationList },
   'reservation.update': { roles: ['staff'], fn: reservationUpdate },
@@ -84,6 +88,23 @@ const ACTIONS = {
   'admin.currentQr': { roles: MGR, fn: adminCurrentQr },
   'admin.issueQr': { roles: MGR, fn: adminIssueQr },
   'admin.attendance': { roles: MGR, fn: adminAttendance },
+  'admin.adjustSave': { roles: MGR, fn: adminAdjustSave },
+  'admin.adjustDelete': { roles: MGR, fn: adminAdjustDelete },
+
+  // 용역관리(일급 정산). 확정·지급완료·이체 파일의 세부 권한은 함수 안에서 확인한다 (관리자 또는 계정별 허용)
+  'pay.settingList': { roles: MGR, fn: paySettingList },
+  'pay.settingSave': { roles: MGR, fn: paySettingSave },
+  'pay.runList': { roles: MGR, fn: payRunList },
+  'pay.runCreate': { roles: MGR, fn: payRunCreate },
+  'pay.runGet': { roles: MGR, fn: payRunGet },
+  'pay.runRecalc': { roles: MGR, fn: payRunRecalc },
+  'pay.runReview': { roles: MGR, fn: payRunReview },
+  'pay.runConfirm': { roles: MGR, fn: payRunConfirm },
+  'pay.runPaid': { roles: MGR, fn: payRunPaid },
+  'pay.runDelete': { roles: MGR, fn: payRunDelete },
+  'pay.itemSave': { roles: MGR, fn: payItemSave },
+  'pay.transferExport': { roles: MGR, fn: payTransferExport },
+
   'admin.reservations': { roles: MGR, fn: adminReservations },
   'admin.visits': { roles: MGR, fn: adminVisits },
   'admin.dashboard': { roles: MGR, fn: adminDashboard },

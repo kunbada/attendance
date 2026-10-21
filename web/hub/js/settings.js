@@ -126,5 +126,5 @@
       }]);
   }
 
-  Hub.register({ key: 'settings', label: '설정', adminOnly: true, needsProject: false, render: render });
+  Hub.section('settings', { render: render });
 })();
