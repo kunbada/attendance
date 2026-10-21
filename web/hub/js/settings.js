@@ -58,6 +58,8 @@
       var perms = [];
       if (a.allowPayroll) perms.push('급여 원문 보기');
       if (a.allowPayConfirm) perms.push('지급 확정');
+      if (a.allowSurvey && a.role === '보조관리자') perms.push('설문 앱');
+      if (a.allowVisit && a.role === '보조관리자') perms.push('예약·호출 앱');
       return h('tr', null, h('td', null, a.loginId), h('td', null, a.name), h('td', null, a.role), h('td', null, scope),
         h('td', { class: 'muted' }, perms.join(', ') || (a.role === '관리자' ? (a.email || '이메일 없음') : '')), h('td', null, badges), h('td', null, editBtn));
     }));
@@ -99,9 +101,13 @@
 
     var allowPayroll = h('input', { type: 'checkbox', checked: !!(a && a.allowPayroll) });
     var allowConfirm = h('input', { type: 'checkbox', checked: !!(a && a.allowPayConfirm) });
+    var allowSurvey = h('input', { type: 'checkbox', checked: !!(a && a.allowSurvey) });
+    var allowVisit = h('input', { type: 'checkbox', checked: !!(a && a.allowVisit) });
     var permBox = h('div', null,
       h('label', { class: 'check' }, allowPayroll, ' 급여정보(주민번호·계좌) 원문 보기 허용 — 열람할 때마다 기록됩니다'),
-      h('label', { class: 'check' }, allowConfirm, ' 지급 확정 허용 (지급 기능 단계에서 사용)'));
+      h('label', { class: 'check' }, allowConfirm, ' 지급 확정 허용 (지급 기능 단계에서 사용)'),
+      h('label', { class: 'check' }, allowSurvey, ' 설문 관리 앱 허용 — 설문 만들기·링크·결과 다운로드'),
+      h('label', { class: 'check' }, allowVisit, ' 예약·호출 조회 앱 허용 — 예약·호출·방명록 조회'));
 
     function sync() {
       emailField.classList.toggle('hidden', role.value !== '관리자');
@@ -119,7 +125,8 @@
           if (NEEDS_PROJECT.indexOf(role.value) >= 0 && !ids.length) throw new Error('담당 현장을 1개 이상 선택해 주세요.');
           await Api.call('admin.saveAccount', {
             id: a ? a.id : '', loginId: loginId.value, name: name.value, role: role.value, password: pw.value, active: active.value === 'Y', email: email.value,
-            projectIds: role.value === '관리자' ? [] : ids, allowPayroll: allowPayroll.checked, allowPayConfirm: allowConfirm.checked
+            projectIds: role.value === '관리자' ? [] : ids, allowPayroll: allowPayroll.checked, allowPayConfirm: allowConfirm.checked,
+            allowSurvey: allowSurvey.checked, allowVisit: allowVisit.checked
           });
           close(); await render(root); toast('저장했습니다.');
         }

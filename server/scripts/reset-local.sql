@@ -1,4 +1,5 @@
 -- 로컬 개발 DB(--local)를 비운다. 테스트를 처음부터 다시 돌릴 때만 사용한다. 운영 DB 에는 절대 실행하지 말 것.
+DROP TABLE IF EXISTS customer_grades;
 DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS settings;
 DROP TABLE IF EXISTS project_settings;

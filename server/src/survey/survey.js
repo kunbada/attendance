@@ -466,3 +466,36 @@ export async function surveyMyLinks(env, data, ctx) {
   }
   return { links: out };
 }
+
+// 설문 응답 고객 목록(고객관리 > 설문고객): 필수 항목만. 세부 문항은 설문 앱의 내보내기나 데이터통합관리에서 본다.
+// 개인정보에 동의한 응답만 이름·전화번호(마스킹)가 나온다.
+export async function surveyRespondents(env, data, ctx) {
+  const pid = ctx.projectId;
+  const q = s(data.q).trim().toLowerCase();
+  const surveyId = s(data.surveyId);
+  const rows = await all(env,
+    `SELECT r.id, r.submitted_at, r.survey_id, r.consent_pi, r.consent_mkt, r.person_id, r.team_id, r.head_id, r.link_code, sv.title,
+            p.name, p.phone_enc,
+            (SELECT a.value_text FROM response_answers a WHERE a.response_id = r.id AND a.q_key = 'STD_INTENT' LIMIT 1) AS intent,
+            (SELECT a.value_text FROM response_answers a WHERE a.response_id = r.id AND a.q_key = 'STD_AGE' LIMIT 1) AS age
+     FROM responses r JOIN surveys sv ON sv.id = r.survey_id AND sv.project_id = r.project_id
+     LEFT JOIN response_pii p ON p.response_id = r.id AND p.project_id = r.project_id
+     WHERE r.project_id = ?${surveyId ? ' AND r.survey_id = ?' : ''} ORDER BY r.submitted_at DESC LIMIT 1000`,
+    ...(surveyId ? [pid, surveyId] : [pid]));
+  const names = await orgNameMap(env, pid);
+  const staff = {};
+  (await all(env, 'SELECT id, name FROM staff WHERE project_id = ?', pid)).forEach((r) => { staff[r.id] = r.name; });
+  const mask = (d) => (d && d.length >= 7 ? d.slice(0, 3) + '-****-' + d.slice(-4) : '');
+  const out = [];
+  for (const r of rows) {
+    const phone = r.phone_enc ? mask(await decryptText(env, r.phone_enc)) : '';
+    const row = {
+      at: r.submitted_at, survey: r.title, name: r.name || '', phone, intent: r.intent || '', age: r.age || '',
+      consentPi: !!r.consent_pi, consentMkt: !!r.consent_mkt, person: staff[r.person_id] || '', team: [names[r.head_id], names[r.team_id]].filter(Boolean).join(' ')
+    };
+    if (q && !(row.name.toLowerCase().includes(q) || row.person.toLowerCase().includes(q))) continue;
+    out.push(row);
+  }
+  const total = await first(env, `SELECT COUNT(*) AS n FROM responses WHERE project_id = ?${surveyId ? ' AND survey_id = ?' : ''}`, ...(surveyId ? [pid, surveyId] : [pid]));
+  return { total: total.n, shown: out.length, rows: out };
+}

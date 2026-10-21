@@ -308,5 +308,5 @@
       h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '날짜별 응답'), simpleTable(['날짜', '응답'], st.byDate.map(function (d) { return h('tr', null, h('td', null, d.d), h('td', null, d.n)); })))));
   }
 
-  Hub.section('surveys', { render: render });
+  Hub.section('surveyapp', { render: render });
 })();

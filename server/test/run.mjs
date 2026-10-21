@@ -626,6 +626,7 @@ try {
   const meA = await call('account.me', {}, subA, '', null);
   check('내 정보(account.me): 역할과 담당 현장', meA.ok && meA.data.account.role === '보조관리자' && meA.data.projects.length === 1 && meA.data.projects[0].id === P1);
   check('보조관리자 A 로그인 응답에는 담당 현장(P01)만', lSubA.data.projects.length === 1 && lSubA.data.projects[0].id === P1, JSON.stringify(lSubA.data.projects));
+  expectErr('허용 전 보조관리자는 예약 현황(별도 앱) 사용 불가', await call('admin.reservations', { from: '2026-01-01', to: '2026-01-02' }, subB, '', P2), '권한');
   check('보조관리자는 급여 원문·지급 확정 권한 기본 불가', lSubA.data.account.allowPayroll === false && lSubA.data.account.allowPayConfirm === false);
   check('관리자 로그인 응답에는 전체 현장', (await call('account.login', { loginId: rAdmin2, password: rpw0 })).data.projects.length >= 2);
 
@@ -689,7 +690,7 @@ try {
   expectErr('보조관리자 B: 원문 보기 권한 없음', await call('admin.payrollReveal', { staffId: idS1 }, subB, '', P2), '권한', 'FORBIDDEN');
   const accB = (await call('admin.accounts', {}, admin, '', null)).data.accounts.find((a) => a.loginId === 'subb' + sfx);
   check('계정 목록에 담당 현장·권한 표시', accB.projectIds.length === 1 && accB.projectIds[0] === P2 && accB.allowPayroll === false);
-  expectOk('관리자가 보조관리자 B에게 급여 원문 보기 허용', await call('admin.saveAccount', { id: accB.id, loginId: accB.loginId, name: accB.name, role: '보조관리자', active: true, projectIds: [P2], allowPayroll: true }, admin, '', null));
+  expectOk('관리자가 보조관리자 B에게 급여 원문 보기 허용', await call('admin.saveAccount', { id: accB.id, loginId: accB.loginId, name: accB.name, role: '보조관리자', active: true, projectIds: [P2], allowPayroll: true, allowVisit: true }, admin, '', null));
   const revB = await call('admin.payrollReveal', { staffId: idS1 }, subB, '', P2);
   check('허용된 보조관리자는 원문 보기 가능', revB.ok && revB.data.rrn === '000101-3000000');
   expectErr('허용돼도 다른 현장 직원의 원문은 못 봄', await call('admin.payrollReveal', { staffId: idA }, subB, '', P2), '급여정보가 없습니다');
@@ -933,7 +934,7 @@ try {
   // --- 검토 → 확정 ---
   const subPPpw = 'Pw' + sfx + 'x1';
   expectOk('정산현장 보조관리자(확정 권한 없음)', await call('admin.saveAccount', acctBase('sppa' + sfx, '보조관리자', [PP]), admin, '', null));
-  expectOk('정산현장 보조관리자(확정·급여 원문 허용)', await call('admin.saveAccount', acctBase('sppb' + sfx, '보조관리자', [PP], { allowPayConfirm: true, allowPayroll: true }), admin, '', null));
+  expectOk('정산현장 보조관리자(확정·급여 원문 허용)', await call('admin.saveAccount', acctBase('sppb' + sfx, '보조관리자', [PP], { allowPayConfirm: true, allowPayroll: true, allowSurvey: true }), admin, '', null));
   const spA = (await loginAs('sppa' + sfx)).data.token, spB = (await loginAs('sppb' + sfx)).data.token;
   expectErr('작성 상태에서는 확정 불가', await call('pay.runConfirm', { runId: prun1.data.id }, admin, '', PP), '검토 상태');
   expectOk('보조관리자도 검토 요청 가능', await call('pay.runReview', { runId: prun1.data.id }, spA, '', PP));
@@ -1234,6 +1235,29 @@ try {
   expectErr('다른 현장 보조관리자는 고객 목록 불가', await call('customer.list', {}, subA, '', PP), '접근할 수 없습니다', 'FORBIDDEN');
   const s3_hashRows = await query(`SELECT COUNT(DISTINCT phone_hash) AS n FROM (SELECT phone_hash FROM responses WHERE project_id = '${PP}' AND phone_hash <> '' UNION ALL SELECT phone_hash FROM guestbook WHERE project_id = '${PP}' AND phone_hash <> '')`);
   check('설문과 방명록의 해시가 같은 값 (고객 2명 = 해시 2종류)', s3_hashRows[0].n === 2, JSON.stringify(s3_hashRows));
+
+  // --- 고객 등급 · 응답 고객 목록 · 별도 앱 허용 ---
+  const s3_gA = s3_cl.customers.find((c) => c.name === '설문고객일'), s3_gV = s3_cl.customers.find((c) => c.name === '방문만고객');
+  check('등급 자동 분류: 설문 의향 5 + 방문 → A(설문+방문), 방문만 → C(방문)', s3_gA.grade === 'A' && s3_gA.gradeSource === '설문+방문' && s3_gV.grade === 'C' && s3_gV.gradeSource === '방문', JSON.stringify([s3_gA, s3_gV]));
+  check('등급 분포가 퍼널에 포함', s3_cl.funnel.grades.A === 1 && s3_cl.funnel.grades.C === 1 && s3_cl.funnel.grades.D === 0, JSON.stringify(s3_cl.funnel.grades));
+  check('등급 필터', (await call('customer.list', { grade: 'C' }, admin, '', PP)).data.customers.length === 1);
+  expectErr('등급 값 검사', await call('customer.list', { grade: 'E' }, admin, '', PP), '등급');
+  expectErr('등급 지정은 A~D 만', await call('customer.gradeSave', { id: s3_gV.id, grade: 'E' }, admin, '', PP), 'A, B, C, D');
+  expectOk('TM 등 직접 입력: 방문만 고객을 B 로', await call('customer.gradeSave', { id: s3_gV.id, grade: 'B', memo: 'TM 재통화 관심' }, admin, '', PP));
+  const s3_gV2 = (await call('customer.list', {}, admin, '', PP)).data.customers.find((c) => c.name === '방문만고객');
+  check('직접 입력한 등급이 자동 분류보다 우선', s3_gV2.grade === 'B' && s3_gV2.gradeSource === '수동' && s3_gV2.memo === 'TM 재통화 관심');
+  expectErr('다른 현장 고객은 등급 지정 불가', await call('customer.gradeSave', { id: s3_gV.id, grade: 'A' }, admin, '', P2), '찾을 수 없습니다');
+  expectOk('수동 등급 해제 → 자동 분류로 복귀', await call('customer.gradeSave', { id: s3_gV.id, grade: '' }, admin, '', PP));
+  check('해제 후 방문만 고객은 다시 C', (await call('customer.list', {}, admin, '', PP)).data.customers.find((c) => c.name === '방문만고객').grade === 'C');
+  const s3_rs = (await call('survey.respondents', {}, admin, '', PP)).data;
+  check('설문 응답 고객 목록: 동의한 응답은 이름·마스킹 전화, 미동의는 이름 없음', s3_rs.rows.length >= 4 && s3_rs.rows.some((r) => r.name === '설문고객일' && r.phone.includes('****') && r.intent) && s3_rs.rows.filter((r) => !r.consentPi).every((r) => !r.name && !r.phone) && !JSON.stringify(s3_rs).includes(s3_sp1), JSON.stringify(s3_rs.rows[0]));
+  check('응답 고객 목록 검색', (await call('survey.respondents', { q: '설문고객' }, admin, '', PP)).data.rows.length >= 1);
+  expectErr('다른 현장 보조관리자는 응답 고객 목록 불가', await call('survey.respondents', {}, subA, '', PP), '접근할 수 없습니다', 'FORBIDDEN');
+  expectErr('허용 전 보조관리자는 설문 관리(별도 앱) 사용 불가', await call('survey.list', {}, spA, '', PP), '권한');
+  check('허용된 보조관리자는 설문 관리 가능', (await call('survey.list', {}, spB, '', PP)).ok);
+  expectOk('허용 없는 보조관리자도 응답 고객 목록·고객 통합은 가능(고객 데이터)', await call('survey.respondents', {}, spA, '', PP));
+  const s3_meSp = await call('account.me', {}, spB, '', null);
+  check('내 정보에 별도 앱 허용 표시', s3_meSp.ok && s3_meSp.data.account.allowSurvey === true && s3_meSp.data.account.allowVisit === false);
 
   // --- 보유기간 지난 개인정보 파기 ---
   expectErr('관리자만 개인정보 파기 가능', await call('survey.purgePii', { months: 6 }, subA, '', null), '권한', 'FORBIDDEN');

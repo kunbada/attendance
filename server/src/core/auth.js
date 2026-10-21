@@ -12,7 +12,8 @@ export const projectBrief = (p) => ({ id: p.id, code: p.code, name: p.name, stat
 
 const accountView = (a) => ({
   name: a.name, role: a.role, mustChangePassword: !!a.must_change_password,
-  allowPayroll: a.role === '관리자' || !!a.allow_payroll, allowPayConfirm: a.role === '관리자' || !!a.allow_pay_confirm
+  allowPayroll: a.role === '관리자' || !!a.allow_payroll, allowPayConfirm: a.role === '관리자' || !!a.allow_pay_confirm,
+  allowSurvey: a.role === '관리자' || !!a.allow_survey, allowVisit: a.role === '관리자' || !!a.allow_visit
 });
 
 export function checkPasswordPolicy(pw) {

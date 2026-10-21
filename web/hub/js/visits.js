@@ -70,7 +70,7 @@
   var guestRange = { from: '', to: '' };
   var guestChart = null;
 
-  async function renderGuestbook(root) {
+  async function renderGuestbook(root, listOnly) {
     var today = todayLocal();
     guestRange.to = guestRange.to || today;
     guestRange.from = guestRange.from || today.slice(0, 8) + '01';
@@ -81,21 +81,22 @@
     var box = h('div');
     go.addEventListener('click', function () {
       guestRange = { from: from.value, to: to.value };
-      runBusy(go, function () { return loadGuestbook(box); });
+      runBusy(go, function () { return loadGuestbook(box, listOnly); });
     });
     root.appendChild(h('div', { class: 'card' }, h('h2', null, '기간'), h('div', { class: 'toolbar' }, from, '~', to, go)));
     root.appendChild(box);
-    await loadGuestbook(box);
+    await loadGuestbook(box, listOnly);
   }
 
-  async function loadGuestbook(box) {
+  // listOnly: 통합관리의 방문고객 화면(고객 리스트만). 통계·그래프는 예약/호출 조회 앱의 방명록 탭에서 본다
+  async function loadGuestbook(box, listOnly) {
     var q = { from: guestRange.from, to: guestRange.to };
     var results = await Promise.all([Api.call('admin.guestStats', q), Api.call('admin.guestbook', q)]);
     var st = results[0], list = results[1].guests;
     var t = st.total;
     box.innerHTML = '';
 
-    box.appendChild(h('div', { class: 'summary' },
+    if (!listOnly) box.appendChild(h('div', { class: 'summary' },
       statCard('방문 팀', t.teams, '건수 기준'), statCard('방문객', t.people, '본인 + 동반인'),
       statCard('단독 / 동반 팀', t.solo + ' / ' + t.groupTeams),
       statCard('분양 (팀 / 방문객)', t.assignedTeams + ' / ' + t.assignedPeople), statCard('워킹 (팀 / 방문객)', t.walkInTeams + ' / ' + t.walkInPeople),
@@ -104,8 +105,8 @@
 
     if (guestChart) { guestChart.destroy(); guestChart = null; }
     var canvas = h('canvas', { height: 90 });
-    box.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '일별 방문 팀·방문객'), h('div', { style: 'position:relative' }, canvas)));
-    if (window.Chart && st.byDay.length) {
+    if (!listOnly) box.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '일별 방문 팀·방문객'), h('div', { style: 'position:relative' }, canvas)));
+    if (!listOnly && window.Chart && st.byDay.length) {
       guestChart = new Chart(canvas, {
         type: 'bar',
         data: {
@@ -128,7 +129,7 @@
       rows.push(['합계', st.from + ' ~ ' + st.to, '', t.teams, t.people, t.walkInTeams]);
       downloadCsv('방명록통계_' + st.from + '_' + st.to + '.csv', rows);
     });
-    box.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '담당 본부/팀별 (분양)  ', statCsv),
+    if (!listOnly) box.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '담당 본부/팀별 (분양)  ', statCsv),
       simpleTable(['본부', '팀', '방문 팀', '방문객'], st.byOrg.map(function (x) {
         return h('tr', null, h('td', null, x.head), h('td', null, x.team), h('td', null, x.teams), h('td', null, x.people));
       }))));
@@ -150,8 +151,9 @@
       }))));
   }
 
+  // 예약/호출 조회 앱(별도 창): 예약·호출 현황 + 방명록(통계 포함)
   var view = 'visits';
-  Hub.section('visits', {
+  Hub.section('visitlog', {
     render: async function (root) {
       root.innerHTML = '';
       var box = h('div');
@@ -171,5 +173,23 @@
     }
   });
 
-  function show(box) { return view === 'visits' ? renderVisits(box) : renderGuestbook(box); }
+  function show(box) { return view === 'visits' ? renderVisits(box) : renderGuestbook(box, false); }
+
+  // 통합관리 > 고객관리 > 방문고객: 방명록 고객 리스트. 예약·호출 조회는 별도 창으로 연다
+  Hub.section('visits', {
+    render: async function (root) {
+      root.innerHTML = '';
+      var open = h('button', { type: 'button', class: 'btn small primary' }, '예약·호출 현황 (새 창)');
+      var me = Hub.state.me || {};
+      open.addEventListener('click', function () {
+        if (!me.allowVisit) { toast('이 계정에는 예약·호출 조회 권한이 없습니다. 관리자에게 허용을 요청해 주세요.', true); return; }
+        window.open('?app=visit', '_blank');
+      });
+      root.appendChild(h('div', { class: 'toolbar' }, h('strong', null, '방문 고객 (방명록)'), open,
+        h('span', { class: 'muted' }, '예약·호출·방문 통계는 별도 앱에서 봅니다. 새 창으로 열리며 같은 로그인으로 들어갑니다.')));
+      var box = h('div');
+      root.appendChild(box);
+      await renderGuestbook(box, true);
+    }
+  });
 })();

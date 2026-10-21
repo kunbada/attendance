@@ -3,9 +3,16 @@
 .topbar .project-pick { display: flex; align-items: center; gap: 6px; font-size: 14px; }
 .topbar .project-pick select { width: auto; max-width: 220px; height: 34px; padding: 0 8px; }
 .topbar .who { font-size: 14px; opacity: .9; }
+/* 메인 메뉴: 파란 헤드라인 */
+.mainnav { background: #1d4ed8; padding: 0 16px; }
+.mainnav .tabs { border: 0; margin: 0 auto; max-width: 1068px; gap: 2px; }
+.mainnav .tab { color: rgba(255,255,255,.8); padding: 12px 20px; font-size: 16px; border-bottom: 3px solid transparent; }
+.mainnav .tab:hover { color: #fff; background: rgba(255,255,255,.1); }
+.mainnav .tab.active { color: #fff; background: rgba(255,255,255,.18); border-bottom-color: #fff; }
+/* 서브메뉴: 헤드라인 바로 아래, 모두 같은 크기 (선택된 것만 색이 바뀜) */
 .sub-tabs { display: flex; gap: 6px; margin: 0 0 14px; flex-wrap: wrap; }
-.sub-tabs .btn { width: auto; min-height: 36px; padding: 0 14px; }
-.sub-tabs .btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.sub-tabs .btn, .sub-tabs .btn + .btn { width: auto; flex: 0 0 auto; min-height: 38px; margin: 0; padding: 0 16px; font-size: 15px; font-weight: 600; }
+.sub-tabs .btn.active { background: #e0e9ff; color: var(--primary); border-color: var(--primary); }
 .project-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .project-card .meta { color: var(--muted); font-size: 14px; }
 .check { display: flex; align-items: center; gap: 8px; margin: 8px 0; }

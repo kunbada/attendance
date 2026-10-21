@@ -4,12 +4,20 @@ var Hub = (function () {
   Api.setScope('admin');
   var state = { staff: [], orgs: [], settings: {}, accounts: [], projects: [], me: null };
   var menus = [];
+  // 별도 앱: ?app=survey(설문 관리), ?app=visit(예약·호출 조회). 같은 화면 파일을 쓰되 해당 메뉴만 보인다.
+  var APP = new URLSearchParams(location.search).get('app') || '';
+  var APP_TITLE = { survey: '설문 관리', visit: '예약·호출 조회' };
+  var APP_FLAG = { survey: 'allowSurvey', visit: 'allowVisit' };
+  if (APP && !APP_TITLE[APP]) APP = '';
+  var APP_NAME = APP ? APP_TITLE[APP] : '통합관리';
+  if (APP) document.title = '위뉴 ' + APP_NAME;
   var active = '';
 
   function show(name) {
     $$('main > .screen, main.screen').forEach(function (s) { s.classList.add('hidden'); });
     $('#screen-' + name).classList.remove('hidden');
     $('#top-right').classList.toggle('hidden', name !== 'app');
+    $('#mainnav').classList.toggle('hidden', name !== 'app' || visibleMenus().length < 2);
   }
 
   // ---------- 공용 도우미 ----------
@@ -142,7 +150,7 @@ var Hub = (function () {
     if (!state.projects.length) sel.appendChild(option('', '(현장 없음)'));
     state.projects.forEach(function (p) { sel.appendChild(option(p.id, p.name + (p.status === '종료' ? ' (종료)' : ''), p.id === Api.getProject())); });
     var cur = currentProject();
-    $('#siteName').textContent = cur ? cur.name + ' · 통합관리' : '위뉴 통합관리';
+    $('#siteName').textContent = cur ? cur.name + ' · ' + APP_NAME : '위뉴 ' + APP_NAME;
   }
 
   $('#project-select').addEventListener('change', function () {
@@ -225,6 +233,7 @@ var Hub = (function () {
     var me = await Api.call('account.me');
     if (me.account.role !== '관리자' && me.account.role !== '보조관리자') throw new Error('통합관리 화면을 쓸 수 없는 계정입니다.');
     state.me = me.account;
+    if (APP && !me.account[APP_FLAG[APP]]) throw new Error('이 계정에는 ' + APP_NAME + ' 권한이 없습니다. 관리자에게 허용을 요청해 주세요.');
     $('#who').textContent = me.account.name + ' (' + me.account.role + ')';
     await reloadProjects();
     // 이전에 보던 현장이 아직 접근 가능하면 그대로, 아니면 첫 현장
@@ -234,7 +243,7 @@ var Hub = (function () {
     renderProjectSelect();
     buildMenu();
     show('app');
-    await open(Api.getProject() || !isAdmin() ? visibleMenus()[0].key : 'projects');
+    await open(APP || Api.getProject() || !isAdmin() ? visibleMenus()[0].key : 'projects');
   }
 
   async function boot() {
@@ -250,7 +259,7 @@ var Hub = (function () {
   }
 
   return {
-    state: state, show: show, register: register, section: section, group: group, sections: sections, open: open, refresh: refresh, boot: boot,
+    state: state, app: APP, show: show, register: register, section: section, group: group, sections: sections, open: open, refresh: refresh, boot: boot,
     DATE_STYLE: DATE_STYLE, todayLocal: todayLocal, downloadCsv: downloadCsv, simpleTable: simpleTable,
     nameCell: nameCell, orgCell: orgCell, statCard: statCard,
     isAdmin: isAdmin, currentProject: currentProject, orgsOf: orgsOf,

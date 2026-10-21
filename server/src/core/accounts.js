@@ -12,7 +12,7 @@ export async function adminAccounts(env) {
     accounts: rows.map((a) => ({
       id: a.id, loginId: a.login_id, name: a.name, role: a.role, active: !!a.active,
       locked: a.fail_count >= MAX_FAILS, mustChange: !!a.must_change_password, email: a.email,
-      projectIds: links[a.id] || [], allowPayroll: !!a.allow_payroll, allowPayConfirm: !!a.allow_pay_confirm
+      projectIds: links[a.id] || [], allowPayroll: !!a.allow_payroll, allowPayConfirm: !!a.allow_pay_confirm, allowSurvey: !!a.allow_survey, allowVisit: !!a.allow_visit
     }))
   };
 }
@@ -45,6 +45,9 @@ export async function adminSaveAccount(env, data, ctx) {
   // 급여정보 원문 보기·지급 확정은 보조관리자에게만 계정별로 허용할 수 있다 (관리자는 항상 가능)
   const allowPayroll = role === '보조관리자' && data.allowPayroll === true ? 1 : 0;
   const allowPayConfirm = role === '보조관리자' && data.allowPayConfirm === true ? 1 : 0;
+  // 별도 앱(설문 관리, 예약·호출 조회)도 보조관리자에게만 계정별로 허용한다
+  const allowSurvey = role === '보조관리자' && data.allowSurvey === true ? 1 : 0;
+  const allowVisit = role === '보조관리자' && data.allowVisit === true ? 1 : 0;
 
   let id = s(data.id);
   const current = id ? await first(env, 'SELECT * FROM accounts WHERE id = ?', id) : null;
@@ -62,16 +65,16 @@ export async function adminSaveAccount(env, data, ctx) {
   const writes = [];
   if (current) {
     if (password) {
-      writes.push(stmt(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ?, email = ?, allow_payroll = ?, allow_pay_confirm = ?, password_hash = ?, must_change_password = ?, fail_count = 0 WHERE id = ?',
-        loginId, name, role, active, email, allowPayroll, allowPayConfirm, await hashSecret(env, password), mustChange, id));
+      writes.push(stmt(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ?, email = ?, allow_payroll = ?, allow_pay_confirm = ?, allow_survey = ?, allow_visit = ?, password_hash = ?, must_change_password = ?, fail_count = 0 WHERE id = ?',
+        loginId, name, role, active, email, allowPayroll, allowPayConfirm, allowSurvey, allowVisit, await hashSecret(env, password), mustChange, id));
     } else {
-      writes.push(stmt(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ?, email = ?, allow_payroll = ?, allow_pay_confirm = ? WHERE id = ?',
-        loginId, name, role, active, email, allowPayroll, allowPayConfirm, id));
+      writes.push(stmt(env, 'UPDATE accounts SET login_id = ?, name = ?, role = ?, active = ?, email = ?, allow_payroll = ?, allow_pay_confirm = ?, allow_survey = ?, allow_visit = ? WHERE id = ?',
+        loginId, name, role, active, email, allowPayroll, allowPayConfirm, allowSurvey, allowVisit, id));
     }
   } else {
     id = newId('A');
-    writes.push(stmt(env, 'INSERT INTO accounts (id, login_id, password_hash, role, name, active, must_change_password, email, allow_payroll, allow_pay_confirm) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      id, loginId, await hashSecret(env, password), role, name, active, mustChange, email, allowPayroll, allowPayConfirm));
+    writes.push(stmt(env, 'INSERT INTO accounts (id, login_id, password_hash, role, name, active, must_change_password, email, allow_payroll, allow_pay_confirm, allow_survey, allow_visit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      id, loginId, await hashSecret(env, password), role, name, active, mustChange, email, allowPayroll, allowPayConfirm, allowSurvey, allowVisit));
   }
   // 계정과 담당 현장은 함께 저장되거나 함께 취소된다
   writes.push(stmt(env, 'DELETE FROM account_projects WHERE account_id = ?', id));

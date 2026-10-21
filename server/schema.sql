@@ -100,7 +100,9 @@ CREATE TABLE IF NOT EXISTS accounts (
   must_change_password INTEGER NOT NULL DEFAULT 0,
   email TEXT NOT NULL DEFAULT '',
   allow_payroll INTEGER NOT NULL DEFAULT 0,      -- 보조관리자에게 급여정보 원문 보기를 허용
-  allow_pay_confirm INTEGER NOT NULL DEFAULT 0   -- 보조관리자에게 지급 확정을 허용 (2단계에서 사용)
+  allow_pay_confirm INTEGER NOT NULL DEFAULT 0,  -- 보조관리자에게 지급 확정을 허용 (2단계에서 사용)
+  allow_survey INTEGER NOT NULL DEFAULT 0,       -- 보조관리자에게 설문 관리 앱을 허용
+  allow_visit INTEGER NOT NULL DEFAULT 0         -- 보조관리자에게 예약·호출 조회 앱을 허용
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_accounts_login ON accounts(login_id);
 
@@ -425,3 +427,13 @@ CREATE TABLE IF NOT EXISTS response_pii (
 );
 CREATE INDEX IF NOT EXISTS ix_response_pii_project ON response_pii(project_id);
 
+-- 고객 등급 수동 지정 (자동 분류보다 우선)
+CREATE TABLE IF NOT EXISTS customer_grades (
+  project_id TEXT NOT NULL,
+  phone_hash TEXT NOT NULL,
+  grade TEXT NOT NULL,
+  memo TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (project_id, phone_hash)
+);

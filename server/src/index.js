@@ -20,8 +20,8 @@ import { reservationCreate, reservationList, reservationUpdate, reservationCance
 import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit/visit.js';
 import { staffTelegramLink, handleTelegram } from './telegram/telegram.js';
 import { adminDashboard, adminGuestStats, adminGuestbook } from './report/stats.js';
-import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyDelete, surveyLinkList, surveyLinkSave, surveyLinkGenerate, surveyLinkToggle, surveyForm, surveySubmit, surveyResponses, surveyExport, surveyStats, surveyCompare, surveyPurgePii, surveyMyLinks } from './survey/survey.js';
-import { customerList } from './customer/customer.js';
+import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyDelete, surveyLinkList, surveyLinkSave, surveyLinkGenerate, surveyLinkToggle, surveyForm, surveySubmit, surveyResponses, surveyExport, surveyStats, surveyCompare, surveyPurgePii, surveyMyLinks, surveyRespondents } from './survey/survey.js';
+import { customerList, customerGradeSave } from './customer/customer.js';
 import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook/guestbook.js';
 
 // roles: 이 action 을 부를 수 있는 역할
@@ -99,22 +99,24 @@ const ACTIONS = {
   'admin.adjustDelete': { roles: MGR, fn: adminAdjustDelete },
 
   // 용역관리(일급 정산). 확정·지급완료·이체 파일의 세부 권한은 함수 안에서 확인한다 (관리자 또는 계정별 허용)
-  'survey.bank': { roles: MGR, fn: surveyBank },
-  'survey.list': { roles: MGR, fn: surveyList },
-  'survey.get': { roles: MGR, fn: surveyGet },
-  'survey.save': { roles: MGR, fn: surveySave },
-  'survey.setStatus': { roles: MGR, fn: surveySetStatus },
-  'survey.delete': { roles: MGR, fn: surveyDelete },
-  'survey.linkList': { roles: MGR, fn: surveyLinkList },
-  'survey.linkSave': { roles: MGR, fn: surveyLinkSave },
-  'survey.linkGenerate': { roles: MGR, fn: surveyLinkGenerate },
-  'survey.linkToggle': { roles: MGR, fn: surveyLinkToggle },
-  'survey.responses': { roles: MGR, fn: surveyResponses },
-  'survey.export': { roles: MGR, fn: surveyExport },
-  'survey.stats': { roles: MGR, fn: surveyStats },
-  'survey.compare': { roles: MGR, scope: 'global', fn: surveyCompare },
+  'survey.bank': { roles: MGR, need: 'survey', fn: surveyBank },
+  'survey.list': { roles: MGR, need: 'survey', fn: surveyList },
+  'survey.get': { roles: MGR, need: 'survey', fn: surveyGet },
+  'survey.save': { roles: MGR, need: 'survey', fn: surveySave },
+  'survey.setStatus': { roles: MGR, need: 'survey', fn: surveySetStatus },
+  'survey.delete': { roles: MGR, need: 'survey', fn: surveyDelete },
+  'survey.linkList': { roles: MGR, need: 'survey', fn: surveyLinkList },
+  'survey.linkSave': { roles: MGR, need: 'survey', fn: surveyLinkSave },
+  'survey.linkGenerate': { roles: MGR, need: 'survey', fn: surveyLinkGenerate },
+  'survey.linkToggle': { roles: MGR, need: 'survey', fn: surveyLinkToggle },
+  'survey.responses': { roles: MGR, need: 'survey', fn: surveyResponses },
+  'survey.export': { roles: MGR, need: 'survey', fn: surveyExport },
+  'survey.stats': { roles: MGR, need: 'survey', fn: surveyStats },
+  'survey.compare': { roles: MGR, need: 'survey', scope: 'global', fn: surveyCompare },
   'survey.purgePii': { roles: ['admin'], scope: 'global', fn: surveyPurgePii },
+  'survey.respondents': { roles: MGR, fn: surveyRespondents },
   'customer.list': { roles: MGR, fn: customerList },
+  'customer.gradeSave': { roles: MGR, fn: customerGradeSave },
 
   'pay.settingList': { roles: MGR, fn: paySettingList },
   'pay.settingSave': { roles: MGR, fn: paySettingSave },
@@ -134,8 +136,8 @@ const ACTIONS = {
   'pay.itemSave': { roles: MGR, fn: payItemSave },
   'pay.transferExport': { roles: MGR, fn: payTransferExport },
 
-  'admin.reservations': { roles: MGR, fn: adminReservations },
-  'admin.visits': { roles: MGR, fn: adminVisits },
+  'admin.reservations': { roles: MGR, need: 'visit', fn: adminReservations },
+  'admin.visits': { roles: MGR, need: 'visit', fn: adminVisits },
   'admin.dashboard': { roles: MGR, fn: adminDashboard },
   'admin.guestStats': { roles: MGR, fn: adminGuestStats },
   'admin.guestbook': { roles: MGR, fn: adminGuestbook },
@@ -151,6 +153,8 @@ async function route(env, req) {
   const def = ACTIONS[s(req && req.action)];
   if (!def) throw new AppError('알 수 없는 요청입니다.');
   const ctx = await authenticate(env, req, def);
+  // 별도 앱(설문 관리·예약/호출 조회)은 보조관리자에게 계정별로 허용된 경우만 (관리자는 항상)
+  if (def.need && ctx.role === 'sub' && !ctx.account['allow_' + def.need]) throw new AppError('이 기능을 쓸 권한이 없습니다. 관리자에게 허용을 요청해 주세요.');
   if (ctx.account && ctx.account.must_change_password && !def.allowMustChange) {
     throw new AppError('비밀번호를 먼저 변경해 주세요.', 'MUST_CHANGE_PW');
   }
