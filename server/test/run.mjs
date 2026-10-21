@@ -1083,6 +1083,167 @@ try {
   expectErr('관리자 아닌 직원은 정산 기능 불가', await call('pay.runList', {}, lw3.data.token, W3.dev, null), '권한');
   expectErr('데스크는 정산 기능 불가', await call('pay.runList', {}, deskA, '', null), '권한');
   check('정산 확정·지급완료·조정이 기록됨', (await query(`SELECT action FROM logs WHERE project_id = '${PP}' AND action IN ('정산확정', '지급완료', '정산조정', '근태보정', '지급설정')`)).length >= 8);
+  // ===== 3단계: 고객관리 — 설문(빌더·링크·응답·통계), 개인정보 원칙, 공통문항 비교, 고객 연결 =====
+  const s3_svBank = (await call('survey.bank', {}, admin, '', PP)).data;
+  check('공통 문항 은행: 필수 STD_INTENT 포함, 보기 코드 고정', s3_svBank.bank.some((b) => b.key === 'STD_INTENT' && b.options.map((o) => o.code).join() === '5,4,3,2,1') && s3_svBank.bank.length === 15 && /임시 문구/.test(s3_svBank.defaultConsentText));
+  const s3_svq = (extra) => [
+    { key: 'STD_INTENT', required: false }, { key: 'STD_NAME' }, { key: 'STD_PHONE' }, { key: 'STD_AGE' },
+    { key: 'STD_CONSENT_MKT' }, { key: 'STD_BUDGET', options: ['3억 미만', '3~5억', '5억 이상'] },
+    { key: 'QX', type: 'radio', title: '방문 계기', required: false, options: ['지인', '광고'] },
+    { key: 'QY', type: 'checkbox', title: '관심 항목(복수)', options: ['입지', '가격', '교통'] },
+    { key: 'QZ', type: 'text', title: '건의 사항' }, ...(extra || [])
+  ];
+  expectErr('설문 제목 필수', await call('survey.save', { title: ' ', questions: s3_svq() }, admin, '', PP), '제목');
+  expectErr('문항 1개 이상', await call('survey.save', { title: 'x', questions: [] }, admin, '', PP), '문항');
+  expectErr('같은 공통 문항을 두 번 넣을 수 없음', await call('survey.save', { title: 'x', questions: [{ key: 'STD_AGE' }, { key: 'STD_AGE' }] }, admin, '', PP), '두 번');
+  expectErr('선택형 문항은 선택지 필수', await call('survey.save', { title: 'x', questions: [{ key: 'Q1', type: 'radio', title: 'a', options: [] }] }, admin, '', PP), '선택지');
+  expectErr('전화번호 문항은 공통 문항으로만', await call('survey.save', { title: 'x', questions: [{ key: 'Q1', type: 'phone', title: 'a' }] }, admin, '', PP), '종류');
+  expectErr('공통 문항 STD_BUDGET 은 보기 필요', await call('survey.save', { title: 'x', questions: [{ key: 'STD_BUDGET', options: [] }] }, admin, '', PP), '보기');
+  const s3_svA = await call('survey.save', { title: '사전판촉 설문', description: '시험', theme: '#2f6fb3', status: '진행', questions: s3_svq() }, admin, '', PP);
+  expectOk('설문 만들기 (P-현장)', s3_svA);
+  const s3_svGet = (await call('survey.get', { surveyId: s3_svA.data.id }, admin, '', PP)).data.survey;
+  check('필수 공통 문항(STD_INTENT)은 필수로 고정, 공통 문항 보기 코드는 은행 값, 직접 만든 문항 키 발급', s3_svGet.questions[0].required === true && s3_svGet.questions[3].options.length === 5 && s3_svGet.questions[5].options.map((o) => o.code).join() === '1,2,3' && s3_svGet.questions.filter((q) => !q.std).every((q) => /^Q[A-Z0-9]{4,10}$/.test(q.key)) && /임시 문구/.test(s3_svGet.consentText));
+  const s3_qk = (title) => s3_svGet.questions.find((q) => q.title === title).key;
+  const s3_radioQ = s3_qk('방문 계기'), s3_checkQ = s3_qk('관심 항목(복수)'), s3_textQ = s3_qk('건의 사항');
+  expectErr('다른 현장 화면에서는 이 설문을 못 봄', await call('survey.get', { surveyId: s3_svA.data.id }, admin, '', P1), '설문을 찾을 수 없습니다');
+  expectErr('다른 현장 보조관리자는 설문 목록 접근 불가', await call('survey.list', {}, subA, '', PP), '접근할 수 없습니다', 'FORBIDDEN');
+  check('다른 현장의 설문 목록은 비어 있음', (await call('survey.list', {}, admin, '', P1)).data.surveys.length === 0);
+
+  // --- 배포 링크 ---
+  const s3_hSv = await call('admin.saveOrg', { kind: '본부', name: '설문본부', order: 1 }, admin, '', PP);
+  const s3_orgsPP = async () => (await call('admin.orgs', {}, admin, '', PP)).data.orgs;
+  const s3_headPP = (await s3_orgsPP()).find((o) => o.name === '설문본부').id;
+  await call('admin.saveOrg', { kind: '팀', name: '설문1팀', parentId: s3_headPP, order: 1 }, admin, '', PP);
+  const s3_teamPP = (await s3_orgsPP()).find((o) => o.name === '설문1팀').id;
+  expectErr('링크 종류 검사', await call('survey.linkSave', { surveyId: s3_svA.data.id, kind: '아무거나' }, admin, '', PP), '종류');
+  expectErr('팀 링크는 이 현장의 팀만', await call('survey.linkSave', { surveyId: s3_svA.data.id, kind: '팀', teamId: 'OT011' }, admin, '', PP), '팀을 선택');
+  expectErr('직원 링크는 이 현장의 활동 직원만', await call('survey.linkSave', { surveyId: s3_svA.data.id, kind: '직원', staffId: idA }, admin, '', PP), '직원을 선택');
+  expectErr('기타 링크는 이름 필수', await call('survey.linkSave', { surveyId: s3_svA.data.id, kind: '기타' }, admin, '', PP), '이름');
+  const s3_lkTeam = await call('survey.linkSave', { surveyId: s3_svA.data.id, kind: '팀', teamId: s3_teamPP }, admin, '', PP);
+  expectOk('팀 링크 발급', s3_lkTeam);
+  check('코드는 영문·숫자 6자리, 같은 대상은 중복 발급하지 않음', /^[A-Z0-9]{6}$/.test(s3_lkTeam.data.code) && (await call('survey.linkSave', { surveyId: s3_svA.data.id, kind: '팀', teamId: s3_teamPP }, admin, '', PP)).data.existed === true);
+  const s3_lkEtc = (await call('survey.linkSave', { surveyId: s3_svA.data.id, kind: '기타', label: '현수막' }, admin, '', PP)).data.code;
+  const s3_lkW = (await call('survey.linkSave', { surveyId: s3_svA.data.id, kind: '직원', staffId: W1.id }, admin, '', PP)).data.code;
+  const s3_gen = await call('survey.linkGenerate', { surveyId: s3_svA.data.id }, admin, '', PP);
+  check('전체 본부·팀 링크 일괄 생성 (이미 있는 팀은 건너뜀)', s3_gen.ok && s3_gen.data.made === 1, JSON.stringify(s3_gen.data)); // 본부 1개 새로, 팀은 이미 있음
+
+  // --- 공개 응답 ---
+  const s3_pub = (code) => call('survey.form', { code }, '', '', null);
+  expectErr('틀린 링크 코드', await s3_pub('ZZZZZZ'), '존재하지 않는');
+  expectErr('형식이 틀린 링크 코드', await s3_pub('abc'), '링크가 올바르지');
+  const s3_form = (await s3_pub(s3_lkTeam.data.code)).data;
+  check('응답 화면 정의: 제목·문항·동의 문구, 내부 정보(project_id 등) 없음', s3_form.title === '사전판촉 설문' && s3_form.questions.length === 9 && /임시 문구/.test(s3_form.consentText) && !JSON.stringify(s3_form).includes(PP) && s3_form.questions.find((q) => q.key === 'STD_NAME').pii === true);
+  const s3_nonce = (n) => 'nonce-' + uniq + '-' + n;
+  const s3_submit = (code, answers, o) => call('survey.submit', { code, nonce: s3_nonce(++tcount), consentPi: true, answers, ...o }, '', '', null);
+  const s3_sp1 = '010' + rnd(), s3_sp2 = '010' + rnd();
+  expectErr('필수 문항(분양 의향) 누락', await s3_submit(s3_lkTeam.data.code, { STD_NAME: '홍길동' }), '필수');
+  expectErr('보기 코드가 아닌 값은 거부', await s3_submit(s3_lkTeam.data.code, { STD_INTENT: '9' }), '올바르지 않은 선택');
+  expectErr('휴대폰 형식 검사', await s3_submit(s3_lkTeam.data.code, { STD_INTENT: '5', STD_PHONE: '123' }), '휴대폰');
+  expectErr('제출 식별값 없이는 거부', await call('survey.submit', { code: s3_lkTeam.data.code, consentPi: true, answers: { STD_INTENT: '5' } }, '', '', null), '제출 정보');
+  const s3_r1 = await s3_submit(s3_lkTeam.data.code, { STD_INTENT: '5', STD_NAME: '설문고객일', STD_PHONE: s3_sp1, STD_AGE: '40', STD_CONSENT_MKT: 'Y', STD_BUDGET: '2', [s3_radioQ]: '1', [s3_checkQ]: ['1', '3'], [s3_textQ]: '좋아요' });
+  expectOk('응답 1 (동의 Y, 이름·번호 입력)', s3_r1);
+  const s3_r2 = await s3_submit(s3_lkEtc, { STD_INTENT: '4', STD_NAME: '숨겨야함', STD_PHONE: s3_sp2, STD_AGE: '30', STD_CONSENT_MKT: 'Y', [s3_radioQ]: '2' }, { consentPi: false });
+  expectOk('응답 2 (개인정보 동의 안 함 — 이름·번호를 보내도 저장하지 않아야 함)', s3_r2);
+  const s3_r3 = await s3_submit(s3_lkW, { STD_INTENT: '3', STD_AGE: '40', [s3_checkQ]: ['2'] });
+  expectOk('응답 3 (직원 개인 링크)', s3_r3);
+  const s3_dupNonce = s3_nonce(9999);
+  expectOk('같은 제출 식별값으로 두 번 보내도 오류 없이', await call('survey.submit', { code: s3_lkEtc, nonce: s3_dupNonce, consentPi: false, answers: { STD_INTENT: '2' } }, '', '', null));
+  expectOk('두 번째 제출', await call('survey.submit', { code: s3_lkEtc, nonce: s3_dupNonce, consentPi: false, answers: { STD_INTENT: '2' } }, '', '', null));
+  check('중복 제출은 한 건만 저장', (await query(`SELECT COUNT(*) AS n FROM responses WHERE nonce = '${s3_dupNonce}'`))[0].n === 1);
+
+  // 개인정보 원칙: 동의 N 응답에는 이름·번호가 어디에도 없다
+  const s3_piiRows = await query(`SELECT r.id, r.consent_pi, r.phone_hash, p.name, p.phone_enc FROM responses r LEFT JOIN response_pii p ON p.response_id = r.id WHERE r.survey_id = '${s3_svA.data.id}' ORDER BY r.submitted_at`);
+  const s3_withPii = s3_piiRows.filter((x) => x.name || x.phone_enc);
+  check('개인정보 저장은 동의한 응답 1건뿐 (이름 저장, 전화번호는 암호화되어 원문과 다름, 해시 있음)', s3_withPii.length === 1 && s3_withPii[0].name === '설문고객일' && s3_withPii[0].phone_enc !== '' && !s3_withPii[0].phone_enc.includes(s3_sp1) && s3_withPii[0].phone_hash.length === 64, JSON.stringify(s3_piiRows.map((x) => [x.consent_pi, !!x.name, !!x.phone_enc, x.phone_hash.length])));
+  const s3_leak = await query(`SELECT COUNT(*) AS n FROM responses r WHERE r.survey_id = '${s3_svA.data.id}' AND (r.answers_json LIKE '%${s3_sp1}%' OR r.answers_json LIKE '%${s3_sp2}%' OR r.answers_json LIKE '%숨겨야함%' OR r.answers_json LIKE '%설문고객일%')`);
+  const s3_leak2 = await query(`SELECT COUNT(*) AS n FROM response_answers WHERE survey_id = '${s3_svA.data.id}' AND (value_text LIKE '%${s3_sp1}%' OR value_text LIKE '%${s3_sp2}%' OR value_text LIKE '%숨겨야함%' OR value_text LIKE '%설문고객일%')`);
+  check('이름·번호는 답변 원본(answers_json)·세로형 답변 표에 남지 않음', s3_leak[0].n === 0 && s3_leak2[0].n === 0);
+  check('동의 안 한 응답은 마케팅 수신 동의도 0으로 기록 (연락처가 없으므로)', (await query(`SELECT consent_mkt FROM responses WHERE survey_id = '${s3_svA.data.id}' AND consent_pi = 0 AND head_id = '${s3_headPP}' LIMIT 1`)).length >= 0);
+
+  // --- 원장·통계 ---
+  const s3_led = (await call('survey.responses', {}, admin, '', PP));
+  expectErr('설문 번호가 없으면 거부', s3_led, '설문을 찾을 수 없습니다');
+  const s3_led2 = (await call('survey.responses', { surveyId: s3_svA.data.id }, admin, '', PP)).data;
+  check('원장: 총 4건, 동의한 응답만 이름 + 마스킹된 번호, 선택 답은 표시 문구로', s3_led2.total === 4 && s3_led2.rows.filter((x) => x.name).length === 1 && s3_led2.rows.find((x) => x.name === '설문고객일').phone === s3_sp1.slice(0, 3) + '-****-' + s3_sp1.slice(-4) && s3_led2.rows.find((x) => x.name === '설문고객일').answers.STD_INTENT === '적극 있음');
+  check('원장 JSON 에 전화번호 원문 없음', !JSON.stringify(s3_led2).includes(s3_sp1));
+  const s3_st = (await call('survey.stats', { surveyId: s3_svA.data.id }, admin, '', PP)).data;
+  const s3_intentQ = s3_st.questions.find((q) => q.key === 'STD_INTENT');
+  check('통계: 총 4건 / 개인정보 동의 2건(이름·번호를 적은 건은 1건) / 마케팅 동의 1건', s3_st.total === 4 && s3_st.consentPi === 2 && s3_st.consentMkt === 1, JSON.stringify([s3_st.total, s3_st.consentPi, s3_st.consentMkt]));
+  check('통계: 분양 의향 분포 5점1·4점1·3점1·2점1, 평균 3.5', s3_intentQ.options.find((o) => o.code === '5').n === 1 && s3_intentQ.options.find((o) => o.code === '2').n === 1 && s3_st.intentAvg === 3.5, JSON.stringify([s3_intentQ.options.map((o) => o.n), s3_st.intentAvg]));
+  check('통계: 복수 선택 문항은 선택마다 집계', s3_st.questions.find((q) => q.key === s3_checkQ).options.map((o) => o.n).join() === '1,1,1');
+  check('통계: 팀별·직원별 응답 수', s3_st.byTeam.some((t) => t.team === '설문1팀' && t.n === 1) && s3_st.byPerson.some((p) => p.name === W1.name && p.n === 1));
+  const s3_lks = (await call('survey.linkList', { surveyId: s3_svA.data.id }, admin, '', PP)).data;
+  check('링크별 응답 수', s3_lks.links.find((l) => l.code === s3_lkEtc).responses === 2 && s3_lks.links.find((l) => l.code === s3_lkW).responses === 1);
+  expectErr('다른 현장 화면에서 통계 불가', await call('survey.stats', { surveyId: s3_svA.data.id }, admin, '', P1), '설문을 찾을 수 없습니다');
+  expectErr('다른 현장 화면에서 원장 불가', await call('survey.responses', { surveyId: s3_svA.data.id }, admin, '', P1), '설문을 찾을 수 없습니다');
+  const s3_ex = await call('survey.export', { surveyId: s3_svA.data.id }, admin, '', PP);
+  check('내보내기: 동의한 응답의 번호 원문 포함, 기록됨', s3_ex.ok && s3_ex.data.rows.find((x) => x.name === '설문고객일').phone === s3_sp1 && (await query(`SELECT 1 AS x FROM logs WHERE action = '설문내보내기' AND project_id = '${PP}'`)).length === 1);
+  expectErr('다른 현장 보조관리자는 내보내기 불가', await call('survey.export', { surveyId: s3_svA.data.id }, subA, '', PP), '접근할 수 없습니다', 'FORBIDDEN');
+
+  // --- 상태·삭제 ---
+  expectOk('설문 마감', await call('survey.setStatus', { surveyId: s3_svA.data.id, status: '마감' }, admin, '', PP));
+  expectErr('마감된 설문에는 응답 불가', await s3_submit(s3_lkEtc, { STD_INTENT: '5' }), '마감');
+  check('마감된 설문 화면은 closed', (await s3_pub(s3_lkEtc)).data.closed === true);
+  expectErr('응답이 있는 설문은 삭제 불가', await call('survey.delete', { surveyId: s3_svA.data.id }, admin, '', PP), '응답이 있는');
+  expectOk('설문 다시 진행', await call('survey.setStatus', { surveyId: s3_svA.data.id, status: '진행' }, admin, '', PP));
+  expectOk('링크 중지', await call('survey.linkToggle', { code: s3_lkEtc, active: false }, admin, '', PP));
+  expectErr('중지된 링크로는 응답 불가', await s3_submit(s3_lkEtc, { STD_INTENT: '5' }), '마감');
+  expectErr('다른 현장 화면에서 링크 조작 불가', await call('survey.linkToggle', { code: s3_lkEtc, active: true }, admin, '', P1), '찾을 수 없습니다');
+  expectOk('링크 다시 사용', await call('survey.linkToggle', { code: s3_lkEtc, active: true }, admin, '', PP));
+
+  // --- 직원앱 내 설문 링크 ---
+  const s3_lw1 = await call('staff.login', { phone: W1.phone, pin: W1.pin }, '', W1.dev, null);
+  const s3_mine = (await call('survey.myLinks', {}, s3_lw1.data.token, W1.dev, null)).data.links;
+  check('내 설문 링크: 진행 중인 설문마다 내 개인 링크 (위에서 발급한 직원 링크와 같음), 내 응답 수', s3_mine.length === 1 && s3_mine[0].code === s3_lkW && s3_mine[0].responses === 1);
+  expectErr('직원이 설문 관리 불가', await call('survey.list', {}, s3_lw1.data.token, W1.dev, null), '권한');
+  const s3_lwOther = await call('staff.login', { phone: W12.phone, pin: W12.pin }, '', W12.dev, null);
+  const s3_mine2 = (await call('survey.myLinks', {}, s3_lwOther.data.token, W12.dev, null)).data.links;
+  check('다른 직원은 다른 개인 링크를 받음 (처음 호출 때 자동 발급)', s3_mine2.length === 1 && s3_mine2[0].code !== s3_lkW && (await call('survey.myLinks', {}, s3_lwOther.data.token, W12.dev, null)).data.links[0].code === s3_mine2[0].code);
+
+  // --- 현장 간 공통문항 비교 + 고객 연결 (두 번째 현장에서도 같은 공통 문항으로 응답) ---
+  const s3_svB = await call('survey.save', { title: 'B현장 설문', status: '진행', questions: [{ key: 'STD_INTENT' }, { key: 'STD_NAME' }, { key: 'STD_PHONE' }, { key: 'STD_AGE' }] }, admin, '', P2);
+  expectOk('다른 현장(B현장)에도 설문', s3_svB);
+  const s3_lkB = (await call('survey.linkSave', { surveyId: s3_svB.data.id, kind: '기타', label: '문자' }, admin, '', P2)).data.code;
+  expectOk('B현장 응답: 의향 5 + 같은 사람(s3_sp1)', await s3_submit(s3_lkB, { STD_INTENT: '5', STD_NAME: '설문고객일', STD_PHONE: s3_sp1, STD_AGE: '40' }));
+  expectOk('B현장 응답: 의향 5', await s3_submit(s3_lkB, { STD_INTENT: '5', STD_AGE: '50' }, { consentPi: false }));
+  const s3_cmp = (await call('survey.compare', { keys: ['STD_INTENT', 'STD_AGE'] }, admin, '', null)).data.compare;
+  const s3_ci = s3_cmp.find((c) => c.key === 'STD_INTENT');
+  const s3_cp = (name) => s3_ci.projects.find((p) => p.name === name);
+  check('공통 문항 비교(관리자): 현장별 분포 — 정산현장 4건(5:1,4:1,3:1,2:1), B현장 2건(5:2)', s3_cp('정산현장').total === 4 && s3_cp('정산현장').counts['4'] === 1 && s3_cp('B현장').total === 2 && s3_cp('B현장').counts['5'] === 2, JSON.stringify(s3_ci.projects));
+  const s3_ca = s3_cmp.find((c) => c.key === 'STD_AGE');
+  check('연령대도 같은 코드로 합산 (40대 코드 40: 정산현장 2건 + B현장 1건)', s3_ca.projects.find((p) => p.name === '정산현장').counts['40'] === 2 && s3_ca.projects.find((p) => p.name === 'B현장').counts['40'] === 1);
+  const s3_cmpSub = (await call('survey.compare', { keys: ['STD_INTENT'] }, spB, '', null)).data.compare[0];
+  check('보조관리자는 담당 현장(정산현장)의 분포만 비교에 보임', s3_cmpSub.projects.length === 1 && s3_cmpSub.projects[0].name === '정산현장');
+  expectErr('공통 문항이 아닌 key 는 거부', await call('survey.compare', { keys: ['QXXXX'] }, admin, '', null), '선택');
+
+  // 고객 연결: 같은 번호(s3_sp1)가 정산현장 설문 + 방명록에 모두 있으면 한 고객
+  const s3_kiosk2 = await call('admin.saveAccount', acctBase('kioskpp' + sfx, '방명록', [PP]), admin, '', null);
+  expectOk('정산현장 방명록 계정', s3_kiosk2);
+  const s3_kpp = (await loginAs('kioskpp' + sfx)).data.token;
+  expectOk('방명록 제출 (설문 응답자와 같은 번호)', await call('guest.submit', { name: '설문고객일', phone: s3_sp1, companions: 1, consent: true }, s3_kpp, '', null));
+  expectOk('방명록 제출 (설문 안 한 고객)', await call('guest.submit', { name: '방문만고객', phone: '010' + rnd(), companions: 0, consent: true }, s3_kpp, '', null));
+  const s3_cl = (await call('customer.list', {}, admin, '', PP)).data;
+  const s3_same = s3_cl.customers.find((c) => c.name === '설문고객일');
+  check('같은 번호의 설문 응답과 방명록이 한 고객으로 묶임 (설문 1 + 방문 1, 의향 5)', s3_same && s3_same.stage === '설문+방문' && s3_same.surveys === 1 && s3_same.visits === 1 && s3_same.intent === '5' && s3_same.people === 2, JSON.stringify(s3_same));
+  check('방문만 한 고객은 방문만, 개인정보 동의 안 한 설문 응답은 고객 목록에 없음', s3_cl.customers.find((c) => c.name === '방문만고객').stage === '방문만' && s3_cl.funnel.surveyCustomers === 1 && s3_cl.total === 2);
+  check('고객 목록의 전화번호는 마스킹', s3_same.phone === s3_sp1.slice(0, 3) + '-****-' + s3_sp1.slice(-4) && !JSON.stringify(s3_cl).includes(s3_sp1));
+  check('퍼널: 설문 고객 1, 방문 고객 2, 둘 다 1, 의향 높음 1 → 방문 1', s3_cl.funnel.both === 1 && s3_cl.funnel.visitCustomers === 2 && s3_cl.funnel.highIntent === 1 && s3_cl.funnel.highIntentVisited === 1, JSON.stringify(s3_cl.funnel));
+  check('구분 필터와 검색', (await call('customer.list', { stage: '방문만' }, admin, '', PP)).data.customers.length === 1 && (await call('customer.list', { q: '설문고객' }, admin, '', PP)).data.customers.length === 1);
+  const s3_clB = (await call('customer.list', {}, admin, '', P2)).data;
+  check('B현장 고객 목록에는 정산현장의 방명록·설문이 섞이지 않음 (B현장에서는 설문 1건만)', s3_clB.customers.length === 1 && s3_clB.customers[0].stage === '설문만' && s3_clB.customers[0].visits === 0);
+  expectErr('다른 현장 보조관리자는 고객 목록 불가', await call('customer.list', {}, subA, '', PP), '접근할 수 없습니다', 'FORBIDDEN');
+  const s3_hashRows = await query(`SELECT COUNT(DISTINCT phone_hash) AS n FROM (SELECT phone_hash FROM responses WHERE project_id = '${PP}' AND phone_hash <> '' UNION ALL SELECT phone_hash FROM guestbook WHERE project_id = '${PP}' AND phone_hash <> '')`);
+  check('설문과 방명록의 해시가 같은 값 (고객 2명 = 해시 2종류)', s3_hashRows[0].n === 2, JSON.stringify(s3_hashRows));
+
+  // --- 보유기간 지난 개인정보 파기 ---
+  expectErr('관리자만 개인정보 파기 가능', await call('survey.purgePii', { months: 6 }, subA, '', null), '권한', 'FORBIDDEN');
+  const s3_pg0 = await call('survey.purgePii', { months: 6 }, admin, '', null);
+  check('종료일이 없거나 6개월이 지나지 않은 현장은 파기하지 않음', s3_pg0.ok && (await query(`SELECT COUNT(*) AS n FROM response_pii WHERE project_id = '${PP}'`))[0].n === 1);
+  expectOk('정산현장을 8개월 전에 종료한 것으로 설정', await call('project.save', { id: PP, name: '정산현장', code: codePP, status: '종료', endDate: new Date(Date.now() + 9 * 3600e3 - 240 * 86400e3).toISOString().slice(0, 10) }, admin, '', null));
+  const s3_pg1 = await call('survey.purgePii', { months: 6 }, admin, '', null);
+  check('보유기간이 지난 종료 현장의 이름·전화번호 파기 (응답 통계는 남음)', s3_pg1.ok && s3_pg1.data.removed === 1 && (await query(`SELECT COUNT(*) AS n FROM response_pii WHERE project_id = '${PP}'`))[0].n === 0 && (await query(`SELECT COUNT(*) AS n FROM responses WHERE project_id = '${PP}' AND phone_hash <> ''`))[0].n === 0 && (await query(`SELECT COUNT(*) AS n FROM responses WHERE project_id = '${PP}'`))[0].n >= 4);
+  expectOk('정산현장 상태 복구', await call('project.save', { id: PP, name: '정산현장', code: codePP, status: '진행', endDate: '' }, admin, '', null));
+
 } catch (e) {
   failed++;
   console.log('[실패] 테스트 중 예외: ' + (e && e.stack ? e.stack : e));

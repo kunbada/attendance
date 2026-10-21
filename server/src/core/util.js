@@ -71,6 +71,11 @@ export function hashSecret(env, value) {
   return sha256Hex(env.SALT + value);
 }
 
+// 전화번호 해시: 설문·방명록 등에서 같은 고객을 묶는 키. 숫자만 남긴 번호로 만든다 (원문 번호는 암호화해 따로 둔다)
+export function phoneHash(env, digits) {
+  return hashSecret(env, 'ph:' + String(digits).replace(/\D/g, ''));
+}
+
 export function safeEqual(a, b) {
   a = s(a); b = s(b);
   if (a.length !== b.length) return false;

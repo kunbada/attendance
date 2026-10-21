@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
-  <link rel="stylesheet" href="css/style.css?v=20261021b">
+  <link rel="stylesheet" href="css/style.css?v=20261022a">
 </head>
 <body>
   <div class="topbar"><h1 id="siteName">근태·예약</h1></div>
@@ -103,6 +103,7 @@
       <button type="button" class="btn primary" id="btn-checkin" style="min-height:64px;font-size:20px;margin-bottom:12px">출근하기</button>
       <button type="button" class="btn primary" id="btn-reserve" style="margin-bottom:12px">고객 방문 예약</button>
       <button type="button" class="btn" id="btn-mypay" style="margin-bottom:12px">내 지급내역</button>
+      <button type="button" class="btn" id="btn-mysurvey" style="margin-bottom:12px">내 설문 QR</button>
       <button type="button" class="btn hidden" id="btn-approve" style="margin-bottom:12px">직원 승인 관리</button>
       <div class="card">
         <div class="stat"><span>텔레그램 호출 알림</span><strong id="tg-status"></strong></div>
@@ -120,6 +121,16 @@
         <div id="mp-list"></div>
       </div>
       <button type="button" class="btn" id="btn-mypay-back">← 홈으로</button>
+    </section>
+
+    <!-- 내 설문 QR: 고객에게 보여 주면 이 직원의 실적으로 집계된다 -->
+    <section id="screen-mysurvey" class="screen hidden">
+      <div class="card">
+        <h2>내 설문 QR</h2>
+        <p class="muted">고객이 이 QR 을 찍어 설문에 응답하면 내 실적으로 집계됩니다.</p>
+        <div id="sv-list"></div>
+      </div>
+      <button type="button" class="btn" id="btn-mysurvey-back">← 홈으로</button>
     </section>
 
     <!-- 승인 관리 (관리자가 권한을 준 팀장·본부장만) -->
@@ -182,9 +193,10 @@
   </main>
   <!-- QR 스캔 라이브러리 (버전 고정) -->
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="js/config.js?v=20261021b"></script>
-  <script src="js/api.js?v=20261021b"></script>
-  <script src="js/common.js?v=20261021b"></script>
-  <script src="js/staff.js?v=20261021b"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="js/config.js?v=20261022a"></script>
+  <script src="js/api.js?v=20261022a"></script>
+  <script src="js/common.js?v=20261022a"></script>
+  <script src="js/staff.js?v=20261022a"></script>
 </body>
 </html>

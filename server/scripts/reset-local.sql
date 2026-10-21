@@ -22,3 +22,8 @@ DROP TABLE IF EXISTS pay_runs;
 DROP TABLE IF EXISTS pay_items;
 DROP TABLE IF EXISTS job_pay;
 DROP TABLE IF EXISTS suppliers;
+DROP TABLE IF EXISTS surveys;
+DROP TABLE IF EXISTS survey_links;
+DROP TABLE IF EXISTS responses;
+DROP TABLE IF EXISTS response_answers;
+DROP TABLE IF EXISTS response_pii;

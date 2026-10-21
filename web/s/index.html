@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2f6fb3">
+<title>설문조사</title>
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  :root{--accent:#2f6fb3;--accent-d:#1f4f86;--accent-t:#eaf2fb;--on:#fff;--bg:#f5f6fa;--card:#fff;--line:#e3e7ee;--text:#18212f;--sub:#6b7686;--err:#d64545}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--text);font-family:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:16px;line-height:1.5}
+  .app{max-width:560px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+  .bar{height:4px;background:var(--line);position:sticky;top:0;z-index:5}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:0 4px 4px 0;transition:width .35s ease}
+  .stage{flex:1;padding:28px 20px 16px;display:flex;flex-direction:column}
+  .in{animation:up .28s ease both}
+  @keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .back .in{animation-name:upb}
+  @keyframes upb{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}
+  .hero{background:linear-gradient(145deg,var(--accent),var(--accent-d));color:var(--on);border-radius:24px;padding:34px 26px 30px;box-shadow:0 14px 34px -12px var(--accent)}
+  .hero .pj{display:inline-block;font-size:12.5px;font-weight:600;background:rgba(255,255,255,.2);border-radius:20px;padding:4px 12px;margin-bottom:16px}
+  .hero h1{margin:0;font-size:26px;line-height:1.3;letter-spacing:-.5px;word-break:keep-all}
+  .hero p{margin:14px 0 0;font-size:15px;opacity:.92;white-space:pre-wrap;word-break:keep-all}
+  .meta{display:flex;gap:8px;margin-top:20px;flex-wrap:wrap}
+  .meta span{font-size:13px;background:rgba(255,255,255,.18);border-radius:20px;padding:4px 12px}
+  .qno{font-size:14px;font-weight:700;color:var(--accent);margin-bottom:10px}
+  .qno em{font-style:normal;color:var(--sub);font-weight:500}
+  .qt{font-size:23px;font-weight:700;line-height:1.38;letter-spacing:-.4px;margin:0 0 6px;word-break:keep-all}
+  .badge{display:inline-block;font-size:12px;font-weight:600;border-radius:6px;padding:2px 8px;margin-bottom:22px;background:var(--accent-t);color:var(--accent-d)}
+  .badge.opt2{background:#eef0f4;color:var(--sub)}
+  .opt{display:flex;align-items:center;gap:12px;padding:15px 16px;background:var(--card);border:1.5px solid var(--line);border-radius:14px;margin-bottom:10px;cursor:pointer;transition:.15s;font-size:16.5px}
+  .opt:active{transform:scale(.99)}
+  .opt:has(input:checked){border-color:var(--accent);background:var(--accent-t);font-weight:600}
+  .opt input{width:21px;height:21px;margin:0;accent-color:var(--accent);flex:none}
+  input[type=text],input[type=tel],input[type=number],textarea,select{width:100%;padding:15px 16px;border:1.5px solid var(--line);border-radius:14px;font-size:17px;font-family:inherit;background:var(--card);color:var(--text);outline:none;transition:.15s}
+  input:focus,textarea:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-t)}
+  textarea{min-height:140px;resize:vertical}
+  .msg{color:var(--err);font-size:14px;margin-top:10px;min-height:20px;font-weight:500}
+  .consent-box{font-size:13.5px;color:var(--sub);white-space:pre-wrap;max-height:260px;overflow:auto;background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;line-height:1.65}
+  .nav[hidden]{display:none}
+  .nav{position:sticky;bottom:0;display:flex;gap:10px;padding:12px 20px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 70%,rgba(245,246,250,0))}
+  button{font-family:inherit;border:0;cursor:pointer;border-radius:14px;padding:16px;font-size:17px;font-weight:700;transition:.15s}
+  button:active{transform:scale(.98)}
+  .pri{flex:2;background:var(--accent);color:var(--on);box-shadow:0 8px 18px -8px var(--accent)}
+  .pri:disabled{opacity:.55}
+  .sec{flex:1;background:var(--card);color:var(--text);border:1.5px solid var(--line)}
+  .done{margin:auto;text-align:center;padding:40px 10px}
+  .done .ic{width:76px;height:76px;border-radius:50%;background:var(--accent-t);color:var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:38px;font-weight:700}
+  .done h2{margin:0 0 8px;font-size:22px}
+  .done p{margin:0 0 24px;color:var(--sub)}
+  .done button{width:100%;max-width:280px;background:var(--card);color:var(--accent);border:1.5px solid var(--accent)}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="bar"><i id="prog"></i></div>
+  <div class="stage" id="stage"><div class="done"><p>설문을 불러오는 중입니다…</p></div></div>
+  <div class="nav" id="nav" hidden></div>
+</div>
+
+<script src="../js/config.js?v=20261022a"></script>
+<script>
+// 고객이 휴대폰으로 응답하는 화면 (로그인 없음). 주소: /s/?c=링크코드
+// 개인정보 동의가 먼저 나오고, 동의하지 않으면 이름·연락처 문항은 건너뛴다 (서버도 받지 않는다).
+const CODE = (new URLSearchParams(location.search).get('c') || '').trim().toUpperCase();
+const $ = id => document.getElementById(id);
+let FORM = null, STEPS = [], idx = 0, ANS = {}, busy = false, CONSENT = null, NONCE = '';
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function newNonce(){ return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('n-' + Date.now().toString(36) + Math.random().toString(36).slice(2)); }
+
+async function api(action, data){
+  let res;
+  try {
+    res = await fetch(CONFIG.API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({ action: action, data: data }) });
+  } catch (e) { throw new Error('네트워크 연결을 확인해 주세요.'); }
+  const body = await res.json().catch(() => { throw new Error('서버 응답을 읽을 수 없습니다. 잠시 후 다시 시도해 주세요.'); });
+  if (!body.ok) throw new Error(body.error || '요청을 처리하지 못했습니다.');
+  return body.data;
+}
+
+function applyTheme(hex){
+  hex = /^#[0-9a-f]{6}$/i.test(hex||'') ? hex.toLowerCase() : '#2f6fb3';
+  const c = [1,3,5].map(i=>parseInt(hex.substr(i,2),16));
+  const h2 = a => '#'+a.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+  const lum = (.299*c[0]+.587*c[1]+.114*c[2])/255;
+  const s = document.documentElement.style;
+  s.setProperty('--accent',hex); s.setProperty('--accent-d',h2(c.map(v=>v*.72))); s.setProperty('--accent-t',h2(c.map(v=>v*.09+255*.91)));
+  s.setProperty('--on',lum>.68?'#18212f':'#ffffff');
+  document.querySelector('meta[name=theme-color]').content = hex;
+}
+
+function showMsg(title, text, again, icon){
+  $('prog').style.width = again ? '100%' : '0';
+  $('nav').hidden = true;
+  $('stage').innerHTML = '<div class="done in"><div class="ic">'+(icon||(again?'✓':'!'))+'</div><h2>'+esc(title)+'</h2><p>'+esc(text)+'</p>'+(again?'<button onclick="restart()">새 응답 작성</button>':'')+'</div>';
+  window.scrollTo(0,0);
+}
+
+(async function(){
+  if (!CODE) return showMsg('설문 링크가 필요합니다', '받으신 설문 링크(QR)로 접속해 주세요.');
+  try { FORM = await api('survey.form', { code: CODE }); }
+  catch (e) { return showMsg('설문을 열 수 없습니다', e.message); }
+  applyTheme(FORM.theme);
+  if (FORM.closed) return showMsg('마감된 설문입니다', '참여해 주셔서 감사합니다.', false, '🔒');
+  document.title = FORM.title;
+  restart();
+})();
+
+function restart(){ ANS = {}; idx = 0; busy = false; CONSENT = null; NONCE = newNonce(); buildSteps(); draw(); }
+
+// 동의 여부에 따라 질문 목록이 달라진다 (동의 안 하면 이름·연락처 문항 제외)
+function buildSteps(){
+  const qs = FORM.questions.filter(q => CONSENT === false ? !q.pii : true);
+  STEPS = [{k:'cover'},{k:'consent'}].concat(qs.map(q=>({k:'q',q:q})));
+}
+
+function save(){
+  const st = STEPS[idx];
+  if (st.k !== 'q') return;
+  const q = st.q, nm = 'q_'+q.key;
+  if (q.type==='checkbox') ANS[q.key] = [...document.querySelectorAll('input[name="'+nm+'"]:checked')].map(x=>x.value);
+  else if (q.type==='radio'){ const c = document.querySelector('input[name="'+nm+'"]:checked'); ANS[q.key] = c ? c.value : ''; }
+  else ANS[q.key] = (document.querySelector('[name="'+nm+'"]').value||'').trim();
+}
+
+function check(st){
+  if (st.k==='consent') return CONSENT===null ? '동의 여부를 선택해 주세요.' : '';
+  if (st.k!=='q') return '';
+  const q = st.q, v = ANS[q.key], empty = Array.isArray(v) ? !v.length : !v;
+  if (q.required && empty) return '필수 응답 문항입니다.';
+  if (q.type==='phone' && v && !/^01\d-?\d{3,4}-?\d{4}$/.test(v)) return '휴대폰 번호 형식을 확인해 주세요.';
+  return '';
+}
+
+function go(d){
+  if (busy) return;
+  save();
+  if (d>0){
+    const m = check(STEPS[idx]);
+    if (m){ const el=$('msg'); if (el) el.textContent = m; $('stage').animate([{transform:'translateX(-7px)'},{transform:'translateX(7px)'},{transform:'none'}],{duration:180}); return; }
+    if (idx===STEPS.length-1) return submitForm();
+    if (STEPS[idx].k==='consent'){
+      buildSteps(); // 동의 여부에 맞춰 질문 목록을 다시 만든다 (동의 안 하면 이름·연락처 제외)
+      if (CONSENT===false) FORM.questions.filter(q=>q.pii).forEach(q=>{ delete ANS[q.key]; });
+    }
+  }
+  idx = Math.max(0, Math.min(STEPS.length-1, idx+d));
+  draw(d<0);
+}
+
+function draw(back){
+  const st = STEPS[idx], n = STEPS.filter(s=>s.k==='q').length;
+  const qn = st.k==='q' ? STEPS.filter(s=>s.k==='q').indexOf(st)+1 : 0;
+  $('prog').style.width = (idx===0 ? 0 : Math.round(idx/(STEPS.length-1)*100)) + '%';
+  let h = '';
+  if (st.k==='cover'){
+    h = '<div class="hero in">'+(FORM.projectName?'<span class="pj">'+esc(FORM.projectName)+'</span>':'')+'<h1>'+esc(FORM.title)+'</h1>'+(FORM.description?'<p>'+esc(FORM.description)+'</p>':'')+
+        '<div class="meta"><span>총 '+FORM.questions.length+'문항</span><span>약 '+Math.max(1,Math.ceil(FORM.questions.length/3))+'분 소요</span></div></div>';
+  } else if (st.k==='consent'){
+    h = '<div class="in"><div class="qno">먼저 확인해 주세요</div><h2 class="qt">개인정보 수집·이용 동의</h2><span class="badge opt2">선택</span>'+
+        '<div class="consent-box">'+esc(FORM.consentText)+'</div>'+
+        '<label class="opt"><input type="radio" name="consent" value="Y" '+(CONSENT===true?'checked':'')+'>동의합니다 (성함·연락처 입력)</label>'+
+        '<label class="opt"><input type="radio" name="consent" value="N" '+(CONSENT===false?'checked':'')+'>동의하지 않고 참여합니다 (익명 응답)</label><div class="msg" id="msg"></div></div>';
+  } else {
+    const q = st.q, nm = 'q_'+q.key;
+    h = '<div class="in"><div class="qno">Q'+qn+' <em>/ '+n+'</em></div><h2 class="qt">'+esc(q.title)+'</h2>'+
+        '<span class="badge '+(q.required?'':'opt2')+'">'+(q.required?'필수':'선택')+(q.type==='checkbox'?' · 복수 선택 가능':'')+'</span>';
+    if (q.type==='radio' || q.type==='checkbox'){
+      q.options.forEach(o=>{ h += '<label class="opt"><input type="'+q.type+'" name="'+nm+'" value="'+esc(o.code)+'">'+esc(o.label)+'</label>'; });
+    } else if (q.type==='select'){
+      h += '<select name="'+nm+'"><option value="">선택해 주세요</option>'+q.options.map(o=>'<option value="'+esc(o.code)+'">'+esc(o.label)+'</option>').join('')+'</select>';
+    } else if (q.type==='textarea'){
+      h += '<textarea name="'+nm+'" placeholder="자유롭게 입력해 주세요"></textarea>';
+    } else if (q.type==='phone'){
+      h += '<input type="tel" inputmode="numeric" name="'+nm+'" placeholder="010-0000-0000" oninput="fmtPhone(this)" maxlength="13" autocomplete="tel">';
+    } else if (q.type==='number'){
+      h += '<input type="number" inputmode="numeric" name="'+nm+'">';
+    } else {
+      h += '<input type="text" name="'+nm+'" placeholder="입력해 주세요" maxlength="100">';
+    }
+    h += '<div class="msg" id="msg"></div></div>';
+  }
+  const stage = $('stage');
+  stage.className = 'stage'+(back?' back':'');
+  stage.innerHTML = h;
+
+  if (st.k==='consent'){
+    stage.querySelectorAll('input[name=consent]').forEach(x=>x.addEventListener('change',()=>{ CONSENT = x.value==='Y'; $('msg').textContent=''; }));
+  }
+  if (st.k==='q'){
+    const q = st.q, v = ANS[q.key], el = stage.querySelectorAll('[name="q_'+q.key+'"]');
+    if (v!==undefined && v!==''){
+      if (q.type==='radio') el.forEach(x=>{ x.checked = x.value===v; });
+      else if (q.type==='checkbox') el.forEach(x=>{ x.checked = v.indexOf(x.value)>=0; });
+      else el[0].value = v;
+    }
+    const first = el[0];
+    if (first && /^(text|tel|number)$/.test(first.type||'')){
+      first.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); go(1); } });
+      if (!back) setTimeout(()=>first.focus({preventScroll:true}),320);
+    }
+    stage.querySelectorAll('input[type=radio],input[type=checkbox],select').forEach(x=>x.addEventListener('change',()=>{ $('msg').textContent=''; }));
+  }
+  const nav = $('nav'); nav.hidden = false;
+  const last = idx===STEPS.length-1;
+  nav.innerHTML = (idx>0?'<button class="sec" onclick="go(-1)">이전</button>':'')+'<button class="pri" id="nextBtn" onclick="go(1)">'+(idx===0?'시작하기':(last?'제출하기':'다음'))+'</button>';
+  window.scrollTo(0,0);
+}
+
+function fmtPhone(el){
+  let d = el.value.replace(/\D/g,'').slice(0,11);
+  if (d.length>=8) d = d.replace(/^(\d{3})(\d{3,4})(\d{4})$/,'$1-$2-$3');
+  else if (d.length>3) d = d.slice(0,3)+'-'+d.slice(3);
+  el.value = d;
+}
+
+async function submitForm(){
+  busy = true;
+  const btn = $('nextBtn'); btn.disabled = true; btn.textContent = '제출 중…';
+  const ans = {};
+  STEPS.filter(s=>s.k==='q').forEach(s=>{ const q = s.q; const v = ANS[q.key]; ans[q.key] = v!==undefined ? v : (q.type==='checkbox'?[]:''); });
+  try {
+    await api('survey.submit', { code: CODE, nonce: NONCE, consentPi: CONSENT===true, answers: ans });
+    showMsg('제출이 완료되었습니다','소중한 의견 감사합니다.', true);
+  } catch (e) {
+    busy = false; btn.disabled = false; btn.textContent = '제출하기'; $('msg').textContent = e.message;
+  }
+}
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 //  - 담당 본부/팀이 없으면 '워킹', 고객이 입력해 아직 데스크가 확인하지 않은 건은 '확인 필요'
 //  - 통계: 방문팀수 = 건수, 방문객수 = 건마다 (1 + companions) 의 합
 //  - 방명록·데스크 계정은 현장 1개에 고정되어 있어 ctx.projectId 가 그 현장이다.
-import { AppError, s, all, first, run, todayStr, nowStr, newId, orgNameMap, writeLog } from '../core/util.js';
+import { AppError, s, all, first, run, todayStr, nowStr, newId, orgNameMap, writeLog, phoneHash } from '../core/util.js';
 import { sendCallMessage, hhmm } from '../telegram/telegram.js';
 import { formatPhone, visitStatus } from '../visit/visit.js';
 import { computeMatches } from '../visit/matching.js';
@@ -50,9 +50,9 @@ export async function guestSubmit(env, data, ctx) {
   const now = nowStr();
   const id = newId('G');
   await run(env,
-    `INSERT INTO guestbook (id, project_id, created_at, visit_date, name, phone, last5, gender, companions, consent, consent_at, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, '고객')`,
-    id, pid, now, todayStr(), name, phone, phone.slice(-5), '', companions, now); // 성별은 고객이 아니라 데스크 안내직원이 입력한다
+    `INSERT INTO guestbook (id, project_id, created_at, visit_date, name, phone, last5, gender, companions, consent, consent_at, source, phone_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, '고객', ?)`,
+    id, pid, now, todayStr(), name, phone, phone.slice(-5), '', companions, now, await phoneHash(env, phone)); // 성별은 고객이 아니라 데스크 안내직원이 입력한다
 
   // 예약이나 방문이력이 있으면 담당 본부/팀/담당자를 미리 채워 둔다. 상태는 '확인 필요' 그대로라 데스크가 확인·수정한다.
   // 이 단계가 실패해도 고객의 제출은 성공으로 처리한다.
@@ -159,18 +159,18 @@ export async function deskGuestSave(env, data, ctx) {
     const consentAt = consent ? (existing.consent ? existing.consent_at : now) : '';
     await run(env,
       `UPDATE guestbook SET name = ?, phone = ?, last5 = ?, gender = ?, companions = ?, head_id = ?, team_id = ?, staff_id = ?, staff_none = ?,
-         consent = ?, consent_at = ?, reviewed = 1, auto_source = '', updated_at = ?, updated_by = ? WHERE id = ? AND project_id = ?`,
-      name, phone, phone.slice(-5), gender, companions, a.headId, a.teamId, a.staffId, a.staffNone, consent, consentAt, now, who, id, pid);
+         consent = ?, consent_at = ?, reviewed = 1, auto_source = '', updated_at = ?, updated_by = ?, phone_hash = ? WHERE id = ? AND project_id = ?`,
+      name, phone, phone.slice(-5), gender, companions, a.headId, a.teamId, a.staffId, a.staffNone, consent, consentAt, now, who, consent ? await phoneHash(env, phone) : '', id, pid);
     await writeLog(env, who, '방명록수정', id, name, pid);
     return { id };
   }
   const newGuest = newId('G');
   await run(env,
     `INSERT INTO guestbook (id, project_id, created_at, visit_date, name, phone, last5, gender, companions, head_id, team_id, staff_id, staff_none,
-       consent, consent_at, source, reviewed, updated_at, updated_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '데스크', 1, ?, ?)`,
+       consent, consent_at, source, reviewed, updated_at, updated_by, phone_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '데스크', 1, ?, ?, ?)`,
     newGuest, pid, now, todayStr(), name, phone, phone.slice(-5), gender, companions, a.headId, a.teamId, a.staffId, a.staffNone,
-    consent, consent ? now : '', now, who);
+    consent, consent ? now : '', now, who, consent ? await phoneHash(env, phone) : '');
   await writeLog(env, who, '방명록등록', newGuest, name, pid);
   return { id: newGuest };
 }

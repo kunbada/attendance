@@ -288,6 +288,28 @@
   });
   $('#btn-mypay-back').addEventListener('click', function () { runBusy($('#btn-mypay-back'), showHome); });
 
+  // ---------- 내 설문 QR ----------
+  async function loadMySurvey() {
+    var res = await Api.call('survey.myLinks');
+    var box = $('#sv-list');
+    box.innerHTML = '';
+    if (!res.links.length) { box.appendChild(h('p', { class: 'muted' }, '진행 중인 설문이 없습니다.')); return; }
+    res.links.forEach(function (l) {
+      var url = location.href.replace(/[?#].*$/, '').replace(/[^\/]*$/, '') + 's/?c=' + l.code;
+      var qr = h('div', { class: 'qr-box' });
+      var copy = h('button', { type: 'button', class: 'btn small' }, '링크 복사');
+      copy.addEventListener('click', function () {
+        if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { toast('복사했습니다.'); }); else prompt('링크를 복사하세요', url);
+      });
+      box.appendChild(h('div', { class: 'card qr-big' }, h('p', { class: 'qr-title' }, l.title), qr, h('p', { class: 'muted' }, '내 응답 ' + l.responses + '건'), copy));
+      if (window.QRCode) new QRCode(qr, { text: url, width: 200, height: 200 });
+    });
+  }
+  $('#btn-mysurvey').addEventListener('click', function () {
+    runBusy($('#btn-mysurvey'), async function () { await loadMySurvey(); show('mysurvey'); });
+  });
+  $('#btn-mysurvey-back').addEventListener('click', function () { runBusy($('#btn-mysurvey-back'), showHome); });
+
   // ---------- 텔레그램 연결 ----------
   $('#btn-telegram').addEventListener('click', function () {
     var btn = $('#btn-telegram');

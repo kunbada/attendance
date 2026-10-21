@@ -20,6 +20,8 @@ import { reservationCreate, reservationList, reservationUpdate, reservationCance
 import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit/visit.js';
 import { staffTelegramLink, handleTelegram } from './telegram/telegram.js';
 import { adminDashboard, adminGuestStats, adminGuestbook } from './report/stats.js';
+import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyDelete, surveyLinkList, surveyLinkSave, surveyLinkGenerate, surveyLinkToggle, surveyForm, surveySubmit, surveyResponses, surveyExport, surveyStats, surveyCompare, surveyPurgePii, surveyMyLinks } from './survey/survey.js';
+import { customerList } from './customer/customer.js';
 import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook/guestbook.js';
 
 // roles: 이 action 을 부를 수 있는 역할
@@ -37,6 +39,11 @@ const ACTIONS = {
   'staff.me': { roles: ['staff'], fn: staffMe },
   'staff.telegramLink': { roles: ['staff'], fn: staffTelegramLink },
   'staff.myPay': { roles: ['staff'], fn: staffMyPay },
+  'survey.myLinks': { roles: ['staff'], fn: surveyMyLinks },
+
+  // 설문(고객관리): 응답 화면은 로그인 없이(링크 코드로), 관리는 관리자·보조관리자
+  'survey.form': { roles: ['public'], fn: surveyForm },
+  'survey.submit': { roles: ['public'], fn: surveySubmit },
   'reservation.create': { roles: ['staff'], fn: reservationCreate },
   'reservation.list': { roles: ['staff'], fn: reservationList },
   'reservation.update': { roles: ['staff'], fn: reservationUpdate },
@@ -92,6 +99,23 @@ const ACTIONS = {
   'admin.adjustDelete': { roles: MGR, fn: adminAdjustDelete },
 
   // 용역관리(일급 정산). 확정·지급완료·이체 파일의 세부 권한은 함수 안에서 확인한다 (관리자 또는 계정별 허용)
+  'survey.bank': { roles: MGR, fn: surveyBank },
+  'survey.list': { roles: MGR, fn: surveyList },
+  'survey.get': { roles: MGR, fn: surveyGet },
+  'survey.save': { roles: MGR, fn: surveySave },
+  'survey.setStatus': { roles: MGR, fn: surveySetStatus },
+  'survey.delete': { roles: MGR, fn: surveyDelete },
+  'survey.linkList': { roles: MGR, fn: surveyLinkList },
+  'survey.linkSave': { roles: MGR, fn: surveyLinkSave },
+  'survey.linkGenerate': { roles: MGR, fn: surveyLinkGenerate },
+  'survey.linkToggle': { roles: MGR, fn: surveyLinkToggle },
+  'survey.responses': { roles: MGR, fn: surveyResponses },
+  'survey.export': { roles: MGR, fn: surveyExport },
+  'survey.stats': { roles: MGR, fn: surveyStats },
+  'survey.compare': { roles: MGR, scope: 'global', fn: surveyCompare },
+  'survey.purgePii': { roles: ['admin'], scope: 'global', fn: surveyPurgePii },
+  'customer.list': { roles: MGR, fn: customerList },
+
   'pay.settingList': { roles: MGR, fn: paySettingList },
   'pay.settingSave': { roles: MGR, fn: paySettingSave },
   'pay.settingClear': { roles: MGR, fn: paySettingClear },
