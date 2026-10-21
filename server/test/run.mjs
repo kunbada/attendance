@@ -1009,6 +1009,59 @@ try {
   expectOk('직군 기본 일당 변경은 적용 시작일 이력으로 쌓임', await jobSet({ dailyWage: 65000, effectiveFrom: '2099-01-01' }));
   check('미래 적용 직군 설정은 upcoming 으로 분리', (await call('pay.jobList', {}, admin, '', PP)).data.jobs.find((x) => x.job === '도우미').upcoming.length === 1);
 
+  // --- 인력공급업체 일괄지급: 일당 × 출근일수 = 공급가, 부가세(10%) 별도, 업체에 일괄 지급 ---
+  const supSave = (o, tk = admin, pid = PP) => call('pay.supplierSave', o, tk, '', pid);
+  expectErr('업체 이름 필수', await supSave({ name: ' ' }), '업체 이름');
+  expectErr('사업자등록번호는 10자리', await supSave({ name: 'A인력', bizNo: '123-45-678' }), '10자리');
+  expectErr('계좌번호 형식 검사', await supSave({ name: 'A인력', accountNo: '12' }), '계좌번호');
+  expectErr('다른 현장 보조관리자는 업체 등록 불가', await supSave({ name: 'X인력' }, subA, PP), '접근할 수 없습니다', 'FORBIDDEN');
+  const supA = await supSave({ name: 'A인력', bizNo: '123-45-67890', bank: '신한', accountNo: '110-222-333333', holder: 'A인력(주)', contact: '010-0000-9999' });
+  expectOk('인력공급업체 등록', supA);
+  expectErr('같은 이름 업체 중복 거부', await supSave({ name: 'A인력' }), '이미 있습니다');
+  const supP1 = await supSave({ name: 'P01인력' }, admin, P1);
+  expectOk('다른 현장(P01)에도 업체 등록', supP1);
+  const sl2 = (await call('pay.supplierList', {}, admin, '', PP)).data.suppliers;
+  check('업체 목록: 정산현장 업체만, 계좌번호 원문은 응답에 없음', sl2.length === 1 && sl2[0].name === 'A인력' && sl2[0].accountSet === true && sl2[0].bizNo === '1234567890' && !JSON.stringify(sl2).includes('110-222') && !JSON.stringify(sl2).includes('333333'));
+  expectOk('계좌번호를 비워 저장하면 기존 계좌 유지', await supSave({ id: supA.data.id, name: 'A인력', bizNo: '1234567890', bank: '신한', holder: 'A인력(주)', contact: '010-0000-9999' }));
+  const supPay = (w, o) => call('pay.settingSave', { staffId: w.id, effectiveFrom: '2026-01-01', cycle: '월', dailyEnabled: true, feeEnabled: false, ...o }, admin, '', PP);
+  expectErr('지급 방식은 정해진 값만', await supPay(W1, { dailyWage: 1000, payMode: '현금' }), '지급 방식');
+  expectErr('업체 일괄지급은 업체 선택 필수', await supPay(W1, { dailyWage: 1000, payMode: '업체일괄' }), '인력공급업체를 선택');
+  expectErr('다른 현장 업체는 선택할 수 없음', await supPay(W1, { dailyWage: 1000, payMode: '업체일괄', supplierId: supP1.data.id }), '인력공급업체를 선택');
+  const W10 = await pmk(10, {}), W11 = await pmk(11, {}), W12 = await pmk(12, {});
+  const attJul = (w, days) => days.map((d) => `INSERT INTO attendance (id, project_id, date, staff_id, time, device_key, result, distance_m) VALUES ('TJ${uniq.slice(0, 3)}${++tcount}', '${PP}', '2026-07-${String(d).padStart(2, '0')}', '${w.id}', '09:00:00', '${w.dev}', '성공', 10)`);
+  await sql([...attJul(W10, [1, 2, 3, 4, 5]), ...attJul(W11, [1, 2, 3]), ...attJul(W12, [1, 2])].join(';\n'));
+  expectOk('W10 일당 80,000 — A인력 일괄지급', await supPay(W10, { dailyWage: 80000, payMode: '업체일괄', supplierId: supA.data.id }));
+  expectOk('W11 일당 80,000 — A인력 일괄지급', await supPay(W11, { dailyWage: 80000, payMode: '업체일괄', supplierId: supA.data.id }));
+  expectOk('W12 일당 100,000 — 3.3% 공제', await supPay(W12, { dailyWage: 100000, payMode: '3.3%' }));
+  expectOk('W11 7/3 반일', await padj(W11, '2026-07-03', '반일', ''));
+  const psl2 = (await call('pay.settingList', {}, admin, '', PP)).data.staff;
+  check('지급 설정 목록에 지급 방식·업체 이름', psl2.find((x) => x.id === W10.id).current.payMode === '업체일괄' && psl2.find((x) => x.id === W10.id).current.supplierName === 'A인력' && psl2.find((x) => x.id === W12.id).current.payMode === '3.3%' && psl2.find((x) => x.id === W12.id).current.withhold === true);
+  const runJul = await call('pay.runCreate', { cycle: '월', from: '2026-07-01', to: '2026-07-31', title: '7월(업체 일괄 포함)' }, admin, '', PP);
+  expectOk('7월 정산 (개인 3.3% + 업체 일괄)', runJul);
+  // 수작업: W12 2일 × 100,000 = 200,000 (소득세 6,000 + 지방소득세 600 → 실지급 193,400)
+  //        A인력: W10 5일 × 80,000 = 400,000 + W11 2.5일 × 80,000 = 200,000 → 공급가 600,000, 부가세 60,000, 청구 합계 660,000
+  check('개인 지급 합계: 200,000 / 공제 6,600 / 실지급 193,400', runJul.data.ownPeople === 1 && runJul.data.gross === 200000 && runJul.data.tax === 6600 && runJul.data.net === 193400, JSON.stringify(runJul.data));
+  check('업체 합계: A인력 2명, 공급가 600,000 + 부가세 60,000 = 660,000', runJul.data.suppliers.length === 1 && runJul.data.suppliers[0].name === 'A인력' && runJul.data.suppliers[0].people === 2 && runJul.data.supply === 600000 && runJul.data.vat === 60000 && runJul.data.supplierTotal === 660000, JSON.stringify(runJul.data.suppliers));
+  const gJul = (await call('pay.runGet', { runId: runJul.data.id }, admin, '', PP)).data;
+  const jit = (id) => gJul.items.find((x) => x.staffId === id);
+  check('업체 일괄 명세: 개인 공제·실지급 없음, 공급가만 (W10 400,000 / W11 200,000)', jit(W10.id).payMode === '업체일괄' && jit(W10.id).supplierName === 'A인력' && jit(W10.id).gross === 400000 && jit(W10.id).incomeTax === 0 && jit(W10.id).net === 0 && jit(W11.id).gross === 200000 && jit(W11.id).days === 2.5);
+  check('회차 목록: 개인 합계와 업체 공급가·청구액 구분', (await call('pay.runList', {}, admin, '', PP)).data.runs.some((r) => r.id === runJul.data.id && r.gross === 200000 && r.supply === 600000 && r.supplyTotal === 660000));
+  expectOk('업체 일괄 명세에도 조정 가능 (W10 +10,000)', await call('pay.itemSave', { runId: runJul.data.id, staffId: W10.id, adjustAmount: 10000, adjustMemo: '추가 투입' }, admin, '', PP));
+  const gJul2 = (await call('pay.runGet', { runId: runJul.data.id }, admin, '', PP)).data;
+  check('조정 후: 공급가 610,000 / 부가세 61,000 / 청구 671,000, 업체 명세는 여전히 공제·실지급 없음', gJul2.totals.supply === 610000 && gJul2.totals.vat === 61000 && gJul2.totals.supplierTotal === 671000 && gJul2.items.find((x) => x.staffId === W10.id).net === 0 && gJul2.totals.net === 193400);
+  expectOk('7월 회차 검토', await call('pay.runReview', { runId: runJul.data.id }, admin, '', PP));
+  expectOk('7월 회차 확정', await call('pay.runConfirm', { runId: runJul.data.id }, admin, '', PP));
+  const trJul = await call('pay.transferExport', { runId: runJul.data.id }, admin, '', PP);
+  expectOk('7월 이체 데이터', trJul);
+  const supRow = trJul.data.rows.find((x) => x.kind === '업체'), ownRow = trJul.data.rows.find((x) => x.kind === '개인');
+  check('이체 데이터: 개인 1건(193,400) + 업체 1건(공급가+부가세 671,000, 업체 계좌 원문)', trJul.data.rows.length === 2 && ownRow.amount === 193400 && supRow.amount === 671000 && supRow.supply === 610000 && supRow.vat === 61000 && supRow.bank === '신한' && supRow.accountNo === '110-222-333333' && supRow.holder === 'A인력(주)', JSON.stringify(supRow));
+  const lw10 = await call('staff.login', { phone: W10.phone, pin: W10.pin }, '', W10.dev, null);
+  check('업체 소속 직원의 내 지급내역에는 개인 지급이 없어 표시되지 않음', lw10.ok && (await call('staff.myPay', {}, lw10.data.token, W10.dev, null)).data.pays.length === 0);
+  const lw12 = await call('staff.login', { phone: W12.phone, pin: W12.pin }, '', W12.dev, null);
+  check('개인 지급 직원 W12 는 내 지급내역에 193,400', (await call('staff.myPay', {}, lw12.data.token, W12.dev, null)).data.pays.some((p) => p.net === 193400));
+  expectOk('직군 기본에도 업체 일괄 지정 가능', await call('pay.jobSave', { job: '홍보단', effectiveFrom: '2026-01-01', dailyWage: 50000, cycle: '월', dailyEnabled: true, payMode: '업체일괄', supplierId: supA.data.id }, admin, '', PP));
+  check('직군 기본 목록에 지급 방식·업체', (await call('pay.jobList', {}, admin, '', PP)).data.jobs.find((x) => x.job === '홍보단').current.supplierName === 'A인력');
+
   // --- 이전 현장 / 현재 현장 정산이 각각 맞게 ---
   const runP2 = await call('pay.runCreate', { cycle: '월', from: '2026-09-01', to: '2026-09-30', title: 'B현장 9월' }, admin, '', P2);
   expectOk('B현장 9월 정산 (이동 후 근무)', runP2);

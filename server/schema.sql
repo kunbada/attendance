@@ -265,6 +265,8 @@ CREATE TABLE IF NOT EXISTS staff_pay (
   daily_enabled INTEGER NOT NULL DEFAULT 1,
   fee_enabled INTEGER NOT NULL DEFAULT 0,
   withhold INTEGER NOT NULL DEFAULT 1,
+  pay_mode TEXT NOT NULL DEFAULT '3.3%',      -- 3.3% / 공제없음 / 업체일괄 (withhold 는 pay_mode='3.3%' 일 때 1)
+  supplier_id TEXT NOT NULL DEFAULT '',       -- pay_mode='업체일괄' 일 때 지급 대상 인력공급업체
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
@@ -306,7 +308,10 @@ CREATE TABLE IF NOT EXISTS pay_items (
   local_tax INTEGER NOT NULL DEFAULT 0,
   net INTEGER NOT NULL DEFAULT 0,
   withhold INTEGER NOT NULL DEFAULT 1,
-  detail_json TEXT NOT NULL DEFAULT '[]'
+  detail_json TEXT NOT NULL DEFAULT '[]',
+  pay_mode TEXT NOT NULL DEFAULT '3.3%',       -- 업체일괄이면 개인 지급 없음(net 0), gross 는 업체에 청구하는 공급가
+  supplier_id TEXT NOT NULL DEFAULT '',
+  supplier_name TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_pay_items_run_staff ON pay_items(run_id, staff_id);
 CREATE INDEX IF NOT EXISTS ix_pay_items_staff ON pay_items(staff_id, project_id);
@@ -322,7 +327,24 @@ CREATE TABLE IF NOT EXISTS job_pay (
   daily_enabled INTEGER NOT NULL DEFAULT 1,
   fee_enabled INTEGER NOT NULL DEFAULT 0,
   withhold INTEGER NOT NULL DEFAULT 1,
+  pay_mode TEXT NOT NULL DEFAULT '3.3%',
+  supplier_id TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_job_pay_from ON job_pay(project_id, job, effective_from);
+
+-- 인력공급업체 (현장별). 용역비를 개인이 아니라 업체에 일괄 지급할 때 쓴다. 계좌번호는 암호화해 저장
+CREATE TABLE IF NOT EXISTS suppliers (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  biz_no TEXT NOT NULL DEFAULT '',
+  bank TEXT NOT NULL DEFAULT '',
+  account_enc TEXT NOT NULL DEFAULT '',
+  holder TEXT NOT NULL DEFAULT '',
+  contact TEXT NOT NULL DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_suppliers_name ON suppliers(project_id, name);

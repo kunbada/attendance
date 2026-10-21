@@ -14,7 +14,7 @@ import { projectList, projectSave, adminSettings, adminSaveSettings } from './co
 import { leaderStaffList, leaderApprove, leaderReject, leaderRetire } from './core/leader.js';
 import { adminCurrentQr, adminIssueQr, attendanceCheckin, adminAttendance } from './attendance/attendance.js';
 import { adminAdjustSave, adminAdjustDelete } from './attendance/adjust.js';
-import { paySettingList, paySettingSave, paySettingClear, jobPayList, jobPaySave } from './pay/staffpay.js';
+import { paySettingList, paySettingSave, paySettingClear, jobPayList, jobPaySave, paySupplierList, paySupplierSave } from './pay/staffpay.js';
 import { payRunList, payRunCreate, payRunGet, payRunRecalc, payRunReview, payRunConfirm, payRunPaid, payRunDelete, payItemSave, payTransferExport, staffMyPay } from './pay/runs.js';
 import { reservationCreate, reservationList, reservationUpdate, reservationCancel } from './visit/reservation.js';
 import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, deskRecall, deskTodayVisits, adminReservations, adminVisits } from './visit/visit.js';
@@ -97,6 +97,8 @@ const ACTIONS = {
   'pay.settingClear': { roles: MGR, fn: paySettingClear },
   'pay.jobList': { roles: MGR, fn: jobPayList },
   'pay.jobSave': { roles: MGR, fn: jobPaySave },
+  'pay.supplierList': { roles: MGR, fn: paySupplierList },
+  'pay.supplierSave': { roles: MGR, fn: paySupplierSave },
   'pay.runList': { roles: MGR, fn: payRunList },
   'pay.runCreate': { roles: MGR, fn: payRunCreate },
   'pay.runGet': { roles: MGR, fn: payRunGet },

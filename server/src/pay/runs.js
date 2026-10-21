@@ -1,7 +1,7 @@
 // 일급 정산 회차: 작성 → 검토 → 확정 → 지급완료. 확정된 회차는 수정할 수 없다 (정정은 다음 회차의 조정 금액으로).
 // 정산 단위는 "현장 + 기간"이고, 대상은 그 기간에 그 현장에서 일한 사람이다 (지금 어느 현장 소속인지와 무관).
 import { AppError, s, all, first, run, stmt, nowStr, todayStr, newId, decryptText, writeLog } from '../core/util.js';
-import { CYCLES, collectWork, loadPaySettings, loadJobSettings, makeResolver, priceItem, deductions } from './calc.js';
+import { CYCLES, SUPPLIER_MODE, collectWork, loadPaySettings, loadJobSettings, makeResolver, priceItem, deductions, supplyVat } from './calc.js';
 
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v);
 const EDITABLE = ['작성', '검토'];
@@ -28,7 +28,7 @@ const runView = (r) => ({
 });
 
 const itemView = (i) => ({
-  id: i.id, staffId: i.staff_id, name: i.name, days: i.units / 2, baseAmount: i.base_amount, adjustAmount: i.adjust_amount, adjustMemo: i.adjust_memo,
+  id: i.id, staffId: i.staff_id, name: i.name, payMode: i.pay_mode, supplierId: i.supplier_id, supplierName: i.supplier_name, days: i.units / 2, baseAmount: i.base_amount, adjustAmount: i.adjust_amount, adjustMemo: i.adjust_memo,
   gross: i.gross, incomeTax: i.income_tax, localTax: i.local_tax, net: i.net, withhold: !!i.withhold, detail: JSON.parse(i.detail_json || '[]')
 });
 
@@ -37,6 +37,8 @@ async function buildItems(env, pid, cycle, from, to, adjustOf, exceptRunId) {
   const work = await collectWork(env, pid, from, to);
   const settings = await loadPaySettings(env, pid);
   const jobSettings = await loadJobSettings(env, pid);
+  const supplierOf = {};
+  (await all(env, 'SELECT id, name, active FROM suppliers WHERE project_id = ?', pid)).forEach((r) => { supplierOf[r.id] = r; });
   const ids = Object.keys(work);
   const names = {}, jobs = {};
   for (let i = 0; i < ids.length; i += 80) {
@@ -67,9 +69,12 @@ async function buildItems(env, pid, cycle, from, to, adjustOf, exceptRunId) {
     if (taken[sid]) return skip('다른 회차(' + taken[sid] + ')에 이미 포함되었습니다');
     const adj = adjustOf[sid] || { amount: 0, memo: '' };
     const p = priceItem(days, resolve, to, adj.amount);
+    // 인력공급업체 일괄지급이면 업체 정보가 살아 있어야 한다
+    if (p.payMode === SUPPLIER_MODE && !(supplierOf[p.supplierId] && supplierOf[p.supplierId].active)) return skip('지급 대상 인력공급업체가 없거나 사용 중지되었습니다');
     items.push({
       id: newId('PI'), staff_id: sid, name, units: p.units, base_amount: p.base, adjust_amount: adj.amount, adjust_memo: adj.memo,
-      gross: p.gross, income_tax: p.incomeTax, local_tax: p.localTax, net: p.net, withhold: p.withhold, detail_json: JSON.stringify(p.detail)
+      gross: p.gross, income_tax: p.incomeTax, local_tax: p.localTax, net: p.net, withhold: p.withhold, detail_json: JSON.stringify(p.detail),
+      pay_mode: p.payMode, supplier_id: p.supplierId, supplier_name: p.supplierId ? supplierOf[p.supplierId].name : ''
     });
   });
   items.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
@@ -80,22 +85,36 @@ async function buildItems(env, pid, cycle, from, to, adjustOf, exceptRunId) {
 function insertItems(env, runId, pid, items) {
   if (!items.length) return null;
   return stmt(env,
-    `INSERT INTO pay_items (id, run_id, project_id, staff_id, name, units, base_amount, adjust_amount, adjust_memo, gross, income_tax, local_tax, net, withhold, detail_json)
+    `INSERT INTO pay_items (id, run_id, project_id, staff_id, name, units, base_amount, adjust_amount, adjust_memo, gross, income_tax, local_tax, net, withhold, detail_json, pay_mode, supplier_id, supplier_name)
      SELECT json_extract(value, '$.id'), ?, ?, json_extract(value, '$.staff_id'), json_extract(value, '$.name'), json_extract(value, '$.units'),
        json_extract(value, '$.base_amount'), json_extract(value, '$.adjust_amount'), json_extract(value, '$.adjust_memo'), json_extract(value, '$.gross'),
-       json_extract(value, '$.income_tax'), json_extract(value, '$.local_tax'), json_extract(value, '$.net'), json_extract(value, '$.withhold'), json_extract(value, '$.detail_json')
+       json_extract(value, '$.income_tax'), json_extract(value, '$.local_tax'), json_extract(value, '$.net'), json_extract(value, '$.withhold'), json_extract(value, '$.detail_json'),
+       json_extract(value, '$.pay_mode'), json_extract(value, '$.supplier_id'), json_extract(value, '$.supplier_name')
      FROM json_each(?)`, runId, pid, JSON.stringify(items));
 }
 
-const totals = (items) => ({
-  people: items.length, gross: items.reduce((n, i) => n + i.gross, 0), tax: items.reduce((n, i) => n + i.income_tax + i.local_tax, 0), net: items.reduce((n, i) => n + i.net, 0)
-});
+// 합계: gross·tax·net 은 개인에게 지급하는 명세만. 인력공급업체 일괄지급분은 업체별 공급가·부가세(10%, 업체 합계 기준 절사)·합계로 따로 모은다
+const totals = (items) => {
+  const own = items.filter((i) => i.pay_mode !== SUPPLIER_MODE), sup = items.filter((i) => i.pay_mode === SUPPLIER_MODE);
+  const by = {};
+  sup.forEach((i) => {
+    const b = (by[i.supplier_id] = by[i.supplier_id] || { supplierId: i.supplier_id, name: i.supplier_name, people: 0, supply: 0 });
+    b.people += 1; b.supply += i.gross;
+  });
+  const suppliers = Object.values(by).map((b) => ({ ...b, vat: supplyVat(b.supply), total: b.supply + supplyVat(b.supply) })).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  return {
+    people: items.length, ownPeople: own.length, gross: own.reduce((n, i) => n + i.gross, 0), tax: own.reduce((n, i) => n + i.income_tax + i.local_tax, 0), net: own.reduce((n, i) => n + i.net, 0),
+    suppliers, supply: suppliers.reduce((n, b) => n + b.supply, 0), vat: suppliers.reduce((n, b) => n + b.vat, 0), supplierTotal: suppliers.reduce((n, b) => n + b.total, 0)
+  };
+};
 
 export async function payRunList(env, data, ctx) {
   const rows = await all(env,
-    `SELECT r.*, COUNT(i.id) AS people, COALESCE(SUM(i.gross), 0) AS gross, COALESCE(SUM(i.income_tax + i.local_tax), 0) AS tax, COALESCE(SUM(i.net), 0) AS net
+    `SELECT r.*, COUNT(i.id) AS people,
+       COALESCE(SUM(CASE WHEN i.pay_mode <> '업체일괄' THEN i.gross ELSE 0 END), 0) AS gross, COALESCE(SUM(i.income_tax + i.local_tax), 0) AS tax, COALESCE(SUM(i.net), 0) AS net,
+       COALESCE(SUM(CASE WHEN i.pay_mode = '업체일괄' THEN i.gross ELSE 0 END), 0) AS supply
      FROM pay_runs r LEFT JOIN pay_items i ON i.run_id = r.id WHERE r.project_id = ? GROUP BY r.id ORDER BY r.period_from DESC, r.created_at DESC`, ctx.projectId);
-  return { runs: rows.map((r) => ({ ...runView(r), people: r.people, gross: r.gross, tax: r.tax, net: r.net })) };
+  return { runs: rows.map((r) => ({ ...runView(r), people: r.people, gross: r.gross, tax: r.tax, net: r.net, supply: r.supply, supplyTotal: r.supply + supplyVat(r.supply) })) };
 }
 
 export async function payRunCreate(env, data, ctx) {
@@ -170,14 +189,14 @@ export async function payRunConfirm(env, data, ctx) {
   const pid = ctx.projectId;
   const r = await getRun(env, data.runId, pid);
   if (r.status !== '검토') throw new AppError('검토 상태의 회차만 확정할 수 있습니다.');
-  const stored = await all(env, 'SELECT staff_id, units, gross FROM pay_items WHERE run_id = ? AND project_id = ?', r.id, pid);
+  const stored = await all(env, 'SELECT staff_id, units, gross, pay_mode, supplier_id FROM pay_items WHERE run_id = ? AND project_id = ?', r.id, pid);
   const fresh = (await buildItems(env, pid, r.cycle, r.period_from, r.period_to, await adjustMap(env, r.id, pid), r.id)).items;
-  const same = stored.length === fresh.length && stored.every((a) => { const b = fresh.find((x) => x.staff_id === a.staff_id); return b && b.units === a.units && b.gross === a.gross; });
+  const same = stored.length === fresh.length && stored.every((a) => { const b = fresh.find((x) => x.staff_id === a.staff_id); return b && b.units === a.units && b.gross === a.gross && b.pay_mode === a.pay_mode && b.supplier_id === a.supplier_id; });
   if (!same) throw new AppError('검토 이후 근태 보정이나 지급 설정이 바뀌었습니다. [다시 계산]한 뒤 검토부터 다시 진행해 주세요.');
   const res = await run(env, `UPDATE pay_runs SET status = '확정', confirmed_by = ?, confirmed_at = ? WHERE id = ? AND project_id = ? AND status = '검토'`, ctx.account.login_id, nowStr(), r.id, pid);
   if (!res.meta.changes) throw new AppError('이미 처리된 회차입니다.');
   const t = totals(stored.length ? await all(env, 'SELECT * FROM pay_items WHERE run_id = ? AND project_id = ?', r.id, pid) : []);
-  await writeLog(env, ctx.account.login_id, '정산확정', r.id, r.title + ' / ' + t.people + '명 / 실지급 ' + t.net, pid);
+  await writeLog(env, ctx.account.login_id, '정산확정', r.id, r.title + ' / ' + t.people + '명 / 개인 실지급 ' + t.net + ' / 업체 청구 ' + t.supplierTotal, pid);
   return {};
 }
 
@@ -214,10 +233,11 @@ export async function payItemSave(env, data, ctx) {
   if (memo.length > 100) throw new AppError('조정 사유는 100자 이내로 입력해 주세요.');
   const gross = it.base_amount + amount;
   if (gross < 0) throw new AppError('조정 후 금액이 0원보다 작을 수 없습니다.');
-  const tax = deductions(gross, it.withhold);
+  const tax = deductions(gross, it.pay_mode === '3.3%' ? 1 : 0);
+  const net = it.pay_mode === SUPPLIER_MODE ? 0 : gross - tax.income - tax.local; // 업체 일괄은 개인 지급이 없다
   await env.DB.batch([
     stmt(env, 'UPDATE pay_items SET adjust_amount = ?, adjust_memo = ?, gross = ?, income_tax = ?, local_tax = ?, net = ? WHERE id = ? AND project_id = ?',
-      amount, amount ? memo : '', gross, tax.income, tax.local, gross - tax.income - tax.local, it.id, pid),
+      amount, amount ? memo : '', gross, tax.income, tax.local, net, it.id, pid),
     stmt(env, `UPDATE pay_runs SET status = '작성', reviewed_at = '' WHERE id = ? AND project_id = ?`, r.id, pid)
   ]);
   await writeLog(env, ctx.account.login_id, '정산조정', r.id, it.name + ' / ' + amount + (memo ? ' / ' + memo : ''), pid);
@@ -234,9 +254,18 @@ export async function payTransferExport(env, data, ctx) {
   const rows = [];
   for (const i of items) {
     const p = await first(env, 'SELECT bank, account_enc, holder FROM payroll WHERE staff_id = ?', i.staff_id);
-    rows.push({ name: i.name, bank: p ? p.bank : '', accountNo: p ? await decryptText(env, p.account_enc) : '', holder: p ? p.holder : '', amount: i.net, missing: !p });
+    rows.push({ name: i.name, bank: p ? p.bank : '', accountNo: p ? await decryptText(env, p.account_enc) : '', holder: p ? p.holder : '', amount: i.net, missing: !p, kind: '개인' });
   }
-  await writeLog(env, ctx.account.login_id, '이체파일', r.id, r.title + ' / ' + rows.length + '명 / ' + rows.reduce((n, x) => n + x.amount, 0), pid);
+  // 인력공급업체 일괄지급분: 업체별 (공급가 + 부가세 10%) 를 업체 계좌로
+  const supItems = await all(env, `SELECT * FROM pay_items WHERE run_id = ? AND project_id = ? AND pay_mode = '업체일괄'`, r.id, pid);
+  for (const b of totals(supItems).suppliers) {
+    const sp = await first(env, 'SELECT bank, account_enc, holder FROM suppliers WHERE id = ? AND project_id = ?', b.supplierId, pid);
+    rows.push({
+      name: b.name + ' (인력공급업체)', bank: sp ? sp.bank : '', accountNo: sp && sp.account_enc ? await decryptText(env, sp.account_enc) : '', holder: sp ? sp.holder : '',
+      amount: b.total, missing: !sp || !sp.account_enc, kind: '업체', supply: b.supply, vat: b.vat, people: b.people
+    });
+  }
+  await writeLog(env, ctx.account.login_id, '이체파일', r.id, r.title + ' / ' + rows.length + '건 / ' + rows.reduce((n, x) => n + x.amount, 0), pid);
   return { title: r.title, rows };
 }
 
@@ -245,7 +274,7 @@ export async function staffMyPay(env, data, ctx) {
   const rows = await all(env,
     `SELECT i.*, r.title, r.cycle, r.period_from, r.period_to, r.status, r.paid_at, p.name AS project_name
      FROM pay_items i JOIN pay_runs r ON r.id = i.run_id JOIN projects p ON p.id = i.project_id
-     WHERE i.staff_id = ? AND r.status IN ('확정', '지급완료') ORDER BY r.period_to DESC, r.created_at DESC LIMIT 60`, ctx.staff.id);
+     WHERE i.staff_id = ? AND i.pay_mode <> '업체일괄' AND r.status IN ('확정', '지급완료') ORDER BY r.period_to DESC, r.created_at DESC LIMIT 60`, ctx.staff.id);
   return {
     pays: rows.map((i) => ({
       project: i.project_name, title: i.title, from: i.period_from, to: i.period_to, status: i.status, paidAt: i.paid_at,

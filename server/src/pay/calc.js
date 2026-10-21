@@ -2,12 +2,18 @@
 import { all } from '../core/util.js';
 
 export const CYCLES = ['주', '월'];
+// 지급 방식: 개인에게 3.3% 공제 후 지급 / 공제 없이 지급 / 인력공급업체에 일괄 지급(공급가 + 부가세 별도)
+export const PAY_MODES = ['3.3%', '공제없음', '업체일괄'];
+export const SUPPLIER_MODE = '업체일괄';
 export const ADJUST_KINDS = ['인정', '불인정', '반일'];
 // 하루 = 2 단위(반일 = 1). 정수로만 계산해 소수 오차가 생기지 않게 한다
 const UNITS = { 성공: 2, 인정: 2, 불인정: 0, 반일: 1 };
 
 // 하루치 금액 = 일당 × (단위 / 2), 원 단위 절사
 export const dayAmount = (wage, units) => Math.floor((wage * units) / 2);
+
+// 인력공급업체에 청구하는 부가세 = 업체별 공급가 합계의 10%, 원 단위 절사
+export const supplyVat = (supply) => Math.floor((supply * 10) / 100);
 
 // 공제: 소득세 3% + 지방소득세 0.3%, 각각 원 단위 절사해 따로 표시한다
 export function deductions(gross, withhold) {
@@ -79,7 +85,10 @@ export function priceItem(days, resolve, periodTo, adjustAmount = 0) {
   });
   const gross = base + adjustAmount;
   const last = resolve(periodTo);
-  const withhold = last ? last.withhold : 1;
+  const payMode = last ? last.pay_mode : '3.3%';
+  const withhold = payMode === '3.3%' ? 1 : 0;
   const tax = deductions(gross, withhold);
-  return { units, base, gross, incomeTax: tax.income, localTax: tax.local, net: gross - tax.income - tax.local, withhold, detail };
+  // 업체 일괄 지급은 개인에게 주는 돈이 없다 (gross 가 업체에 청구하는 공급가)
+  const net = payMode === SUPPLIER_MODE ? 0 : gross - tax.income - tax.local;
+  return { units, base, gross, incomeTax: tax.income, localTax: tax.local, net, withhold, payMode, supplierId: payMode === SUPPLIER_MODE ? last.supplier_id : '', detail };
 }
