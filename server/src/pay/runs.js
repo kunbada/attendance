@@ -1,7 +1,7 @@
 // 일급 정산 회차: 작성 → 검토 → 확정 → 지급완료. 확정된 회차는 수정할 수 없다 (정정은 다음 회차의 조정 금액으로).
 // 정산 단위는 "현장 + 기간"이고, 대상은 그 기간에 그 현장에서 일한 사람이다 (지금 어느 현장 소속인지와 무관).
 import { AppError, s, all, first, run, stmt, nowStr, todayStr, newId, decryptText, writeLog } from '../core/util.js';
-import { CYCLES, collectWork, loadPaySettings, settingAt, priceItem, deductions } from './calc.js';
+import { CYCLES, collectWork, loadPaySettings, loadJobSettings, makeResolver, priceItem, deductions } from './calc.js';
 
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v);
 const EDITABLE = ['작성', '검토'];
@@ -36,11 +36,16 @@ const itemView = (i) => ({
 async function buildItems(env, pid, cycle, from, to, adjustOf, exceptRunId) {
   const work = await collectWork(env, pid, from, to);
   const settings = await loadPaySettings(env, pid);
+  const jobSettings = await loadJobSettings(env, pid);
   const ids = Object.keys(work);
-  const names = {};
+  const names = {}, jobs = {};
   for (let i = 0; i < ids.length; i += 80) {
     const part = ids.slice(i, i + 80);
-    (await all(env, `SELECT id, name FROM staff WHERE id IN (${part.map(() => '?').join(',')})`, ...part)).forEach((r) => { names[r.id] = r.name; });
+    (await all(env, `SELECT id, name, job, project_id FROM staff WHERE id IN (${part.map(() => '?').join(',')})`, ...part)).forEach((r) => {
+      names[r.id] = r.name;
+      // 직군 기본 설정은 지금 이 현장 소속인 사람에게만 쓴다 (다른 현장으로 옮긴 사람의 직군은 이 현장 기준이 아니므로 개인 설정만 본다)
+      jobs[r.id] = r.project_id === pid ? r.job : null;
+    });
   }
   // 같은 기간이 겹치는 다른 회차에 이미 들어간 사람은 중복 지급을 막으려고 제외한다
   const taken = {};
@@ -52,16 +57,16 @@ async function buildItems(env, pid, cycle, from, to, adjustOf, exceptRunId) {
   ids.forEach((sid) => {
     const days = work[sid];
     if (!days.some((d) => d.units > 0)) return; // 불인정으로 0일이 된 사람
-    const hist = settings[sid];
-    const cur = settingAt(hist, to);
+    const resolve = makeResolver(settings[sid], jobs[sid] ? jobSettings[jobs[sid]] : null);
+    const cur = resolve(to);
     const name = names[sid] || '(알 수 없음)';
     const skip = (reason) => notIncluded.push({ staffId: sid, name, reason });
-    if (!cur) return skip('지급 설정(일당)이 없습니다');
+    if (!cur) return skip('지급 설정(개인 또는 직군 기본)이 없습니다');
     if (!cur.daily_enabled) return skip('일급 대상이 아닙니다');
     if (cur.cycle !== cycle) return skip('지급 주기가 다릅니다 (' + cur.cycle + ')');
     if (taken[sid]) return skip('다른 회차(' + taken[sid] + ')에 이미 포함되었습니다');
     const adj = adjustOf[sid] || { amount: 0, memo: '' };
-    const p = priceItem(days, hist, to, adj.amount);
+    const p = priceItem(days, resolve, to, adj.amount);
     items.push({
       id: newId('PI'), staff_id: sid, name, units: p.units, base_amount: p.base, adjust_amount: adj.amount, adjust_memo: adj.memo,
       gross: p.gross, income_tax: p.incomeTax, local_tax: p.localTax, net: p.net, withhold: p.withhold, detail_json: JSON.stringify(p.detail)

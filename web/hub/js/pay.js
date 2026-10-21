@@ -12,14 +12,43 @@
   // 지급 설정 (개인별 일당·주기·일급/수수료 대상·3.3% 공제)
   // ====================================================================
   async function renderSettings(root) {
-    var res = await Api.call('pay.settingList');
+    var results = await Promise.all([Api.call('pay.settingList'), Api.call('pay.jobList')]);
+    var res = results[0], jobs = results[1].jobs;
     root.innerHTML = '';
+
+    // 1) 직군별 기본 지급: 개인 설정이 없는 직원에게 적용된다
+    var jobRows = jobs.map(function (j) {
+      var c = j.current;
+      var edit = h('button', { type: 'button', class: 'btn small' }, c ? '변경' : '설정');
+      edit.addEventListener('click', function () { openJobSetting(j, root); });
+      return h('tr', null,
+        h('td', null, h('strong', null, j.job)), h('td', null, j.people + '명'),
+        h('td', null, c ? won(c.dailyWage) : h('span', { class: 'muted' }, '미설정')),
+        h('td', null, c ? c.cycle : ''), h('td', null, c ? (c.dailyEnabled ? '대상' : '아님') : ''),
+        h('td', null, c ? (c.feeEnabled ? '대상' : '아님') : (j.defaults.feeEnabled ? '(기본 대상)' : '')),
+        h('td', null, c ? (c.withhold ? '3.3%' : '없음') : ''),
+        h('td', { class: 'muted' }, c ? c.effectiveFrom + '부터' + (j.upcoming.length ? ' (예정 ' + j.upcoming[0].effectiveFrom + '~)' : '') : ''), h('td', null, edit));
+    });
+    root.appendChild(h('div', { class: 'card' }, h('h2', null, '직군별 기본 지급'),
+      h('p', { class: 'muted' }, '직군(상담사·홍보단·도우미·영업 등)마다 기본 일당과 지급 주기를 정해 두면, 개인 설정이 없는 직원에게 자동 적용됩니다. 직원 개인 설정이 있으면 그 직원은 개인 설정이 우선합니다. (용어: "일당"은 하루 기준 금액, "일당 지급 대상"은 출근 일수에 일당을 곱해 지급하는 방식의 대상이라는 뜻입니다)'),
+      simpleTable(['직군', '활동 인원', '기본 일당', '주기', '일당 지급', '판매수수료', '공제', '적용', ''], jobRows)));
+
+    // 2) 개인별 설정 (직군 기본 위에 덮어쓰기)
     root.appendChild(h('div', { class: 'card' }, h('h2', null, '개인별 지급 설정'),
-      h('p', { class: 'muted' }, '직원마다 일당과 지급 주기(주/월)를 정합니다. 적용 시작일을 바꿔 저장하면 이력이 쌓이고, 정산은 날짜별로 그날 적용된 일당으로 계산합니다. 판매수수료 대상은 영업 직군이 기본이며 나머지 직군은 필요할 때만 켭니다. (수수료 정산은 계약관리 연동 후 추가됩니다)')));
+      h('p', { class: 'muted' }, '직군 기본과 다르게 줄 직원만 개인 설정을 합니다. 적용 시작일을 바꿔 저장하면 이력이 쌓이고, 정산은 날짜별로 그날 적용된 일당으로 계산합니다. 판매수수료 대상은 영업 직군이 기본이며 나머지 직군은 필요할 때만 켭니다. (수수료 정산은 계약관리 연동 후 추가됩니다)')));
     var rows = res.staff.map(function (st) {
       var c = st.current;
-      var edit = h('button', { type: 'button', class: 'btn small' }, c ? '변경' : '설정');
+      var edit = h('button', { type: 'button', class: 'btn small' }, st.personal ? '변경' : '개인 설정');
       edit.addEventListener('click', function () { openSetting(st, root); });
+      var cells = [edit];
+      if (st.personal) {
+        var clear = h('button', { type: 'button', class: 'btn small' }, '직군 기준으로');
+        clear.addEventListener('click', function () {
+          if (!confirm(st.name + ' 님의 개인 설정을 모두 지우고 직군 기본을 따르게 할까요? (확정된 정산은 그대로)')) return;
+          runBusy(clear, async function () { await Api.call('pay.settingClear', { staffId: st.id }); await renderSettings(root); toast('직군 기본을 따르게 했습니다.'); });
+        });
+        cells.push(' ', clear);
+      }
       return h('tr', null,
         h('td', null, h('strong', null, st.name), st.nickname ? ' (' + st.nickname + ')' : ''),
         h('td', null, st.job + (st.grade !== '직원' ? ' · ' + st.grade : '')),
@@ -28,33 +57,47 @@
         h('td', null, c ? (c.dailyEnabled ? '대상' : '아님') : ''),
         h('td', null, c ? (c.feeEnabled ? '대상' : '아님') : (st.defaults.feeEnabled ? '(기본 대상)' : '')),
         h('td', null, c ? (c.withhold ? '3.3%' : '없음') : ''),
-        h('td', { class: 'muted' }, c ? c.effectiveFrom + '부터' + (st.upcoming.length ? ' (예정 ' + st.upcoming[0].effectiveFrom + '~)' : '') : ''),
-        h('td', null, edit));
+        h('td', null, c ? h('span', { class: 'badge ' + (c.source === '개인' ? 'ok' : '') }, c.source === '개인' ? '개인' : '직군 기본') : ''),
+        h('td', null, cells));
     });
-    root.appendChild(simpleTable(['성명(예명)', '직군', '일당', '주기', '일급', '판매수수료', '공제', '적용', ''], rows));
+    root.appendChild(simpleTable(['성명(예명)', '직군', '일당', '주기', '일당 지급', '판매수수료', '공제', '적용', ''], rows));
+  }
+
+  // 공통 입력 창: 개인·직군 설정 모두 같은 항목
+  function settingForm(title, cur, defaults, hist, onSave) {
+    var wage = h('input', { type: 'number', min: 0, step: 1000, value: cur ? cur.dailyWage : '' });
+    var cycle = h('select', null, option('월', '월 (한 달 단위 지급)', !cur || cur.cycle === '월'), option('주', '주 (한 주 단위 지급)', cur && cur.cycle === '주'));
+    var daily = h('input', { type: 'checkbox', checked: cur ? cur.dailyEnabled : true });
+    var fee = h('input', { type: 'checkbox', checked: cur ? cur.feeEnabled : defaults.feeEnabled });
+    var hold = h('input', { type: 'checkbox', checked: cur ? cur.withhold : true });
+    var from = h('input', { type: 'date', value: ymd(new Date()), style: DATE_STYLE });
+    var histText = hist.length ? h('p', { class: 'muted' }, '이력: ' + hist.map(function (x) { return x.effectiveFrom + ' ' + won(x.dailyWage) + '/' + x.cycle; }).join(' → ')) : null;
+    modal(title, h('div', null, field('일당 (원)', wage, '하루 기준 금액. 반일은 절반으로 계산하고 원 단위 미만은 버립니다.'), field('지급 주기', cycle),
+      h('label', { class: 'check' }, daily, ' 일당 지급 대상 (출근 일수 × 일당으로 정산)'),
+      h('label', { class: 'check' }, fee, ' 판매수수료 대상 (계약 담당자로 연결된 경우, 5단계에서 사용)'),
+      h('label', { class: 'check' }, hold, ' 3.3% 공제 (소득세 3% + 지방소득세 0.3%)'),
+      field('적용 시작일', from, '이 날짜부터 새 설정이 적용됩니다.'), histText), [{
+        label: '저장', primary: true, onClick: async function (close) {
+          await onSave({ dailyWage: Number(wage.value), cycle: cycle.value, dailyEnabled: daily.checked, feeEnabled: fee.checked, withhold: hold.checked, effectiveFrom: from.value });
+          close();
+        }
+      }]);
   }
 
   function openSetting(st, root) {
-    var c = st.current;
-    var wage = h('input', { type: 'number', min: 0, step: 1000, value: c ? c.dailyWage : '' });
-    var cycle = h('select', null, option('월', '월 (한 달 단위 지급)', !c || c.cycle === '월'), option('주', '주 (한 주 단위 지급)', c && c.cycle === '주'));
-    var daily = h('input', { type: 'checkbox', checked: c ? c.dailyEnabled : true });
-    var fee = h('input', { type: 'checkbox', checked: c ? c.feeEnabled : st.defaults.feeEnabled });
-    var hold = h('input', { type: 'checkbox', checked: c ? c.withhold : true });
-    var from = h('input', { type: 'date', value: ymd(new Date()), style: DATE_STYLE });
-    var hist = st.history.length ? h('p', { class: 'muted' }, '이력: ' + st.history.map(function (x) { return x.effectiveFrom + ' ' + won(x.dailyWage) + '/' + x.cycle; }).join(' → ')) : null;
-    modal('지급 설정 — ' + st.name, h('div', null, field('일당 (원)', wage, '하루 기준 금액. 반일은 절반으로 계산하고 원 단위 미만은 버립니다.'), field('지급 주기', cycle),
-      h('label', { class: 'check' }, daily, ' 일급 대상 (근태 기준으로 일급 정산)'),
-      h('label', { class: 'check' }, fee, ' 판매수수료 대상 (계약 담당자로 연결된 경우, 5단계에서 사용)'),
-      h('label', { class: 'check' }, hold, ' 3.3% 공제 (소득세 3% + 지방소득세 0.3%)'),
-      field('적용 시작일', from, '이 날짜부터 새 설정이 적용됩니다.'), hist), [{
-        label: '저장', primary: true, onClick: async function (close) {
-          await Api.call('pay.settingSave', {
-            staffId: st.id, dailyWage: Number(wage.value), cycle: cycle.value, dailyEnabled: daily.checked, feeEnabled: fee.checked, withhold: hold.checked, effectiveFrom: from.value
-          });
-          close(); await renderSettings(root); toast('저장했습니다.');
-        }
-      }]);
+    settingForm('개인 지급 설정 — ' + st.name, st.current, st.defaults, st.history, async function (v) {
+      v.staffId = st.id;
+      await Api.call('pay.settingSave', v);
+      await renderSettings(root); toast('저장했습니다.');
+    });
+  }
+
+  function openJobSetting(j, root) {
+    settingForm('직군 기본 지급 — ' + j.job, j.current, j.defaults, j.history, async function (v) {
+      v.job = j.job;
+      await Api.call('pay.jobSave', v);
+      await renderSettings(root); toast('저장했습니다. 개인 설정이 없는 ' + j.job + ' 직원에게 적용됩니다.');
+    });
   }
 
   // ====================================================================

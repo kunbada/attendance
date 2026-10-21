@@ -20,3 +20,4 @@ DROP TABLE IF EXISTS attendance_adjust;
 DROP TABLE IF EXISTS staff_pay;
 DROP TABLE IF EXISTS pay_runs;
 DROP TABLE IF EXISTS pay_items;
+DROP TABLE IF EXISTS job_pay;

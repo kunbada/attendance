@@ -978,6 +978,37 @@ try {
   const prun3 = await call('pay.runCreate', { cycle: '주', from: '2026-09-21', to: '2026-09-27' }, admin, '', PP);
   check('(참고) 근태 없는 기간은 만들어지지 않음', prun3.ok === false);
 
+  // --- 직군별 기본 지급: 개인 설정이 없으면 직군 기본값, 개인 설정이 있으면 개인 설정이 우선 ---
+  const W8 = await pmk(8, { job: '도우미' }), W9 = await pmk(9, { job: '도우미' });
+  const attAug = (w, days) => days.map((d) => `INSERT INTO attendance (id, project_id, date, staff_id, time, device_key, result, distance_m) VALUES ('TA${uniq.slice(0, 3)}${++tcount}', '${PP}', '2026-08-${String(d).padStart(2, '0')}', '${w.id}', '09:00:00', '${w.dev}', '성공', 10)`).join(';\n');
+  await sql([attAug(W8, [3, 4, 5, 6]), attAug(W9, [3, 4, 5])].join(';\n'));
+  const jobSet = (o, tk = admin, pid = PP) => call('pay.jobSave', { job: '도우미', effectiveFrom: '2026-01-01', cycle: '월', dailyEnabled: true, feeEnabled: false, withhold: true, ...o }, tk, '', pid);
+  expectErr('이 현장에 없는 직군은 설정 불가', await jobSet({ job: '없는직군', dailyWage: 1000 }), '없는 직군');
+  expectErr('직군 일당 검사', await jobSet({ dailyWage: -1 }), '일당');
+  expectErr('직군 일당 지급 대상이면 일당 필수', await jobSet({ dailyWage: 0 }), '일당을 입력');
+  expectErr('다른 현장 보조관리자는 직군 설정 불가', await jobSet({ dailyWage: 60000 }, subA, PP), '접근할 수 없습니다', 'FORBIDDEN');
+  expectOk('도우미 직군 기본 일당 60,000 월', await jobSet({ dailyWage: 60000 }));
+  expectOk('W9 는 개인 일당 70,000 (직군 기본보다 우선)', await call('pay.settingSave', { staffId: W9.id, effectiveFrom: '2026-01-01', dailyWage: 70000, cycle: '월', dailyEnabled: true, withhold: true }, admin, '', PP));
+  const jl = (await call('pay.jobList', {}, admin, '', PP)).data.jobs;
+  const jd = jl.find((x) => x.job === '도우미');
+  check('직군 목록: 도우미 기본 일당 60,000, 활동 인원 2명, 영업은 수수료 기본 대상', jd.current.dailyWage === 60000 && jd.people === 2 && jl.find((x) => x.job === '영업').defaults.feeEnabled === true && jl.find((x) => x.job === '상담사').defaults.feeEnabled === false);
+  check('다른 현장 직군 목록에는 이 설정이 보이지 않음', (await call('pay.jobList', {}, admin, '', P1)).data.jobs.every((x) => x.current === null));
+  const pl8 = (await call('pay.settingList', {}, admin, '', PP)).data.staff;
+  check('직원 목록: W8 은 직군 기본(60,000)이 적용, W9 는 개인(70,000)이 적용', pl8.find((x) => x.id === W8.id).current.source === '직군' && pl8.find((x) => x.id === W8.id).current.dailyWage === 60000 && pl8.find((x) => x.id === W8.id).personal === false && pl8.find((x) => x.id === W9.id).current.source === '개인' && pl8.find((x) => x.id === W9.id).current.dailyWage === 70000);
+  const runAug = await call('pay.runCreate', { cycle: '월', from: '2026-08-01', to: '2026-08-31', title: '8월(직군 기본)' }, admin, '', PP);
+  expectOk('8월 정산 (직군 기본 + 개인 설정 혼합)', runAug);
+  // 수작업: W8 4일 × 60,000 = 240,000 (7,200 + 720) / W9 3일 × 70,000 = 210,000 (6,300 + 630)
+  check('8월 회차: 2명, 450,000 / 공제 14,850 / 실지급 435,150', runAug.data.people === 2 && runAug.data.gross === 450000 && runAug.data.tax === 14850 && runAug.data.net === 435150, JSON.stringify(runAug.data));
+  const gAug = (await call('pay.runGet', { runId: runAug.data.id }, admin, '', PP)).data;
+  check('명세: W8 240,000 (직군 일당), W9 210,000 (개인 일당)', gAug.items.find((x) => x.staffId === W8.id).gross === 240000 && gAug.items.find((x) => x.staffId === W9.id).gross === 210000);
+  expectErr('다른 현장 화면에서 개인 설정 초기화 불가', await call('pay.settingClear', { staffId: W9.id }, admin, '', P1), '직원을 찾을 수 없습니다');
+  expectOk('W9 개인 설정 초기화 → 직군 기본을 따름', await call('pay.settingClear', { staffId: W9.id }, admin, '', PP));
+  const rcAug = await call('pay.runRecalc', { runId: runAug.data.id }, admin, '', PP);
+  check('재계산: W9 3일 × 60,000 = 180,000 → 합계 420,000 / 공제 13,860 / 실지급 406,140', rcAug.ok && rcAug.data.gross === 420000 && rcAug.data.tax === 13860 && rcAug.data.net === 406140, JSON.stringify(rcAug.data));
+  expectOk('시험 회차 삭제', await call('pay.runDelete', { runId: runAug.data.id }, admin, '', PP));
+  expectOk('직군 기본 일당 변경은 적용 시작일 이력으로 쌓임', await jobSet({ dailyWage: 65000, effectiveFrom: '2099-01-01' }));
+  check('미래 적용 직군 설정은 upcoming 으로 분리', (await call('pay.jobList', {}, admin, '', PP)).data.jobs.find((x) => x.job === '도우미').upcoming.length === 1);
+
   // --- 이전 현장 / 현재 현장 정산이 각각 맞게 ---
   const runP2 = await call('pay.runCreate', { cycle: '월', from: '2026-09-01', to: '2026-09-30', title: 'B현장 9월' }, admin, '', P2);
   expectOk('B현장 9월 정산 (이동 후 근무)', runP2);
@@ -995,7 +1026,7 @@ try {
   const pmy1 = (await call('staff.myPay', {}, lw1.data.token, W1.dev, null)).data.pays;
   check('다른 직원 W1 의 내역은 자기 것만 (1건 1,950,000 - 공제 후 1,885,650)', pmy1.length === 1 && pmy1[0].net === 1885650 && pmy1[0].detail.length === 21);
   const lw3 = await call('staff.login', { phone: W3.phone, pin: W3.pin }, '', W3.dev, null);
-  check('확정되지 않은 회차는 직원에게 보이지 않음', (await call('pay.runCreate', { cycle: '월', from: '2026-08-01', to: '2026-08-31' }, admin, '', PP)).ok === false && (await call('staff.myPay', {}, lw3.data.token, W3.dev, null)).data.pays.length === 1);
+  check('확정되지 않은 회차는 직원에게 보이지 않음', (await call('pay.runCreate', { cycle: '월', from: '2026-07-01', to: '2026-07-31' }, admin, '', PP)).ok === false && (await call('staff.myPay', {}, lw3.data.token, W3.dev, null)).data.pays.length === 1);
   expectErr('관리자 아닌 직원은 정산 기능 불가', await call('pay.runList', {}, lw3.data.token, W3.dev, null), '권한');
   expectErr('데스크는 정산 기능 불가', await call('pay.runList', {}, deskA, '', null), '권한');
   check('정산 확정·지급완료·조정이 기록됨', (await query(`SELECT action FROM logs WHERE project_id = '${PP}' AND action IN ('정산확정', '지급완료', '정산조정', '근태보정', '지급설정')`)).length >= 8);

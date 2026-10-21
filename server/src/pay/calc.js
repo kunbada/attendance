@@ -41,6 +41,25 @@ export async function loadPaySettings(env, projectId) {
   return by;
 }
 
+// 직군별 기본 설정 이력 { [직군]: [행…] }
+export async function loadJobSettings(env, projectId) {
+  const rows = await all(env, 'SELECT * FROM job_pay WHERE project_id = ? ORDER BY effective_from', projectId);
+  const by = {};
+  rows.forEach((r) => { (by[r.job] = by[r.job] || []).push(r); });
+  return by;
+}
+
+// 한 사람에게 적용되는 설정을 날짜별로 찾는 함수: 개인 설정이 있으면 그것, 없으면 그 직군의 기본 설정.
+// job 을 null 로 주면(다른 현장으로 이동한 사람 등) 개인 설정만 본다.
+export function makeResolver(personHistory, jobHistory) {
+  return (date) => {
+    const p = settingAt(personHistory, date);
+    if (p) return { ...p, source: '개인' };
+    const j = settingAt(jobHistory, date);
+    return j ? { ...j, source: '직군' } : null;
+  };
+}
+
 export function settingAt(history, date) {
   let cur = null;
   (history || []).forEach((r) => { if (r.effective_from <= date) cur = r; });
@@ -48,10 +67,10 @@ export function settingAt(history, date) {
 }
 
 // 근무 내역 + 설정 → 한 사람의 명세 (금액 계산)
-export function priceItem(days, history, periodTo, adjustAmount = 0) {
+export function priceItem(days, resolve, periodTo, adjustAmount = 0) {
   let units = 0, base = 0;
   const detail = days.map((d) => {
-    const st = settingAt(history, d.date);
+    const st = resolve(d.date);
     const wage = st ? st.daily_wage : 0;
     const amount = dayAmount(wage, d.units);
     units += d.units;
@@ -59,7 +78,7 @@ export function priceItem(days, history, periodTo, adjustAmount = 0) {
     return { date: d.date, units: d.units, wage, amount, note: d.note };
   });
   const gross = base + adjustAmount;
-  const last = settingAt(history, periodTo);
+  const last = resolve(periodTo);
   const withhold = last ? last.withhold : 1;
   const tax = deductions(gross, withhold);
   return { units, base, gross, incomeTax: tax.income, localTax: tax.local, net: gross - tax.income - tax.local, withhold, detail };
