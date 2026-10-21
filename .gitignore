@@ -29,3 +29,5 @@ server/.resend-key
 # 계약관리 구 Apps Script 서버: Code.gs 안에 실제 TOKEN 이 있어 제외 (4단계에서 통합 서버로 교체 후 폐기)
 apps/contract/gas/Code.gs
 apps/contract/gas/.clasp.json
+server/.test-bot.json
+server/.test-bot.sql
