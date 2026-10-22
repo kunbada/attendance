@@ -6,12 +6,14 @@
   <title>위뉴 통합관리</title>
   <link rel="icon" href="../icon.svg">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
-  <link rel="stylesheet" href="../css/style.css?v=20261022b">
-  <link rel="stylesheet" href="css/hub.css?v=20261022b">
+  <link rel="stylesheet" href="../css/style.css?v=20261022c">
+  <link rel="stylesheet" href="css/hub.css?v=20261022c">
 </head>
 <body>
   <div class="topbar admin no-print">
     <h1 id="siteName">위뉴 통합관리</h1>
+    <!-- 메인 메뉴: 맨 위 헤드라인 한 줄 안에 (제목 · 메뉴 · 현장 선택 · 계정) -->
+    <nav class="mainnav no-print hidden" id="mainnav"><div class="tabs" id="menu"></div></nav>
     <div class="top-right hidden" id="top-right">
       <label class="project-pick">현장 <select id="project-select"></select></label>
       <span class="who" id="who"></span>
@@ -66,8 +68,7 @@
     </section>
   </main>
 
-  <!-- 메인: 메뉴 + 화면 -->
-  <nav class="mainnav no-print hidden" id="mainnav"><div class="tabs" id="menu"></div></nav>
+  <!-- 메인: 화면 (메뉴는 위 헤드라인에 있다) -->
   <main class="wide screen hidden" id="screen-app">
     <div id="panels"></div>
   </main>
@@ -76,20 +77,20 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <!-- 대시보드 차트 (버전 고정) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="../js/config.js?v=20261022b"></script>
-  <script src="../js/api.js?v=20261022b"></script>
-  <script src="../js/common.js?v=20261022b"></script>
-  <script src="js/hub.js?v=20261022b"></script>
-  <script src="js/home.js?v=20261022b"></script>
-  <script src="js/projects.js?v=20261022b"></script>
-  <script src="js/people.js?v=20261022b"></script>
-  <script src="js/attendance.js?v=20261022b"></script>
-  <script src="js/visits.js?v=20261022b"></script>
-  <script src="js/settings.js?v=20261022b"></script>
-  <script src="js/pay.js?v=20261022b"></script>
-  <script src="js/survey.js?v=20261022b"></script>
-  <script src="js/customers.js?v=20261022b"></script>
-  <script src="js/menus.js?v=20261022b"></script>
-  <script src="js/start.js?v=20261022b"></script>
+  <script src="../js/config.js?v=20261022c"></script>
+  <script src="../js/api.js?v=20261022c"></script>
+  <script src="../js/common.js?v=20261022c"></script>
+  <script src="js/hub.js?v=20261022c"></script>
+  <script src="js/home.js?v=20261022c"></script>
+  <script src="js/projects.js?v=20261022c"></script>
+  <script src="js/people.js?v=20261022c"></script>
+  <script src="js/attendance.js?v=20261022c"></script>
+  <script src="js/visits.js?v=20261022c"></script>
+  <script src="js/settings.js?v=20261022c"></script>
+  <script src="js/pay.js?v=20261022c"></script>
+  <script src="js/survey.js?v=20261022c"></script>
+  <script src="js/customers.js?v=20261022c"></script>
+  <script src="js/menus.js?v=20261022c"></script>
+  <script src="js/start.js?v=20261022c"></script>
 </body>
 </html>

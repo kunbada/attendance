@@ -8,7 +8,14 @@ if (Hub.app === 'survey') {
 } else {
   Hub.group({ key: 'home', label: '홈', items: [{ label: '홈', section: 'home' }] });
   Hub.group({ key: 'projects', label: '프로젝트', needsProject: false, items: [{ label: '프로젝트', section: 'projects' }] });
-  Hub.group({ key: 'hr', label: '인사관리', items: [{ label: '현장인력관리', section: 'people' }, { label: '현장근태관리', section: 'attendance' }] });
+  // 인사관리는 서브메뉴까지만 (그 아래 탭 없음). 순서: 직원 – 근태 – 조직 – 전체검색 – 가입링크
+  Hub.group({ key: 'hr', label: '인사관리', items: [
+    { label: '현장인력관리(직원)', section: 'people-staff' },
+    { label: '현장근태관리', section: 'attendance' },
+    { label: '조직(직군·본부·팀)관리', section: 'people-orgs' },
+    { label: '전체검색', section: 'people-all' },
+    { label: '가입링크', section: 'people-link' }
+  ] });
   Hub.group({ key: 'customers', label: '고객관리', items: [{ label: '설문고객', section: 'surveys' }, { label: '방문고객', section: 'visits' }, { label: '데이터통합관리', section: 'customers' }] });
   Hub.group({ key: 'service', label: '용역관리', items: [{ label: '일급 정산', section: 'payruns' }, { label: '지급 설정', section: 'paysettings' }] });
   Hub.group({ key: 'settings', label: '설정', adminOnly: true, needsProject: false, items: [{ label: '설정', section: 'settings' }] });

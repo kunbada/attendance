@@ -352,23 +352,16 @@
     else box.appendChild(signupLinkCard());
   }
 
-  Hub.section('people', {
-    render: async function (root) {
-      root.innerHTML = '';
-      box = h('div');
-      var tabs = h('div', { class: 'sub-tabs no-print' });
-      [['staff', '직원'], ['all', '전체 현장 검색'], ['orgs', '조직 (직군·본부·팀)'], ['link', '가입 링크']].forEach(function (t) {
-        var b = h('button', { type: 'button', class: 'btn' + (view === t[0] ? ' active' : '') }, t[1]);
-        b.addEventListener('click', function () {
-          view = t[0];
-          $$('.btn', tabs).forEach(function (x) { x.classList.toggle('active', x === b); });
-          runBusy(null, showView);
-        });
-        tabs.appendChild(b);
-      });
-      root.appendChild(tabs);
-      root.appendChild(box);
-      await showView();
-    }
+  // 인사관리 서브메뉴마다 화면 하나 (메뉴 구성은 menus.js). 이 파일 안에서는 하위 탭을 두지 않는다.
+  [['people-staff', 'staff'], ['people-orgs', 'orgs'], ['people-all', 'all'], ['people-link', 'link']].forEach(function (def) {
+    Hub.section(def[0], {
+      render: async function (root) {
+        root.innerHTML = '';
+        box = h('div');
+        view = def[1];
+        root.appendChild(box);
+        await showView();
+      }
+    });
   });
 })();
