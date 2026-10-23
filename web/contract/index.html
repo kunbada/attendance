@@ -461,8 +461,11 @@ function showRejected(list) {
   const g = {}; list.forEach(x => g[x.msg] = (g[x.msg] || 0) + 1);
   openModal({ title: '일부 변경이 반영되지 않았습니다', body: `<div class="help" style="margin-bottom:8px">다른 사용자가 먼저 등록/변경한 내용과 충돌하여 서버가 거절했습니다. 해당 항목은 서버의 최신 상태로 되돌렸습니다.</div><ul style="line-height:1.8">${Object.entries(g).map(([m, n]) => `<li>${esc(m)}${n > 1 ? ` <b>(${n}건)</b>` : ''}</li>`).join('')}</ul>`, foot: '<button class="btn pri" onclick="closeModal()">확인</button>' });
 }
+// 서버 오류가 계속되면 5초마다 다시 보내 서버를 괴롭히지 않도록 점점 늦춘다 (최대 5분). 사용자가 직접 누르는 동기화는 바로 시도
+let failN = 0, holdUntil = 0;
 async function sync(opt = {}) {
   if (!META.syncUrl || !META.pk || syncing) return;
+  if (!opt.force && Date.now() < holdUntil) return;
   if (!navigator.onLine) { online = false; updateSyncPill(); return; }
   if (needLogin()) return;
   syncing = true; updateSyncPill();
@@ -502,10 +505,10 @@ async function sync(opt = {}) {
       await persistMeta(); await idb.setMeta('outbox', OUTBOX);
       if (n) { rebuild(); DIRTY_BACKUP = true; if (!document.querySelector('.modal-bg') && !document.activeElement?.classList.contains('cell')) render(); }
       if ((res.rejected || []).length) showRejected(res.rejected);
-      opt.full = false; loops++; more = !!res.more;
+      failN = 0; holdUntil = 0; opt.full = false; loops++; more = !!res.more;
     } while ((Object.keys(OUTBOX).length || more) && loops < 400);
   } catch (e) {
-    syncErr = e.message || String(e); if (/Failed to fetch|NetworkError/i.test(syncErr)) { online = false; syncErr = '네트워크 연결 없음'; }
+    syncErr = e.message || String(e); if (/Failed to fetch|NetworkError/i.test(syncErr)) { online = false; syncErr = '네트워크 연결 없음'; } else { failN++; holdUntil = Date.now() + Math.min(300000, 5000 * Math.pow(2, failN)); }
     if (e.code === 'READONLY') { await reloadStore(); }
     console.warn('sync', e);
   } finally { syncing = false; updateSyncPill(); }
@@ -684,7 +687,7 @@ function showLogin() {
       bg.remove();
       if (!srvProjects().some(p => p.id === PROJ)) return pickProject();
       const m = await callServer({ op: 'me' }, true); setSession(Object.assign({}, SESSION, { role: m.role, name: m.name }));
-      render(); fetchStaff(); sync({ full: !META.lastRev });
+      render(); fetchStaff(); sync({ full: !META.lastRev, force: true });
     } catch (e) { if (!$('#loginBg')) showLogin(); const mm = $('#aMsg'); if (mm) mm.textContent = e.message; const b = $('#aGo'); if (b) b.disabled = false; }
   };
   $('#aGo').onclick = go; bg.querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
@@ -2087,7 +2090,7 @@ function view_settings(el) {
       <div class="help">통합관리 서버에 로그인하면 모든 변경이 2~3초 내 자동 전송되고 몇 초마다 다른 PC의 변경을 받아옵니다. 오프라인 중 변경은 쌓아뒀다가 연결되면 자동 전송합니다. 계정·권한은 통합관리에서 관리합니다.</div>
       <div class="form" style="margin-top:10px"><div class="f full"><label>서버 주소 (보통 바꿀 필요 없음, 비우면 로컬 전용)</label><input class="in" id="sUrl" value="${esc(META.syncUrl)}" placeholder="https://attendance-api.….workers.dev"></div></div>
       <div class="kv" style="margin:10px 0"><div>상태</div><div>${META.syncUrl ? (syncErr ? `<span class="red">${esc(syncErr)}</span>` : '정상') : '미설정(로컬 전용)'}</div><div>최근 동기화</div><div>${esc(META.lastSync || '-')} · rev ${META.lastRev || 0}</div><div>전송 대기</div><div>${nOut}건</div></div>
-      <div class="toolbar"><button class="btn pri" id="sSave">저장 & 연결 테스트</button><button class="btn" onclick="sync().then(()=>{toast(syncErr||'동기화 완료',!!syncErr);render()})">지금 동기화</button><button class="btn" id="sPull">서버 전체 다시받기</button><button class="btn" id="sPush">이 PC 데이터를 서버에 전체 업로드</button></div>
+      <div class="toolbar"><button class="btn pri" id="sSave">저장 & 연결 테스트</button><button class="btn" onclick="sync({force:true}).then(()=>{toast(syncErr||'동기화 완료',!!syncErr);render()})">지금 동기화</button><button class="btn" id="sPull">서버 전체 다시받기</button><button class="btn" id="sPush">이 PC 데이터를 서버에 전체 업로드</button></div>
     </div>
     <div class="card"><h3>🗂 프로젝트 · 데이터</h3>
       <div class="kv" style="margin-bottom:10px"><div>현재 프로젝트</div><div><b>${esc(projList().find(p => p.key === PROJ)?.name || PROJ)}</b> <span class="muted">(${PROJ})</span></div><div>데이터</div><div>세대 ${live('units').length} · 계약 ${live('contracts').length} · 가계약 ${live('pre').length} · 동호지정 ${live('resv').length} · 잠금 ${live('locks').length} · 입금 ${live('deposits').length}</div></div>
@@ -2130,10 +2133,10 @@ function view_settings(el) {
   $('#sSave').onclick = async () => {
     META.syncUrl = $('#sUrl').value.trim().replace(/\/+$/, ''); await persistMeta();
     if (!META.syncUrl) { toast('로컬 전용으로 저장'); render(); return; }
-    try { if (needLogin()) return showLogin(); const r = await callServer({ op: 'ping' }); toast('연결 성공 · 서버 rev ' + r.rev); await sync(); } catch (e) { toast('연결 실패: ' + e.message, 1); }
+    try { if (needLogin()) return showLogin(); const r = await callServer({ op: 'ping' }); toast('연결 성공 · 서버 rev ' + r.rev); await sync({ force: true }); } catch (e) { toast('연결 실패: ' + e.message, 1); }
     render();
   };
-  $('#sPull').onclick = () => confirmBox('서버의 전체 데이터를 다시 받습니다. (이 PC의 미전송 변경은 유지)', async () => { await sync({ full: true }); toast(syncErr || '다시받기 완료', !!syncErr); render(); });
+  $('#sPull').onclick = () => confirmBox('서버의 전체 데이터를 다시 받습니다. (이 PC의 미전송 변경은 유지)', async () => { await sync({ full: true, force: true }); toast(syncErr || '다시받기 완료', !!syncErr); render(); });
   $('#sPush').onclick = () => confirmBox('이 PC의 모든 데이터를 서버로 업로드합니다.\n서버에 같은 항목이 더 최근에 수정되어 있으면 서버 것이 유지됩니다.', async () => { COLS.forEach(c => S[c].forEach(r => { OUTBOX[c + '|' + r.id] = 1; delete BASE[c + '|' + r.id]; })); await idb.setMeta('outbox', OUTBOX); updateSyncPill(); await sync(); toast(syncErr || '업로드 완료', !!syncErr); render(); });
   const readJson = (inp, cb) => inp.onchange = () => { const f = inp.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { cb(JSON.parse(rd.result), f.name); } catch (e) { toast('JSON 오류: ' + e.message, 1); } }; rd.readAsText(f); };
   const doRestore = (obj, name) => confirmBox(`'${name}' 로 이 PC의 데이터를 교체합니다.\n세대 ${(obj.units || []).length} · 계약 ${(obj.contracts || []).length} · 입금 ${(obj.deposits || []).length}건\n\n(현재 데이터는 먼저 자동 다운로드됩니다)`, async () => {
@@ -2143,7 +2146,7 @@ function view_settings(el) {
 (이 PC에만 복원하려면 취소를 누르세요. 현재 프로젝트: ${CFG().project.name || PROJ} / 서버에 이미 있는 데이터는 복구가 어렵습니다)`) || '').trim() === '덮어쓰기';
     if (toServer) { try { const w = await callServer({ op: 'wipe' }); toast(`서버의 기존 데이터 ${w.wiped}건을 정리했습니다`); } catch (e) { return toast('서버 정리 실패(관리자만 가능): ' + e.message, 1); } }
     await restoreFrom(obj, { touch: toServer, markAll: toServer, resetRev: !toServer });
-    if (toServer) await sync(); toast('복원 완료'); render();
+    if (toServer) await sync({ force: true }); toast('복원 완료'); render();
   });
   readJson($('#restoreIn'), doRestore); readJson($('#initIn'), doRestore);
   $('#wipe').onclick = () => confirmBox('이 프로젝트의 이 PC 데이터를 모두 삭제합니다. (서버 데이터는 유지)\n삭제 전 백업 파일이 다운로드됩니다.', async () => { downloadBackup(); await restoreFrom({ units: [] }); OUTBOX = {}; META.lastRev = 0; await persistMeta(); render(); });

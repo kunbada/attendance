@@ -170,7 +170,7 @@ function view_settings(el) {
       <div class="help">통합관리 서버에 로그인하면 모든 변경이 2~3초 내 자동 전송되고 몇 초마다 다른 PC의 변경을 받아옵니다. 오프라인 중 변경은 쌓아뒀다가 연결되면 자동 전송합니다. 계정·권한은 통합관리에서 관리합니다.</div>
       <div class="form" style="margin-top:10px"><div class="f full"><label>서버 주소 (보통 바꿀 필요 없음, 비우면 로컬 전용)</label><input class="in" id="sUrl" value="${esc(META.syncUrl)}" placeholder="https://attendance-api.….workers.dev"></div></div>
       <div class="kv" style="margin:10px 0"><div>상태</div><div>${META.syncUrl ? (syncErr ? `<span class="red">${esc(syncErr)}</span>` : '정상') : '미설정(로컬 전용)'}</div><div>최근 동기화</div><div>${esc(META.lastSync || '-')} · rev ${META.lastRev || 0}</div><div>전송 대기</div><div>${nOut}건</div></div>
-      <div class="toolbar"><button class="btn pri" id="sSave">저장 & 연결 테스트</button><button class="btn" onclick="sync().then(()=>{toast(syncErr||'동기화 완료',!!syncErr);render()})">지금 동기화</button><button class="btn" id="sPull">서버 전체 다시받기</button><button class="btn" id="sPush">이 PC 데이터를 서버에 전체 업로드</button></div>
+      <div class="toolbar"><button class="btn pri" id="sSave">저장 & 연결 테스트</button><button class="btn" onclick="sync({force:true}).then(()=>{toast(syncErr||'동기화 완료',!!syncErr);render()})">지금 동기화</button><button class="btn" id="sPull">서버 전체 다시받기</button><button class="btn" id="sPush">이 PC 데이터를 서버에 전체 업로드</button></div>
     </div>
     <div class="card"><h3>🗂 프로젝트 · 데이터</h3>
       <div class="kv" style="margin-bottom:10px"><div>현재 프로젝트</div><div><b>${esc(projList().find(p => p.key === PROJ)?.name || PROJ)}</b> <span class="muted">(${PROJ})</span></div><div>데이터</div><div>세대 ${live('units').length} · 계약 ${live('contracts').length} · 가계약 ${live('pre').length} · 동호지정 ${live('resv').length} · 잠금 ${live('locks').length} · 입금 ${live('deposits').length}</div></div>
@@ -213,10 +213,10 @@ function view_settings(el) {
   $('#sSave').onclick = async () => {
     META.syncUrl = $('#sUrl').value.trim().replace(/\/+$/, ''); await persistMeta();
     if (!META.syncUrl) { toast('로컬 전용으로 저장'); render(); return; }
-    try { if (needLogin()) return showLogin(); const r = await callServer({ op: 'ping' }); toast('연결 성공 · 서버 rev ' + r.rev); await sync(); } catch (e) { toast('연결 실패: ' + e.message, 1); }
+    try { if (needLogin()) return showLogin(); const r = await callServer({ op: 'ping' }); toast('연결 성공 · 서버 rev ' + r.rev); await sync({ force: true }); } catch (e) { toast('연결 실패: ' + e.message, 1); }
     render();
   };
-  $('#sPull').onclick = () => confirmBox('서버의 전체 데이터를 다시 받습니다. (이 PC의 미전송 변경은 유지)', async () => { await sync({ full: true }); toast(syncErr || '다시받기 완료', !!syncErr); render(); });
+  $('#sPull').onclick = () => confirmBox('서버의 전체 데이터를 다시 받습니다. (이 PC의 미전송 변경은 유지)', async () => { await sync({ full: true, force: true }); toast(syncErr || '다시받기 완료', !!syncErr); render(); });
   $('#sPush').onclick = () => confirmBox('이 PC의 모든 데이터를 서버로 업로드합니다.\n서버에 같은 항목이 더 최근에 수정되어 있으면 서버 것이 유지됩니다.', async () => { COLS.forEach(c => S[c].forEach(r => { OUTBOX[c + '|' + r.id] = 1; delete BASE[c + '|' + r.id]; })); await idb.setMeta('outbox', OUTBOX); updateSyncPill(); await sync(); toast(syncErr || '업로드 완료', !!syncErr); render(); });
   const readJson = (inp, cb) => inp.onchange = () => { const f = inp.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { cb(JSON.parse(rd.result), f.name); } catch (e) { toast('JSON 오류: ' + e.message, 1); } }; rd.readAsText(f); };
   const doRestore = (obj, name) => confirmBox(`'${name}' 로 이 PC의 데이터를 교체합니다.\n세대 ${(obj.units || []).length} · 계약 ${(obj.contracts || []).length} · 입금 ${(obj.deposits || []).length}건\n\n(현재 데이터는 먼저 자동 다운로드됩니다)`, async () => {
@@ -226,7 +226,7 @@ function view_settings(el) {
 (이 PC에만 복원하려면 취소를 누르세요. 현재 프로젝트: ${CFG().project.name || PROJ} / 서버에 이미 있는 데이터는 복구가 어렵습니다)`) || '').trim() === '덮어쓰기';
     if (toServer) { try { const w = await callServer({ op: 'wipe' }); toast(`서버의 기존 데이터 ${w.wiped}건을 정리했습니다`); } catch (e) { return toast('서버 정리 실패(관리자만 가능): ' + e.message, 1); } }
     await restoreFrom(obj, { touch: toServer, markAll: toServer, resetRev: !toServer });
-    if (toServer) await sync(); toast('복원 완료'); render();
+    if (toServer) await sync({ force: true }); toast('복원 완료'); render();
   });
   readJson($('#restoreIn'), doRestore); readJson($('#initIn'), doRestore);
   $('#wipe').onclick = () => confirmBox('이 프로젝트의 이 PC 데이터를 모두 삭제합니다. (서버 데이터는 유지)\n삭제 전 백업 파일이 다운로드됩니다.', async () => { downloadBackup(); await restoreFrom({ units: [] }); OUTBOX = {}; META.lastRev = 0; await persistMeta(); render(); });

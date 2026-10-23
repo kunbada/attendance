@@ -38,13 +38,14 @@ export async function contractPoll(env, data, ctx) {
 const BUMP_SQL = `INSERT INTO ct_rev (project_id, rev) VALUES (?1, ?2) ON CONFLICT(project_id) DO UPDATE SET rev = rev + ?2`;
 const REV_EXPR = `(SELECT rev FROM ct_rev WHERE project_id = ?1) - ?3`;
 // 이미 있는 레코드: 읽었을 때의 rev(base)와 같을 때만 덮어쓴다 (그 사이 다른 사용자가 고쳤으면 건너뛰고 다시 병합)
-const UPDATE_SQL = `UPDATE ct_records
-  SET rev = ${REV_EXPR} + v.idx + 1, updated_at = v.ua, updated_by = v.ub, deleted = v.del,
-      json = json_set(v.js, '$._rv', ${REV_EXPR} + v.idx + 1)
-  FROM (SELECT json_extract(value, '$.c') AS c, json_extract(value, '$.id') AS id, json_extract(value, '$.idx') AS idx,
+const UPDATE_SQL = `WITH v AS MATERIALIZED (SELECT json_extract(value, '$.c') AS c, json_extract(value, '$.id') AS id, json_extract(value, '$.idx') AS idx,
                json_extract(value, '$.base') AS base, json_extract(value, '$.ua') AS ua, json_extract(value, '$.ub') AS ub,
                json_extract(value, '$.del') AS del, json_extract(value, '$.js') AS js
-        FROM json_each(?2) WHERE json_extract(value, '$.base') IS NOT NULL) AS v
+        FROM json_each(?2) WHERE json_extract(value, '$.base') IS NOT NULL)
+  UPDATE ct_records
+  SET rev = ${REV_EXPR} + v.idx + 1, updated_at = v.ua, updated_by = v.ub, deleted = v.del,
+      json = json_set(v.js, '$._rv', ${REV_EXPR} + v.idx + 1)
+  FROM v
   WHERE ct_records.project_id = ?1 AND ct_records.col = v.c AND ct_records.id = v.id AND ct_records.rev = v.base
   RETURNING ct_records.col AS c, ct_records.id AS id`;
 // 새 레코드: 그 사이 같은 id 가 생겼으면 건너뛰고 다시 병합
@@ -82,7 +83,7 @@ async function writeChunk(env, pid, items) {
 async function explainUnique(env, pid, it) {
   if (it.c === 'contracts' && it.rec.dongho) {
     const h = await first(env,
-      `SELECT json_extract(json, '$.name') AS name FROM ct_records WHERE project_id = ? AND col = 'contracts' AND dongho_g = ? AND deleted = 0 AND COALESCE(status_g, '') <> '해약' AND id <> ? LIMIT 1`,
+      `SELECT json_extract(json, '$.name') AS name FROM ct_records WHERE project_id = ? AND col = 'contracts' AND deleted = 0 AND COALESCE(status_g, '') <> '해약' AND COALESCE(dongho_g, '') <> '' AND dongho_g = ? AND id <> ? LIMIT 1`,
       pid, s(it.rec.dongho), it.id);
     return '동호 ' + it.rec.dongho + '는 이미 ' + ((h && h.name) || '다른 고객') + ' 님으로 계약되어 있습니다 (다른 사용자가 먼저 등록)';
   }
@@ -113,10 +114,14 @@ export async function writeAll(env, pid, items) {
 // ---------- 읽기: 변경된 레코드의 현재 값 ----------
 async function loadExisting(env, pid, changes) {
   const map = new Map();
-  for (const ids of chunk([...new Set(changes.map((c) => c.id))], READ_CHUNK)) {
-    const rows = await all(env,
-      `SELECT col, id, rev, updated_at, json FROM ct_records WHERE project_id = ? AND id IN (${ids.map(() => '?').join(',')})`, pid, ...ids);
-    rows.forEach((r) => map.set(r.col + '|' + r.id, r));
+  const byCol = new Map();
+  changes.forEach((c) => { if (!byCol.has(c.c)) byCol.set(c.c, new Set()); byCol.get(c.c).add(c.id); });
+  for (const [col, idSet] of byCol) {
+    for (const ids of chunk([...idSet], READ_CHUNK)) {
+      const rows = await all(env,
+        `SELECT col, id, rev, updated_at, json FROM ct_records WHERE project_id = ? AND col = ? AND id IN (${ids.map(() => '?').join(',')})`, pid, col, ...ids);
+      rows.forEach((r) => map.set(r.col + '|' + r.id, r));
+    }
   }
   return map;
 }
@@ -127,7 +132,7 @@ async function loadHolders(env, pid, doghos) {
   for (const part of chunk([...new Set(doghos)], READ_CHUNK)) {
     (await all(env,
       `SELECT id, dongho_g AS dongho, json_extract(json, '$.name') AS name FROM ct_records
-       WHERE project_id = ? AND col = 'contracts' AND deleted = 0 AND COALESCE(status_g, '') <> '해약' AND dongho_g IN (${part.map(() => '?').join(',')})`, pid, ...part))
+       WHERE project_id = ? AND col = 'contracts' AND deleted = 0 AND COALESCE(status_g, '') <> '해약' AND COALESCE(dongho_g, '') <> '' AND dongho_g IN (${part.map(() => '?').join(',')})`, pid, ...part))
       .forEach((r) => byDongho.set(r.dongho, { id: r.id, name: r.name }));
   }
   return byDongho;
@@ -136,7 +141,7 @@ async function loadDepositKeys(env, pid, keys) {
   const found = new Set();
   for (const part of chunk([...new Set(keys)], READ_CHUNK)) {
     (await all(env,
-      `SELECT dep_key_g AS k FROM ct_records WHERE project_id = ? AND col = 'deposits' AND deleted = 0 AND dep_key_g IN (${part.map(() => '?').join(',')})`, pid, ...part))
+      `SELECT dep_key_g AS k FROM ct_records WHERE project_id = ? AND col = 'deposits' AND deleted = 0 AND COALESCE(dep_key_g, '') <> '' AND dep_key_g IN (${part.map(() => '?').join(',')})`, pid, ...part))
       .forEach((r) => found.add(r.k));
   }
   return found;

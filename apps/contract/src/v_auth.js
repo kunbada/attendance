@@ -54,7 +54,7 @@ function showLogin() {
       bg.remove();
       if (!srvProjects().some(p => p.id === PROJ)) return pickProject();
       const m = await callServer({ op: 'me' }, true); setSession(Object.assign({}, SESSION, { role: m.role, name: m.name }));
-      render(); fetchStaff(); sync({ full: !META.lastRev });
+      render(); fetchStaff(); sync({ full: !META.lastRev, force: true });
     } catch (e) { if (!$('#loginBg')) showLogin(); const mm = $('#aMsg'); if (mm) mm.textContent = e.message; const b = $('#aGo'); if (b) b.disabled = false; }
   };
   $('#aGo').onclick = go; bg.querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });

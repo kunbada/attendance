@@ -222,8 +222,11 @@ function showRejected(list) {
   const g = {}; list.forEach(x => g[x.msg] = (g[x.msg] || 0) + 1);
   openModal({ title: '일부 변경이 반영되지 않았습니다', body: `<div class="help" style="margin-bottom:8px">다른 사용자가 먼저 등록/변경한 내용과 충돌하여 서버가 거절했습니다. 해당 항목은 서버의 최신 상태로 되돌렸습니다.</div><ul style="line-height:1.8">${Object.entries(g).map(([m, n]) => `<li>${esc(m)}${n > 1 ? ` <b>(${n}건)</b>` : ''}</li>`).join('')}</ul>`, foot: '<button class="btn pri" onclick="closeModal()">확인</button>' });
 }
+// 서버 오류가 계속되면 5초마다 다시 보내 서버를 괴롭히지 않도록 점점 늦춘다 (최대 5분). 사용자가 직접 누르는 동기화는 바로 시도
+let failN = 0, holdUntil = 0;
 async function sync(opt = {}) {
   if (!META.syncUrl || !META.pk || syncing) return;
+  if (!opt.force && Date.now() < holdUntil) return;
   if (!navigator.onLine) { online = false; updateSyncPill(); return; }
   if (needLogin()) return;
   syncing = true; updateSyncPill();
@@ -263,10 +266,10 @@ async function sync(opt = {}) {
       await persistMeta(); await idb.setMeta('outbox', OUTBOX);
       if (n) { rebuild(); DIRTY_BACKUP = true; if (!document.querySelector('.modal-bg') && !document.activeElement?.classList.contains('cell')) render(); }
       if ((res.rejected || []).length) showRejected(res.rejected);
-      opt.full = false; loops++; more = !!res.more;
+      failN = 0; holdUntil = 0; opt.full = false; loops++; more = !!res.more;
     } while ((Object.keys(OUTBOX).length || more) && loops < 400);
   } catch (e) {
-    syncErr = e.message || String(e); if (/Failed to fetch|NetworkError/i.test(syncErr)) { online = false; syncErr = '네트워크 연결 없음'; }
+    syncErr = e.message || String(e); if (/Failed to fetch|NetworkError/i.test(syncErr)) { online = false; syncErr = '네트워크 연결 없음'; } else { failN++; holdUntil = Date.now() + Math.min(300000, 5000 * Math.pow(2, failN)); }
     if (e.code === 'READONLY') { await reloadStore(); }
     console.warn('sync', e);
   } finally { syncing = false; updateSyncPill(); }
