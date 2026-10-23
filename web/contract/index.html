@@ -787,6 +787,15 @@ function closeDrawer() { $$('.drawer,.drawer-bg').forEach(x => x.remove()); }
 
 /* ===================== 폼 빌더 ===================== */
 function distinct(col, key, extra = []) { const s = new Set(extra); live(col).forEach(r => { if (r[key]) s.add(String(r[key]).trim()); }); return [...s].filter(Boolean).sort(); }
+// 직원 선택 표시: 본부-팀-이름(예명). 같은 표시가 겹치면 뒤에 번호를 붙여 구분한다
+function staffLabels() {
+  const list = STAFF.map(s => ({ s, base: [s.head, s.team, s.name + (s.nickname ? '(' + s.nickname + ')' : '')].filter(Boolean).join('-') + (s.status !== '활동' ? ' [' + s.status + ']' : '') }))
+    .sort((a, b) => a.base.localeCompare(b.base, 'ko'));
+  const seen = {}; list.forEach(x => { seen[x.base] = (seen[x.base] || 0) + 1; });
+  const used = {}; const byId = {}, byLabel = {};
+  list.forEach(x => { x.label = x.base; if (seen[x.base] > 1) { used[x.base] = (used[x.base] || 0) + 1; x.label += ' #' + used[x.base]; } byId[x.s.id] = x.label; byLabel[x.label] = x.s.id; });
+  return { list, byId, byLabel };
+}
 function formHtml(fields, rec) {
   return `<div class="form">${fields.map(f => {
     const v = rec[f.k] ?? '';
@@ -794,10 +803,10 @@ function formHtml(fields, rec) {
     let inp = '';
     if (f.type === 'select') inp = `<select class="in" id="${id}">${(f.opts || []).map(o => `<option ${String(o) === String(v) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     else if (f.type === 'textarea') inp = `<textarea class="in" id="${id}" rows="3">${esc(v)}</textarea>`;
-    else if (f.type === 'staffpick') {
-      const cur = rec.staffId || '', has = STAFF.some(s => s.id === cur);
-      const legacy = !cur && (rec.staff || rec.team) ? `<option value="" selected>(기존 입력 유지: ${esc((rec.team || '') + ' ' + (rec.staff || ''))})</option>` : '<option value="">(선택)</option>';
-      inp = `<select class="in" id="${id}">${legacy}${cur && !has ? `<option value="${esc(cur)}" selected>(현재 연결된 직원)</option>` : ''}${STAFF.map(s => `<option value="${esc(s.id)}" ${s.id === cur ? 'selected' : ''}>${esc(s.name + (s.nickname ? ' (' + s.nickname + ')' : '') + ' · ' + [s.head, s.team].filter(Boolean).join(' ') + (s.status !== '활동' ? ' [' + s.status + ']' : ''))}</option>`).join('')}</select>`;
+    else if (f.type === 'staffpick') { // 직원이 수백 명일 수 있어 입력하면 걸러지는 목록(datalist). 본부-팀-이름(예명)
+      const L = staffLabels(), cur = rec.staffId ? (L.byId[rec.staffId] || '') : '';
+      inp = `<input class="in" id="${id}" value="${esc(cur)}" list="dl_staffpick" autocomplete="off" placeholder="${esc(!rec.staffId && (rec.staff || rec.team) ? '기존 입력 유지: ' + (rec.team || '') + ' ' + (rec.staff || '') + ' — 바꾸려면 본부·팀·이름 입력' : '본부·팀·이름을 입력하면 걸러집니다')}"><datalist id="dl_staffpick">${L.list.map(x => `<option value="${esc(x.label)}">`).join('')}</datalist>`
+        + (rec.staffId && !cur ? '<div class="hint red">연결된 직원이 이 현장 목록에 없습니다 (이동·반려 등)</div>' : '');
     }
     else if (f.type === 'dongho') inp = `<input class="in" id="${id}" value="${esc(v)}" list="dl_units" placeholder="예: 101-1203" autocomplete="off">`;
     else inp = `<input class="in" id="${id}" type="${f.type === 'date' ? 'date' : 'text'}" value="${esc(f.type === 'num' ? fmt0(v) : v)}" ${f.list ? `list="dl_${f.k}"` : ''} ${f.ro ? 'readonly' : ''} ${f.ph ? `placeholder="${esc(f.ph)}"` : ''}>`;
@@ -807,7 +816,9 @@ function formHtml(fields, rec) {
 }
 function formRead(fields, root, rec) {
   fields.forEach(f => { const el = root.querySelector('#f_' + f.k); if (!el || f.ro) return; let v = el.value.trim(); if (f.type === 'num') v = toNum(v); if (f.type === 'dongho') v = v.replace(/\s/g, '').replace(/^(\d{3})동?(\d{3,4})호?$/, '$1-$2'); if (f.type === 'staffpick') { // 직원을 고르면 팀·담당자 글자도 함께 채운다 (보고서·기존 화면은 글자를 쓴다). 비워 두면 기존 값 유지
-      if (v) { const s = STAFF.find(x => x.id === v); rec.staffId = v; if (s) { rec.staff = s.name; rec.team = s.team || ''; } } else { delete rec.staffId; }
+      const id = v ? staffLabels().byLabel[v] : '';
+      if (v && !id) { if (v !== (staffLabels().byId[rec.staffId] || '')) toast('담당자는 목록에 있는 직원만 고를 수 있습니다 (본부-팀-이름). 기존 값이 유지됩니다', 1); return; }
+      if (id) { const s = STAFF.find(x => x.id === id); rec.staffId = id; if (s) { rec.staff = s.name; rec.team = s.team || ''; } } else delete rec.staffId;
       return;
     }
     rec[f.k] = v; });

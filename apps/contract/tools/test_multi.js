@@ -55,7 +55,7 @@ async function login(p, id) { await p.waitForSelector('#loginBg'); await p.fill(
   await A.evaluate(() => fetchStaff()); ok(await A.evaluate(() => STAFF.some(s => s.name === '선택직원')), 'A: 통합관리 직원 목록을 받음');
   ok(await A.evaluate(() => STAFF.every(s => !('phone' in s))), 'A: 직원 목록에 연락처 없음');
   await A.evaluate(() => editContract(null, '101-105')); await A.waitForSelector('#f_staffId');
-  await A.fill('#f_name', '선택테스트'); await A.selectOption('#f_staffId', stRow.id); await A.click('#mSave'); await A.waitForTimeout(1500);
+  await A.fill('#f_name', '선택테스트'); await A.fill('#f_staffId', '선택직원'); await A.click('#mSave'); await A.waitForTimeout(1500);
   const sc = await A.evaluate(() => live('contracts').find(c => c.name === '선택테스트'));
   ok(sc && sc.staffId === stRow.id && sc.staff === '선택직원', 'A: 직원 선택 → staffId·담당자 저장', sc);
   // 동시 수정(같은 세대의 다른 필드) → 서로 덮어쓰지 않고 합쳐진다
