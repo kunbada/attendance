@@ -1,57 +1,91 @@
-// 다중 사용자 시나리오 테스트 (모의 서버 필요: node tools/mockgas.js 를 새로 시작한 뒤 실행)
-const { chromium } = require('playwright'); const path = require('path');
-const URL = 'file:///' + path.join(__dirname, '..', '분양계약관리.html').split(path.sep).join('/');
-const SRV = 'http://localhost:8765/exec'; let fails = 0;
+// 다중 사용자 시나리오 + 통합관리 요약 일치 시험 (통합 서버 필요)
+//   준비: server/ 에서 DB 를 새로 만들고(초기 관리자 비밀번호 출력) `npx wrangler@4 dev --local --port 8787` 을 켠다.
+//   실행: ADMIN_PW=초기비밀번호 node tools/test_multi.js      (시험 중 관리자 비밀번호를 바꾸므로 다시 돌릴 때는 DB 부터 다시)
+const { chromium } = require('playwright'); const path = require('path'); const fs = require('fs');
+const SRV = process.env.BASE_URL || 'http://127.0.0.1:8787';
+const ADMIN_PW = process.env.ADMIN_PW;
+if (!ADMIN_PW) { console.error('ADMIN_PW 환경변수에 초기 관리자 비밀번호를 넣어 주세요.'); process.exit(1); }
+// 앱에 내장된 서버 주소를 시험 서버로 바꾼 사본을 만들어 연다 (파일로 열기 = 주소 "null", 서버가 허용하는 곳)
+const built = fs.readFileSync(path.join(__dirname, '..', '분양계약관리.html'), 'utf8').replace(/const DEFAULT_SERVER = "[^"]*";/, 'const DEFAULT_SERVER = ' + JSON.stringify(SRV) + ';');
+const COPY = path.join(__dirname, '_test_app.html'); fs.writeFileSync(COPY, built);
+const URL = 'file:///' + COPY.split(path.sep).join('/');
+let fails = 0;
 const ok = (c, m, x) => { if (!c) { fails++; console.log('FAIL', m, x === undefined ? '' : JSON.stringify(x)); } else console.log('ok  ', m); };
-const api = async b => (await fetch(SRV, { method: 'POST', body: JSON.stringify(b) })).json();
+const api = async (action, data, token = '', projectId) => (await fetch(SRV, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, token, projectId, data: data || {} }) })).json();
 const wait = ms => new Promise(r => setTimeout(r, ms));
-async function mk(b) { const ctx = await b.newContext({ viewport: { width: 1300, height: 800 } }); const p = await ctx.newPage(); p.errs = []; p.on('pageerror', e => p.errs.push(e.message)); p.on('dialog', d => d.accept()); return p; }
-async function login(p, id, pw) { await p.waitForSelector('#loginBg'); await p.fill('#aId', id); await p.fill('#aPw', pw); await p.click('#aGo'); await p.waitForSelector('#loginBg', { state: 'detached' }); }
+const uniq = String(Math.floor(Math.random() * 1e6)).padStart(6, '0');
+const PW = 'Second' + uniq + 'y8';
+async function mk(b) { const ctx = await b.newContext({ viewport: { width: 1300, height: 800 } }); await ctx.addInitScript(() => { try { if (!localStorage.getItem('bunyang.current')) localStorage.setItem('bunyang.current', '"P01"'); } catch (e) { } }); const p = await ctx.newPage(); p.errs = []; p.on('pageerror', e => p.errs.push(e.message)); p.on('dialog', d => d.accept()); return p; }
+async function login(p, id) { await p.waitForSelector('#loginBg'); await p.fill('#aId', id); await p.fill('#aPw', PW); await p.click('#aGo'); await p.waitForSelector('#loginBg', { state: 'detached' }); }
 (async () => {
+  // 준비: 관리자 비밀번호 변경 → 계정 3개(보조관리자·계약담당·열람) 만들기
+  const first = await api('account.login', { loginId: 'admin', password: ADMIN_PW });
+  if (!first.ok) { console.log('관리자 로그인 실패', first.error); process.exit(1); }
+  await api('account.changePassword', { oldPassword: ADMIN_PW, newPassword: 'AdminPw' + uniq + 'a1' }, first.data.token);
+  const admin = first.data.token;
+  const mk1 = async (role, tag) => {
+    const loginId = tag + uniq, pw = 'First' + uniq + 'z9';
+    const s = await api('admin.saveAccount', { loginId, name: tag + '계정', role, password: pw, active: true, projectIds: ['P01'] }, admin);
+    if (!s.ok) throw new Error('계정 만들기 실패 ' + role + ': ' + s.error);
+    const lg = await api('account.login', { loginId, password: pw });
+    await api('account.changePassword', { oldPassword: pw, newPassword: PW }, lg.data.token);
+    return loginId;
+  };
+  const boss = await mk1('보조관리자', 'boss'), kim = await mk1('계약담당', 'kim'), lee = await mk1('열람', 'lee');
+
   const b = await chromium.launch();
-  // A: 로컬 데이터 업로드(서버 비밀키 방식)
-  const A = await mk(b); await A.goto(URL + '#settings'); await A.waitForTimeout(500);
-  await A.setInputFiles('#initIn', path.join(__dirname, '..', '견본_초기데이터.json')); await A.waitForTimeout(300); await A.click('#cfOk'); await A.waitForTimeout(800);
-  await A.fill('#sUrl', SRV); await A.fill('#sTok', 'test123'); await A.click('#sSave'); await A.waitForTimeout(1000);
-  await A.click('#sPush'); await A.waitForTimeout(300); await A.click('#cfOk'); await A.waitForTimeout(2000);
-  ok(await A.evaluate(() => Object.keys(OUTBOX).length) === 0, '업로드 완료(대기 0)');
-  // 사용자 만들기
-  const boss = await api({ op: 'setupAdmin', token: 'test123', id: 'boss', name: '상무', pw: '123456' });
-  await api({ op: 'signup', id: 'kim', name: '김직원', pw: '123456' }); await api({ op: 'userSet', st: boss.st, uid: 'kim', role: 'write', status: 'active' });
-  await api({ op: 'signup', id: 'lee', name: '이열람', pw: '123456' }); await api({ op: 'userSet', st: boss.st, uid: 'lee', role: 'read', status: 'active' });
-  await api({ op: 'signup', id: 'new1', name: '신규', pw: '123456' });
-  // A 재접속 → 로그인 화면
-  await A.reload(); await login(A, 'kim', '123456'); await A.waitForTimeout(800);
-  ok(await A.evaluate(() => ROLE()) === 'write', 'A: 쓰기 권한 로그인');
-  // B: 읽기전용 — 서버 연결만 입력 → 로그인 → 전체 받기
-  const B = await mk(b); await B.goto(URL + '#settings'); await B.waitForTimeout(500);
-  await B.fill('#sUrl', SRV); await B.click('#sSave'); await login(B, 'lee', '123456'); await B.waitForTimeout(2500);
+  // C: 관리자 — 견본 데이터를 서버에 올린다
+  const C = await mk(b); await C.goto(URL + '#settings'); await login(C, boss); await C.waitForTimeout(800);
+  ok(await C.evaluate(() => isAdmin()), 'C: 관리자 권한');
+  await C.setInputFiles('#initIn', path.join(__dirname, '..', '견본_초기데이터.json')); await C.waitForTimeout(300); await C.click('#cfOk'); await C.waitForTimeout(800);
+  await C.click('#sPush'); await C.waitForTimeout(300); await C.click('#cfOk'); await C.waitForTimeout(4000);
+  ok(await C.evaluate(() => Object.keys(OUTBOX).length) === 0, 'C: 업로드 완료(대기 0)');
+  // A: 계약담당(쓰기) / B: 열람(읽기전용) — 로그인만 해도 전체 데이터를 받는다
+  const A = await mk(b); await A.goto(URL + '#dash'); await login(A, kim); await A.waitForTimeout(3500);
+  ok(await A.evaluate(() => ROLE()) === 'write', 'A: 쓰기 권한');
+  ok(await A.evaluate(() => live('units').length) === 40, 'A: 전체 데이터 수신');
+  const B = await mk(b); await B.goto(URL + '#dash'); await login(B, lee); await B.waitForTimeout(3500);
+  ok(await B.evaluate(() => ROLE()) === 'read', 'B: 읽기전용 권한');
   ok(await B.evaluate(() => live('units').length) === 40, 'B: 읽기전용도 전체 데이터 수신');
-  // C: 관리자
-  const C = await mk(b); await C.goto(URL + '#settings'); await C.waitForTimeout(500);
-  await C.fill('#sUrl', SRV); await C.click('#sSave'); await login(C, 'boss', '123456'); await C.waitForTimeout(2500);
-  ok(await C.evaluate(() => isAdmin()), 'C: 관리자'); ok(await C.evaluate(() => PENDING_USERS) >= 0, 'C: pending 조회');
-  // 동시 수정(같은 세대의 다른 필드)
+  // 동시 수정(같은 세대의 다른 필드) → 서로 덮어쓰지 않고 합쳐진다
   await Promise.all([
     A.evaluate(async () => { const u = M.units['101-101']; u.skind = '특공(A수정)'; await save('units', u); }),
     C.evaluate(async () => { const u = M.units['101-101']; u.type = '99Z'; await save('units', u); })
   ]);
   await wait(9000);
-  for (const [n, p] of [['A', A], ['B', B], ['C', C]]) { const u = await p.evaluate(() => { const x = M.units['101-101']; return { t: x.type, s: x.skind }; }); ok(u.t === '99Z' && u.s === '특공(A수정)', `${n}: 동시 수정 병합 반영(실시간 전파)`, u); }
+  for (const [n, p] of [['A', A], ['B', B], ['C', C]]) { const u = await p.evaluate(() => { const x = M.units['101-101']; return { t: x.type, s: x.skind }; }); ok(u.t === '99Z' && u.s === '특공(A수정)', `${n}: 동시 수정 병합 반영`, u); }
   // 읽기전용 저장 시도
   await B.evaluate(async () => { const u = M.units['101-102']; u.type = 'HACK'; await save('units', u); });
   await wait(1500); ok(await B.evaluate(() => M.units['101-102'].type) !== 'HACK', 'B: 읽기전용 저장 차단(원복)');
-  // 같은 동호 동시 계약
+  // 같은 동호 동시 계약 → 1건만
   const con = (id, name) => ({ id, dongho: '101-103', status: '정상', name, date: '2026-10-19' });
   await Promise.all([A.evaluate(async c => { await save('contracts', c); }, con('cA', '가나다')), C.evaluate(async c => { await save('contracts', c); }, con('cC', '라마바'))]);
   await wait(9000);
   for (const [n, p] of [['A', A], ['C', C], ['B', B]]) { const r = await p.evaluate(() => live('contracts').filter(c => c.dongho === '101-103').map(c => c.name)); ok(r.length === 1, `${n}: 동일 동호 이중계약 1건만 존속`, r); }
   const sA = await A.evaluate(() => live('contracts').filter(c => c.dongho === '101-103')[0].name), sC = await C.evaluate(() => live('contracts').filter(c => c.dongho === '101-103')[0].name); ok(sA === sC, '모든 사용자 같은 결과', [sA, sC]);
-  // 사용자관리 화면
-  await C.goto(URL + '#users'); await C.waitForTimeout(1500); ok(/신규/.test(await C.innerText('#view')), '관리자: 승인대기 사용자 표시');
-  // 사용중지 → 즉시 차단
-  await api({ op: 'userSet', st: boss.st, uid: 'lee', status: 'disabled' }); await wait(6500);
-  ok(await B.evaluate(() => !!$('#loginBg')), 'B: 사용중지되면 로그인 화면으로');
+  // 입금 몇 건 (회차 입금 + 미분류) 후 통합관리 요약과 앱 대시보드 숫자 비교
+  await A.evaluate(async () => {
+    const dh = Object.keys(IX.active)[0]; const stg = STAGES()[0];
+    await save('deposits', [{ id: 'dpA1', dongho: dh, cat: stg, inn: 1000000, out: 0, t: today().replace(/-/g, '.') + ' 10:00', desc: '시험입금' }, { id: 'dpA2', dongho: '', cat: '', inn: 500000, out: 0, t: today().replace(/-/g, '.') + ' 11:00', desc: '미분류' }]);
+  });
+  await wait(9000);
+  const app = await C.evaluate(() => {
+    const st = { 계약: 0, 가계약: 0, 동호지정: 0, 잠금: 0, 잔여: 0 }; live('units').forEach(u => st[unitStatus(u.id)]++);
+    const act = Object.values(IX.active); const sg = STAGES()[0];
+    return { units: live('units').length, contract: st.계약, pre: st.가계약, resv: st.동호지정, lock: st.잠금, remain: st.잔여, totalIn: live('deposits').reduce((a, d) => a + (PAY_CATS().has(d.cat) ? (d.inn || 0) - (d.out || 0) : 0), 0), unclassified: IX.unclassified, firstDone: act.filter(c => payState(c.dongho, sg).done).length };
+  });
+  const lg = await api('account.login', { loginId: boss, password: PW });
+  const sm = (await api('contract.summary', {}, lg.data.token, 'P01')).data;
+  ok(sm.units === app.units && sm.contract === app.contract && sm.pre === app.pre && sm.resv === app.resv && sm.lock === app.lock && sm.remain === app.remain, '통합관리 요약 = 앱 대시보드: 세대 상태별 수', [sm.units, sm.contract, sm.pre, sm.lock, sm.remain, app]);
+  ok(sm.totalIn === app.totalIn && sm.unclassified === app.unclassified, '통합관리 요약 = 앱 대시보드: 총 수납액·미분류 입금', [sm.totalIn, app.totalIn, sm.unclassified, app.unclassified]);
+  ok(sm.firstStage && sm.firstStage.done === app.firstDone, '통합관리 요약 = 앱 대시보드: 첫 회차 완납 수', [sm.firstStage, app.firstDone]);
+  // 계정 사용중지 → 로그인 화면으로 (poll 이 AUTH 오류를 받는다)
+  const leeId = ((await api('admin.accounts', {}, admin)).data.accounts.find(x => x.loginId === lee) || {}).id;
+  const off = await api('admin.saveAccount', { id: leeId, loginId: lee, name: 'lee계정', role: '열람', active: false, projectIds: ['P01'] }, admin);
+  ok(off.ok, '열람 계정 사용중지 저장', off.error);
+  await wait(7000);
+  ok(await B.evaluate(() => !!$('#loginBg')), 'B: 계정이 중지되면 로그인 화면으로');
   for (const p of [A, B, C]) if (p.errs.length) { fails++; console.log('pageerror', p.errs); }
-  await b.close(); console.log(fails ? 'FAILED ' + fails : 'ALL OK'); process.exit(fails ? 1 : 0);
-})();
+  await b.close(); try { fs.unlinkSync(COPY); } catch (e) { }
+  console.log(fails ? 'FAILED ' + fails : 'ALL OK'); process.exit(fails ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(1); });

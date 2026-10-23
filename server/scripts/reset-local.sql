@@ -28,3 +28,5 @@ DROP TABLE IF EXISTS survey_links;
 DROP TABLE IF EXISTS responses;
 DROP TABLE IF EXISTS response_answers;
 DROP TABLE IF EXISTS response_pii;
+DROP TABLE IF EXISTS ct_records;
+DROP TABLE IF EXISTS ct_rev;

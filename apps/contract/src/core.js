@@ -163,23 +163,41 @@ function region(addr) {
   return { sido, sgg };
 }
 
-/* ===================== 동기화 (Apps Script) ===================== */
+/* ===================== 동기화 (통합관리 서버) ===================== */
 let syncing = false, syncErr = '', online = navigator.onLine;
 const scheduleSync = debounce(() => sync(), 800);
 window.addEventListener('online', () => { online = true; updateSyncPill(); sync(); });
 window.addEventListener('offline', () => { online = false; updateSyncPill(); });
-/* 로그인 세션(서버 URL 단위, 현장과 무관하게 공용) */
+/* 로그인 세션(서버 URL 단위). 계정은 통합관리 서버의 것이고, 현장(PROJ)은 서버의 현장 id 와 같다 */
 let SESSION = LS.get('bunyang.session', null);
-const ROLE = () => (SESSION && SESSION.url === META.syncUrl && SESSION.role) || (META.token ? 'admin' : (META.syncUrl ? 'read' : 'admin'));
+const ROLE = () => (SESSION && SESSION.url === META.syncUrl && SESSION.role) || (META.syncUrl ? 'read' : 'admin');
 const canWrite = () => !META.syncUrl || ROLE() !== 'read';
 const isAdmin = () => !META.syncUrl ? false : ROLE() === 'admin';
 const ROLE_L = { admin: '관리자', write: '쓰기', read: '읽기전용' };
 function setSession(s) { SESSION = s ? Object.assign({ url: META.syncUrl }, s) : null; LS.set('bunyang.session', SESSION); if (s && s.name) { META.user = s.name; persistMeta(); } updateUserPill(); }
+// 예전 계약앱의 op 이름을 통합 서버 action 으로 옮긴다. global=true 는 현장과 무관한 호출
+function toAction(b) {
+  const sess = b.op === 'login' ? null : (SESSION && SESSION.url === META.syncUrl ? SESSION.st : '');
+  const m = {
+    login: ['account.login', { loginId: b.id, password: b.pw }, true],
+    logout: ['auth.logout', {}, true],
+    changePw: ['account.changePassword', { oldPassword: b.old, newPassword: b.pw }, true],
+    projects: ['project.list', {}, true],
+    ping: ['contract.poll', {}],
+    poll: ['contract.poll', {}],
+    me: ['contract.poll', {}],
+    sync: ['contract.sync', { since: b.since, changes: b.changes }],
+    wipe: ['contract.wipe', {}]
+  }[b.op];
+  if (!m) throw new Error('지원하지 않는 요청: ' + b.op);
+  return { action: m[0], data: m[1], global: !!m[2], token: sess };
+}
 async function callServer(body, noAuthFail) {
-  const r = await fetch(META.syncUrl, { method: 'POST', body: JSON.stringify(Object.assign({ st: (SESSION && SESSION.url === META.syncUrl) ? SESSION.st : undefined, token: META.token, user: META.user, pk: META.pk || undefined }, body)), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' });
-  const txt = await r.text(); let j; try { j = JSON.parse(txt); } catch (e) { throw new Error('서버 응답 오류 (Apps Script 배포/권한 확인): ' + txt.slice(0, 120)); }
+  const q = toAction(body);
+  const r = await fetch(META.syncUrl, { method: 'POST', body: JSON.stringify({ action: q.action, token: q.token || '', projectId: q.global ? undefined : (META.pk || undefined), data: q.data }), headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+  const txt = await r.text(); let j; try { j = JSON.parse(txt); } catch (e) { throw new Error('서버 응답 오류 (서버 주소 확인): ' + txt.slice(0, 120)); }
   if (!j.ok) { const e = new Error(j.error || '서버 오류'); e.code = j.code; if (j.code === 'AUTH' && !noAuthFail) { setSession(null); showLogin(); } throw e; }
-  return j;
+  return j.data || {};
 }
 
 /* 변경 전송은 "바뀐 필드만(patch)" 보냄 → 다른 사람이 같은 레코드의 다른 항목을 고쳐도 서로 덮어쓰지 않음 */
@@ -197,14 +215,14 @@ function showRejected(list) {
   openModal({ title: '일부 변경이 반영되지 않았습니다', body: `<div class="help" style="margin-bottom:8px">다른 사용자가 먼저 등록/변경한 내용과 충돌하여 서버가 거절했습니다. 해당 항목은 서버의 최신 상태로 되돌렸습니다.</div><ul style="line-height:1.8">${Object.entries(g).map(([m, n]) => `<li>${esc(m)}${n > 1 ? ` <b>(${n}건)</b>` : ''}</li>`).join('')}</ul>`, foot: '<button class="btn pri" onclick="closeModal()">확인</button>' });
 }
 async function sync(opt = {}) {
-  if (!META.syncUrl || syncing) return;
+  if (!META.syncUrl || !META.pk || syncing) return;
   if (!navigator.onLine) { online = false; updateSyncPill(); return; }
   if (needLogin()) return;
   syncing = true; updateSyncPill();
   try {
-    let loops = 0;
+    let loops = 0, more = false;
     do {
-      const keys = Object.keys(OUTBOX).slice(0, 800);
+      const keys = Object.keys(OUTBOX).slice(0, 300);
       const changes = [], sent = {};
       keys.forEach(k => {
         const i = k.indexOf('|'); const c = k.slice(0, i), id = k.slice(i + 1); const r = M[c] && M[c][id];
@@ -237,8 +255,8 @@ async function sync(opt = {}) {
       await persistMeta(); await idb.setMeta('outbox', OUTBOX);
       if (n) { rebuild(); DIRTY_BACKUP = true; if (!document.querySelector('.modal-bg') && !document.activeElement?.classList.contains('cell')) render(); }
       if ((res.rejected || []).length) showRejected(res.rejected);
-      opt.full = false; loops++;
-    } while (Object.keys(OUTBOX).length && loops < 20);
+      opt.full = false; loops++; more = !!res.more;
+    } while ((Object.keys(OUTBOX).length || more) && loops < 400);
   } catch (e) {
     syncErr = e.message || String(e); if (/Failed to fetch|NetworkError/i.test(syncErr)) { online = false; syncErr = '네트워크 연결 없음'; }
     if (e.code === 'READONLY') { await reloadStore(); }
@@ -246,16 +264,16 @@ async function sync(opt = {}) {
   } finally { syncing = false; updateSyncPill(); }
 }
 /* 실시간에 가깝게: 가벼운 poll(서버 rev만 확인)을 몇 초마다 → 바뀐 게 있을 때만 전체 동기화 */
-let lastPoll = 0, polling = false, PENDING_USERS = 0;
+let lastPoll = 0, polling = false;
 async function poll() {
-  if (!META.syncUrl || syncing || polling || needLogin() || !navigator.onLine) return;
+  if (!META.syncUrl || !META.pk || syncing || polling || needLogin() || !navigator.onLine) return;
   if (document.hidden && Date.now() - lastPoll < 60000) return;
   polling = true; lastPoll = Date.now();
   try {
     if (Object.keys(OUTBOX).length) { polling = false; return sync(); }
     const r = await callServer({ op: 'poll' }); online = true;
     if (r.role && SESSION && r.role !== SESSION.role) { setSession(Object.assign({}, SESSION, { role: r.role })); render(); }
-    PENDING_USERS = r.pending || 0; updateUserPill();
+    
     if (r.rev !== META.lastRev) await sync(); else { syncErr = ''; updateSyncPill(); }
   } catch (e) { if (/Failed to fetch|NetworkError/i.test(e.message)) { online = false; updateSyncPill(); } }
   finally { polling = false; }
@@ -329,20 +347,6 @@ async function restoreFrom(obj, opt = {}) {
   const pl = projList(); const me = pl.find(p => p.key === PROJ); const nm = (M.settings.main || {}).project?.name; if (nm) { if (me) me.name = nm; else pl.push({ key: PROJ, name: nm }); LS.set('bunyang.projects', pl); }
 }
 
-/* ===================== 새 현장 만들기: 서버 연결/초기데이터 이어받기 ===================== */
-// 새 현장은 페이지를 다시 불러와야 하므로, 서버 연결정보와 선택한 파일을 잠깐 보관했다가 새 현장 DB에 적용
-async function applyPendingProject() {
-  const pend = LS.get('bunyang.pending', null);
-  if (!pend || pend.key !== PROJ) return;
-  LS.set('bunyang.pending', null);
-  let raw = null; try { raw = sessionStorage.getItem('bunyang.pendingData'); sessionStorage.removeItem('bunyang.pendingData'); } catch (e) { }
-  Object.assign(META, pend.srv || {}); await persistMeta();
-  try { if (raw) await restoreFrom(JSON.parse(raw), { touch: true, markAll: !!META.syncUrl, resetRev: true }); } catch (e) { console.warn(e); }
-  const st = Object.assign({}, CFG(), { id: 'main' }); st.project = Object.assign({}, st.project, { name: pend.name });
-  await save('settings', st);
-  syncProjName();
-}
-
 // 현장 목록(콤보)의 이름을 현재 프로젝트 설정의 현장명과 맞춤
 function syncProjName() {
   const nm = ((M.settings.main || {}).project || {}).name; if (!nm || PROJ === 'default' && nm === '새 프로젝트') return;
@@ -365,10 +369,9 @@ async function boot() {
   META = Object.assign(META, (await idb.getMeta('local')) || {});
   OUTBOX = (await idb.getMeta('outbox')) || {};
   if (!META.syncUrl && typeof DEFAULT_SERVER === 'string' && DEFAULT_SERVER) META.syncUrl = DEFAULT_SERVER;
-  if (PROJ !== 'default' && !META.pk && LS.get('bunyang.srvProjects', []).some(p => p.pk === PROJ)) META.pk = PROJ;
+  META.pk = PROJ !== 'default' ? PROJ : ''; // 현장 id = 서버 현장 id
   if (!M.settings.main) { const st = DEFAULT_SETTINGS(); S.settings.push(st); M.settings.main = st; }
   rebuild(); buildBase();
-  await applyPendingProject();
   syncProjName();
   await migrateResv();
   await initBackup();

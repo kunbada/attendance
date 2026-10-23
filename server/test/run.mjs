@@ -61,7 +61,7 @@ const query = async (command) => {
   let out;
   for (let i = 0; ; i++) {
     try {
-      out = execFileSync('npx', ['wrangler@4', 'd1', 'execute', 'DB', '--local', '--json', '--command', JSON.stringify(command)], { cwd: root, shell: true, stdio: 'pipe', windowsHide: true }).toString();
+      out = execFileSync('npx', [process.env.WRANGLER || 'wrangler@4', 'd1', 'execute', 'DB', '--local', '--json', '--command', JSON.stringify(command)], { cwd: root, shell: true, stdio: 'pipe', windowsHide: true }).toString();
       break;
     } catch (e) {
       if (i >= 2) throw new Error('DB 조회 실패: ' + (e.stderr || e.stdout || e.message));
@@ -73,7 +73,7 @@ const query = async (command) => {
 };
 const sql = (command) => {
   writeFileSync(join(root, '.test.sql'), command + ';');
-  execFileSync('npx', ['wrangler@4', 'd1', 'execute', 'DB', '--local', '--file=.test.sql'], { cwd: root, shell: true, stdio: 'pipe', windowsHide: true });
+  execFileSync('npx', [process.env.WRANGLER || 'wrangler@4', 'd1', 'execute', 'DB', '--local', '--file=.test.sql'], { cwd: root, shell: true, stdio: 'pipe', windowsHide: true });
   return waitReady();
 };
 // DB 파일이 바뀌면 개발 서버가 잠깐 다시 시작되므로 응답할 때까지 기다린다

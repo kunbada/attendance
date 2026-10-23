@@ -166,26 +166,17 @@ function view_settings(el) {
       <div class="kv" style="margin:10px 0"><div>백업 폴더</div><div>${BK.dir ? `<b>${esc(BK.dir.name)}</b> ${BK.perm ? '<span class="chip ok">연결됨</span>' : '<span class="chip warn">권한 필요</span>'}` : '<span class="chip gray">미지정</span>'}</div><div>최근 백업</div><div>${esc(META.lastBackup || '-')}</div></div>
       <div class="toolbar"><button class="btn pri" onclick="pickBackupDir()">${BK.dir ? '폴더 변경' : '백업 폴더 지정'}</button>${BK.dir && !BK.perm ? '<button class="btn pri" onclick="grantBackup()">권한 허용</button>' : ''}<button class="btn" onclick="backupNow(true)">지금 백업</button><button class="btn" onclick="downloadBackup()">백업 파일 다운로드</button><label class="btn">백업 파일에서 복원<input type="file" accept=".json" id="restoreIn" style="display:none"></label></div>
     </div>
-    <div class="card" style="margin-bottom:12px"><h3>☁ 온라인 DB 동기화 (구글시트)</h3>
-      <div class="help">구글시트 + Apps Script(Code.gs)를 웹앱으로 배포한 URL과 비밀번호(토큰)를 입력하면, 모든 변경이 2~3초 내 자동 전송되고 30초마다 다른 PC의 변경을 받아옵니다. 오프라인 중 변경은 쌓아뒀다가 연결되면 자동 전송합니다.</div>
-      <div class="form" style="margin-top:10px"><div class="f full"><label>Apps Script 웹앱 URL</label><input class="in" id="sUrl" value="${esc(META.syncUrl)}" placeholder="https://script.google.com/macros/s/..../exec"></div>
-      <div class="f"><label>서버 비밀키 (선택: 사용자 계정 없이 쓸 때만)</label><input class="in" id="sTok" type="password" value="${esc(META.token)}"></div><div class="f"><label>사용자 이름(이 PC)</label><input class="in" id="sUser" value="${esc(META.user)}" placeholder="예: 윤상무"></div></div>
-      <div class="kv" style="margin:10px 0"><div>상태</div><div>${META.syncUrl ? (syncErr ? `<span class="red">${esc(syncErr)}</span>` : '정상') : '미설정(로컬 전용)'}</div><div>구글시트</div><div>${META.sheetUrl ? `<a href="${esc(META.sheetUrl)}" target="_blank" rel="noopener">시트 열기 ↗</a>` : '<span class="muted">-</span>'}${META.pk ? '' : ' <span class="muted">(공용/기본 시트)</span>'}</div><div>최근 동기화</div><div>${esc(META.lastSync || '-')} · rev ${META.lastRev || 0}</div><div>전송 대기</div><div>${nOut}건</div></div>
+    <div class="card" style="margin-bottom:12px"><h3>☁ 온라인 DB 동기화 (통합관리 서버)</h3>
+      <div class="help">통합관리 서버에 로그인하면 모든 변경이 2~3초 내 자동 전송되고 몇 초마다 다른 PC의 변경을 받아옵니다. 오프라인 중 변경은 쌓아뒀다가 연결되면 자동 전송합니다. 계정·권한은 통합관리에서 관리합니다.</div>
+      <div class="form" style="margin-top:10px"><div class="f full"><label>서버 주소 (보통 바꿀 필요 없음, 비우면 로컬 전용)</label><input class="in" id="sUrl" value="${esc(META.syncUrl)}" placeholder="https://attendance-api.….workers.dev"></div></div>
+      <div class="kv" style="margin:10px 0"><div>상태</div><div>${META.syncUrl ? (syncErr ? `<span class="red">${esc(syncErr)}</span>` : '정상') : '미설정(로컬 전용)'}</div><div>최근 동기화</div><div>${esc(META.lastSync || '-')} · rev ${META.lastRev || 0}</div><div>전송 대기</div><div>${nOut}건</div></div>
       <div class="toolbar"><button class="btn pri" id="sSave">저장 & 연결 테스트</button><button class="btn" onclick="sync().then(()=>{toast(syncErr||'동기화 완료',!!syncErr);render()})">지금 동기화</button><button class="btn" id="sPull">서버 전체 다시받기</button><button class="btn" id="sPush">이 PC 데이터를 서버에 전체 업로드</button></div>
-      <details class="box" style="margin-top:10px"><summary>설치 방법 (처음 1회)</summary><div class="help">
-        1. 구글 드라이브에서 새 <b>구글 스프레드시트</b>를 만듭니다 (예: “양주역 계약관리 DB”).<br>
-        2. 메뉴 <b>확장 프로그램 → Apps Script</b> → 기본 코드를 지우고 함께 드린 <code>Code.gs</code> 내용을 붙여넣기.<br>
-        3. 코드 맨 위 <code>TOKEN</code> 값을 원하는 비밀번호로 바꾸고 저장.<br>
-        4. <b>배포 → 새 배포 → 유형: 웹 앱</b>, 실행: <b>나</b>, 액세스: <b>모든 사용자</b> → 배포 → 권한 승인.<br>
-        5. 나온 <b>웹 앱 URL</b>(…/exec)과 토큰을 위에 입력 → 저장 & 연결 테스트.<br>
-        6. 처음 PC 한 대에서 <b>이 PC 데이터를 서버에 전체 업로드</b> → 다른 PC는 URL/토큰만 입력하면 자동으로 받아옵니다.<br>
-        ※ 코드를 수정하면 <b>배포 관리 → 편집 → 새 버전</b>으로 다시 배포해야 반영됩니다. 시트는 사람이 보기 위한 열도 함께 저장되며, 시트에서 직접 수정한 값은 앱에 반영되지 않습니다(앱에서 수정).</div></details>
     </div>
     <div class="card"><h3>🗂 프로젝트 · 데이터</h3>
       <div class="kv" style="margin-bottom:10px"><div>현재 프로젝트</div><div><b>${esc(projList().find(p => p.key === PROJ)?.name || PROJ)}</b> <span class="muted">(${PROJ})</span></div><div>데이터</div><div>세대 ${live('units').length} · 계약 ${live('contracts').length} · 가계약 ${live('pre').length} · 동호지정 ${live('resv').length} · 잠금 ${live('locks').length} · 입금 ${live('deposits').length}</div></div>
-      <div class="toolbar"><select class="in" id="pSel">${projList().map(p => `<option value="${p.key}" ${p.key === PROJ ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn" id="pGo">전환</button><button class="btn" id="pNew">새 프로젝트</button></div>
+      <div class="toolbar"><select class="in" id="pSel">${(META.syncUrl ? srvProjects().map(p => ({ key: p.id, name: p.name })) : projList()).map(p => `<option value="${esc(p.key)}" ${p.key === PROJ ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn" id="pGo">전환</button></div>
       <div class="toolbar"><label class="btn">초기데이터(JSON) 불러오기<input type="file" accept=".json" id="initIn" style="display:none"></label><button class="btn dan" id="wipe">이 프로젝트 데이터 전체 삭제</button></div>
-      <div class="help">※ 프로젝트별로 데이터와 서버 설정이 분리됩니다. 동일한 HTML 파일로 여러 현장을 관리할 수 있습니다.</div>
+      <div class="help">※ 현장은 통합관리에서 만듭니다. 현장마다 데이터가 분리됩니다.</div>
     </div>
   </div>
   <div>
@@ -220,9 +211,9 @@ function view_settings(el) {
     toast('설정 저장'); render();
   };
   $('#sSave').onclick = async () => {
-    META.syncUrl = $('#sUrl').value.trim(); META.token = $('#sTok').value.trim(); META.user = $('#sUser').value.trim(); await persistMeta();
+    META.syncUrl = $('#sUrl').value.trim().replace(/\/+$/, ''); await persistMeta();
     if (!META.syncUrl) { toast('로컬 전용으로 저장'); render(); return; }
-    try { const r = await callServer({ op: 'ping' }); if (r.url) { META.sheetUrl = r.url; await persistMeta(); } toast('연결 성공 · 서버 rev ' + r.rev); await sync(); } catch (e) { toast('연결 실패: ' + e.message, 1); }
+    try { if (needLogin()) return showLogin(); const r = await callServer({ op: 'ping' }); toast('연결 성공 · 서버 rev ' + r.rev); await sync(); } catch (e) { toast('연결 실패: ' + e.message, 1); }
     render();
   };
   $('#sPull').onclick = () => confirmBox('서버의 전체 데이터를 다시 받습니다. (이 PC의 미전송 변경은 유지)', async () => { await sync({ full: true }); toast(syncErr || '다시받기 완료', !!syncErr); render(); });
@@ -230,7 +221,7 @@ function view_settings(el) {
   const readJson = (inp, cb) => inp.onchange = () => { const f = inp.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { cb(JSON.parse(rd.result), f.name); } catch (e) { toast('JSON 오류: ' + e.message, 1); } }; rd.readAsText(f); };
   const doRestore = (obj, name) => confirmBox(`'${name}' 로 이 PC의 데이터를 교체합니다.\n세대 ${(obj.units || []).length} · 계약 ${(obj.contracts || []).length} · 입금 ${(obj.deposits || []).length}건\n\n(현재 데이터는 먼저 자동 다운로드됩니다)`, async () => {
     downloadBackup();
-    const toServer = META.syncUrl && isAdmin() && (prompt(`[주의] 서버(구글시트)의 이 현장 데이터를 모두 지우고 '${name}' 내용으로 교체하려면 아래에 "덮어쓰기"를 입력하세요.
+    const toServer = META.syncUrl && isAdmin() && (prompt(`[주의] 서버의 이 현장 데이터를 모두 지우고 '${name}' 내용으로 교체하려면 아래에 "덮어쓰기"를 입력하세요.
 
 (이 PC에만 복원하려면 취소를 누르세요. 현재 프로젝트: ${CFG().project.name || PROJ} / 서버에 이미 있는 데이터는 복구가 어렵습니다)`) || '').trim() === '덮어쓰기';
     if (toServer) { try { const w = await callServer({ op: 'wipe' }); toast(`서버의 기존 데이터 ${w.wiped}건을 정리했습니다`); } catch (e) { return toast('서버 정리 실패(관리자만 가능): ' + e.message, 1); } }
@@ -240,32 +231,4 @@ function view_settings(el) {
   readJson($('#restoreIn'), doRestore); readJson($('#initIn'), doRestore);
   $('#wipe').onclick = () => confirmBox('이 프로젝트의 이 PC 데이터를 모두 삭제합니다. (서버 데이터는 유지)\n삭제 전 백업 파일이 다운로드됩니다.', async () => { downloadBackup(); await restoreFrom({ units: [] }); OUTBOX = {}; META.lastRev = 0; await persistMeta(); render(); });
   $('#pGo').onclick = () => { LS.set('bunyang.current', $('#pSel').value); location.reload(); };
-  $('#pNew').onclick = newProjectDialog;
-}
-
-/* ===================== 새 현장 만들기 (구글시트 자동 생성) ===================== */
-function newProjectDialog() {
-  
-  openModal({
-    title: '새 현장(프로젝트) 만들기',
-    body: `<div class="form"><div class="f full"><label>현장명</label><input class="in" id="npName" placeholder="예: 양주역 중흥S-클래스"></div>
-      <div class="f full"><label>견본/초기데이터 파일 (선택, .json)</label><input type="file" id="npFile" accept=".json"><div class="help">세대·분양가 등이 들어있는 견본 파일(<code>견본_초기데이터.json</code>) 또는 다른 현장의 백업 파일을 고르면 자동으로 채워집니다. 비워두면 빈 현장으로 시작합니다.</div></div>
-      <div class="f full"><div class="help">${!META.syncUrl ? '서버가 연결되어 있지 않아 이 PC에만 저장되는 현장으로 만들어집니다.' : isAdmin() ? '<b>이 현장 전용 구글시트 파일이 새로 만들어지고</b>, 이 현장의 모든 데이터가 그 시트에 저장됩니다. (양주역 등 기존 현장의 시트와는 완전히 별개입니다)' : '<span class="red">새 현장은 관리자만 만들 수 있습니다 (구글시트를 새로 만들어야 하므로).</span>'}</div></div></div>`,
-    foot: '<button class="btn" onclick="closeModal()">취소</button><button class="btn pri" id="npOk">만들기</button>',
-    onOpen: bg => bg.querySelector('#npOk').onclick = async () => {
-      const name = $('#npName').value.trim(); if (!name) return toast('현장명을 입력하세요', 1);
-      if (META.syncUrl && !isAdmin()) return toast('관리자만 새 현장을 만들 수 있습니다', 1);
-      const f = $('#npFile').files[0]; const auto = !!META.syncUrl;
-      const key = 'p' + Date.now().toString(36);
-      const btn = $('#npOk'); btn.disabled = true; btn.textContent = '만드는 중…';
-      try {
-        let txt = null;
-        if (f) { txt = await f.text(); const o = JSON.parse(txt); if (!o.units) throw new Error('세대(units)가 없는 파일입니다'); sessionStorage.setItem('bunyang.pendingData', txt); }
-        const srv = {};
-        if (auto) { const r = await callServer({ op: 'newProject', pk: key, name }); Object.assign(srv, { syncUrl: META.syncUrl, token: META.token, user: META.user, pk: key, sheetUrl: r.url }); }
-        const pl = projList(); pl.push({ key, name }); LS.set('bunyang.projects', pl);
-        LS.set('bunyang.pending', { key, name, srv }); LS.set('bunyang.current', key); location.reload();
-      } catch (e) { toast('실패: ' + e.message, 1); btn.disabled = false; btn.textContent = '만들기'; }
-    }
-  });
 }

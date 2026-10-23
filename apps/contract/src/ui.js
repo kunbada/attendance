@@ -6,7 +6,7 @@ const GROUPS = [
   ['pay', '수금관리', [['deposits', '수금입력'], ['payments', '세대별 수납'], ['receipts', '영수증 출력']]],
   ['con', '계약관리', [['contracts', '계약입력'], ['locks', '잠금동호 관리'], ['pre', '가계약 관리'], ['print', '계약서 출력']]],
   ['reports', '레포트', [['reports', '레포트']]],
-  ['set', '설정', [['units', '세대관리'], ['settings', '일반설정'], ['users', '사용자관리']]]
+  ['set', '설정', [['units', '세대관리'], ['settings', '일반설정']]]
 ];
 const VIEWS = GROUPS.flatMap(g => g[2]);
 const groupOf = v => GROUPS.find(g => g[2].some(x => x[0] === v)) || GROUPS[0];
@@ -28,11 +28,10 @@ function go(v) { if (location.hash !== '#' + v) location.hash = v; else route();
 function route() {
   const v = (location.hash || '#dash').slice(1).split('?')[0];
   CUR = VIEWS.some(x => x[0] === v) ? v : 'dash';
-  if (CUR === 'users' && !isAdmin()) CUR = 'settings';
   const G = groupOf(CUR); LASTV[G[0]] = CUR;
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.g === G[0]));
   const sn = $('#subnav'); sn.style.display = G[2].length > 1 ? '' : 'none';
-  sn.innerHTML = G[2].filter(x => x[0] !== 'users' || isAdmin()).map(([k, l]) => `<button class="${k === CUR ? 'on' : ''}" onclick="go('${k}')">${l}</button>`).join('');
+  sn.innerHTML = G[2].map(([k, l]) => `<button class="${k === CUR ? 'on' : ''}" onclick="go('${k}')">${l}</button>`).join('');
   render();
 }
 function render() {
@@ -42,7 +41,7 @@ function render() {
   const el = $('#view');
   const sc = window.scrollY;
   el.innerHTML = '';
-  try { fn(el); if (!canWrite() && CUR !== 'users') el.insertAdjacentHTML('afterbegin', '<div class="banner info">읽기 전용 계정입니다. 조회·출력만 가능하고 저장은 되지 않습니다.</div>'); } catch (e) { console.error(e); el.innerHTML = `<div class="banner">화면 오류: ${esc(e.message)}</div>`; }
+  try { fn(el); if (!canWrite()) el.insertAdjacentHTML('afterbegin', '<div class="banner info">읽기 전용 계정입니다. 조회·출력만 가능하고 저장은 되지 않습니다.</div>'); } catch (e) { console.error(e); el.innerHTML = `<div class="banner">화면 오류: ${esc(e.message)}</div>`; }
   window.scrollTo(0, sc);
 }
 function updateNavBadges() {

@@ -236,7 +236,7 @@ var o=((a=s[17])==null?void 0:a[0])?Ob(e,e[_b(s[17][0].data)][0]):[];var l=vb(s[
 var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.s.r;c<=n.e.r;++c){i=Ta(c);for(f=n.s.c;f<=n.e.c;++f){r=s[f]+i;t=l?(e[c]||[])[f]:e[r];a="";if(t===undefined)continue;else if(t.F!=null){r=t.F;if(!t.f)continue;a=t.f;if(r.indexOf(":")==-1)r=r+":"+r}if(t.f!=null)a=t.f;else if(t.t=="z")continue;else if(t.t=="n"&&t.v!=null)a=""+t.v;else if(t.t=="b")a=t.v?"TRUE":"FALSE";else if(t.w!==undefined)a="'"+t.w;else if(t.v===undefined)continue;else if(t.t=="s")a="'"+t.v;else a=""+t.v;o[o.length]=r+"="+a}}return o}function xw(e,r,t){var a=t||{};var n=+!a.skipHeader;var i=e||{};var s=0,f=0;if(i&&a.origin!=null){if(typeof a.origin=="number")s=a.origin;else{var o=typeof a.origin=="string"?Oa(a.origin):a.origin;s=o.r;f=o.c}}var l;var c={s:{c:0,r:0},e:{c:f,r:s+r.length-1+n}};if(i["!ref"]){var h=Da(i["!ref"]);c.e.c=Math.max(c.e.c,h.e.c);c.e.r=Math.max(c.e.r,h.e.r);if(s==-1){s=h.e.r+1;c.e.r=s+r.length-1+n}}else{if(s==-1){s=0;c.e.r=r.length-1+n}}var u=a.header||[],d=0;r.forEach(function(e,r){rr(e).forEach(function(t){if((d=u.indexOf(t))==-1)u[d=u.length]=t;var o=e[t];var c="z";var h="";var v=Ra({c:f+d,r:s+r+n});l=Rw(i,v);if(o&&typeof o==="object"&&!(o instanceof Date)){i[v]=o}else{if(typeof o=="number")c="n";else if(typeof o=="boolean")c="b";else if(typeof o=="string")c="s";else if(o instanceof Date){c="d";if(!a.cellDates){c="n";o=fr(o)}h=a.dateNF||X[14]}else if(o===null&&a.nullError){c="e";o=0}if(!l)i[v]=l={t:c,v:o};else{l.t=c;l.v=o;delete l.w;delete l.R;if(h)l.z=h}if(h)l.z=h}})});c.e.c=Math.max(c.e.c,f+u.length-1);var v=Ta(s);if(n)for(d=0;d<u.length;++d)i[ya(d+f)+v]={t:"s",v:u[d]};i["!ref"]=Na(c);return i}function Ow(e,r){return xw(null,e,r)}function Rw(e,r,t){if(typeof r=="string"){if(Array.isArray(e)){var a=Oa(r);if(!e[a.r])e[a.r]=[];return e[a.r][a.c]||(e[a.r][a.c]={t:"z"})}return e[r]||(e[r]={t:"z"})}if(typeof r!="number")return Rw(e,Ra(r));return Rw(e,Ra({r:r,c:t||0}))}function Iw(e,r){if(typeof r=="number"){if(r>=0&&e.SheetNames.length>r)return r;throw new Error("Cannot find sheet # "+r)}else if(typeof r=="string"){var t=e.SheetNames.indexOf(r);if(t>-1)return t;throw new Error("Cannot find sheet name |"+r+"|")}else throw new Error("Cannot find sheet |"+r+"|")}function Nw(){return{SheetNames:[],Sheets:{}}}function Dw(e,r,t,a){var n=1;if(!t)for(;n<=65535;++n,t=undefined)if(e.SheetNames.indexOf(t="Sheet"+n)==-1)break;if(!t||e.SheetNames.length>=65535)throw new Error("Too many worksheets");if(a&&e.SheetNames.indexOf(t)>=0){var i=t.match(/(^.*?)(\d+)$/);n=i&&+i[2]||0;var s=i&&i[1]||t;for(++n;n<=65535;++n)if(e.SheetNames.indexOf(t=s+n)==-1)break}Jp(t);if(e.SheetNames.indexOf(t)>=0)throw new Error("Worksheet with name |"+t+"| already exists!");e.SheetNames.push(t);e.Sheets[t]=r;return t}function Fw(e,r,t){if(!e.Workbook)e.Workbook={};if(!e.Workbook.Sheets)e.Workbook.Sheets=[];var a=Iw(e,r);if(!e.Workbook.Sheets[a])e.Workbook.Sheets[a]={};switch(t){case 0:;case 1:;case 2:break;default:throw new Error("Bad sheet visibility setting "+t);}e.Workbook.Sheets[a].Hidden=t}function Pw(e,r){e.z=r;return e}function Lw(e,r,t){if(!r){delete e.l}else{e.l={Target:r};if(t)e.l.Tooltip=t}return e}function Mw(e,r,t){return Lw(e,"#"+r,t)}function Uw(e,r,t){if(!e.c)e.c=[];e.c.push({t:r,a:t||"SheetJS"})}function Bw(e,r,t,a){var n=typeof r!="string"?r:Da(r);var i=typeof r=="string"?r:Na(r);for(var s=n.s.r;s<=n.e.r;++s)for(var f=n.s.c;f<=n.e.c;++f){var o=Rw(e,s,f);o.t="n";o.F=i;delete o.v;if(s==n.s.r&&f==n.s.c){o.f=t;if(a)o.D=true}}return e}var Ww={encode_col:ya,encode_row:Ta,encode_cell:Ra,encode_range:Na,decode_col:Ca,decode_row:ka,split_cell:xa,decode_cell:Oa,decode_range:Ia,format_cell:Pa,sheet_add_aoa:Ma,sheet_add_json:xw,sheet_add_dom:Gm,aoa_to_sheet:Ua,json_to_sheet:Ow,table_to_sheet:jm,table_to_book:Xm,sheet_to_csv:yw,sheet_to_txt:Sw,sheet_to_json:Aw,sheet_to_html:Vm,sheet_to_formulae:_w,sheet_to_row_object_array:Aw,sheet_get_cell:Rw,book_new:Nw,book_append_sheet:Dw,book_set_sheet_visibility:Fw,cell_set_number_format:Pw,cell_set_hyperlink:Lw,cell_set_internal_link:Mw,cell_add_comment:Uw,sheet_set_array_formula:Bw,consts:{SHEET_VISIBLE:0,SHEET_HIDDEN:1,SHEET_VERY_HIDDEN:2}};var Hw;function zw(e){Hw=e}function Vw(e,r){var t=Hw();var a=r==null?{}:r;if(e==null||e["!ref"]==null){t.push(null);return t}var n=Da(e["!ref"]);var i=a.FS!==undefined?a.FS:",",s=i.charCodeAt(0);var f=a.RS!==undefined?a.RS:"\n",o=f.charCodeAt(0);var l=new RegExp((i=="|"?"\\|":i)+"+$");var c="",h=[];a.dense=Array.isArray(e);var u=a.skipHidden&&e["!cols"]||[];var d=a.skipHidden&&e["!rows"]||[];for(var v=n.s.c;v<=n.e.c;++v)if(!(u[v]||{}).hidden)h[v]=ya(v);var p=n.s.r;var g=false,m=0;t._read=function(){if(!g){g=true;return t.push("\ufeff")}while(p<=n.e.r){++p;if((d[p-1]||{}).hidden)continue;c=Cw(e,n,p-1,h,s,o,i,a);if(c!=null){if(a.strip)c=c.replace(l,"");if(c||a.blankrows!==false)return t.push((m++?f:"")+c)}}return t.push(null)};return t}function Gw(e,r){var t=Hw();var a=r||{};var n=a.header!=null?a.header:Bm;var i=a.footer!=null?a.footer:Wm;t.push(n);var s=Ia(e["!ref"]);a.dense=Array.isArray(e);t.push(zm(e,s,a));var f=s.s.r;var o=false;t._read=function(){if(f>s.e.r){if(!o){o=true;t.push("</table>"+i)}return t.push(null)}while(f<=s.e.r){t.push(Um(e,s,f,a));++f;break}};return t}function jw(e,r){var t=Hw({objectMode:true});if(e==null||e["!ref"]==null){t.push(null);return t}var a={t:"n",v:0},n=0,i=1,s=[],f=0,o="";var l={s:{r:0,c:0},e:{r:0,c:0}};var c=r||{};var h=c.range!=null?c.range:e["!ref"];if(c.header===1)n=1;else if(c.header==="A")n=2;else if(Array.isArray(c.header))n=3;switch(typeof h){case"string":l=Da(h);break;case"number":l=Da(e["!ref"]);l.s.r=h;break;default:l=h;}if(n>0)i=0;var u=Ta(l.s.r);var d=[];var v=0;var p=Array.isArray(e);var g=l.s.r,m=0;var b={};if(p&&!e[g])e[g]=[];var w=c.skipHidden&&e["!cols"]||[];var k=c.skipHidden&&e["!rows"]||[];for(m=l.s.c;m<=l.e.c;++m){if((w[m]||{}).hidden)continue;d[m]=ya(m);a=p?e[g][m]:e[d[m]+u];switch(n){case 1:s[m]=m-l.s.c;break;case 2:s[m]=d[m];break;case 3:s[m]=c.header[m-l.s.c];break;default:if(a==null)a={w:"__EMPTY",t:"s"};o=f=Pa(a,null,c);v=b[f]||0;if(!v)b[f]=1;else{do{o=f+"_"+v++}while(b[o]);b[f]=v;b[o]=1}s[m]=o;}}g=l.s.r+i;t._read=function(){while(g<=l.e.r){if((k[g-1]||{}).hidden)continue;var r=Tw(e,l,g,d,n,s,p,c);++g;if(r.isempty===false||(n===1?c.blankrows!==false:!!c.blankrows)){t.push(r.row);return}}return t.push(null)};return t}var Xw={to_json:jw,to_html:Gw,to_csv:Vw,set_readable:zw};if(typeof vm!=="undefined")e.parse_xlscfb=vm;e.parse_zip=Xb;e.read=iw;e.readFile=sw;e.readFileSync=sw;e.write=gw;e.writeFile=bw;e.writeFileSync=bw;e.writeFileAsync=kw;e.utils=Ww;e.writeXLSX=pw;e.writeFileXLSX=ww;e.SSF=Ve;if(typeof Xw!=="undefined")e.stream=Xw;if(typeof Ke!=="undefined")e.CFB=Ke;if(typeof require!=="undefined"){var $w=undefined;if(($w||{}).Readable)zw($w.Readable)}}if(typeof exports!=="undefined")make_xlsx_lib(exports);else if(typeof module!=="undefined"&&module.exports)make_xlsx_lib(module.exports);else if(typeof define==="function"&&define.amd)define("xlsx",function(){if(!XLSX.version)make_xlsx_lib(XLSX);return XLSX});else make_xlsx_lib(XLSX);if(typeof window!=="undefined"&&!window.XLSX)try{window.XLSX=XLSX}catch(e){}
 </script>
 <script>
-const DEFAULT_SERVER = "https://script.google.com/macros/s/AKfycbw8XLHqup7VRC4aVRiWwPnmCCCX6PBQi1Q4ArZ2rnerIW2WRY1fI9tkSj3T4VSSTWLJ/exec";
+const DEFAULT_SERVER = "https://attendance-api.kunbada.workers.dev";
 'use strict';
 /* ===================== 공통 유틸 ===================== */
 const $ = (s, el = document) => el.querySelector(s);
@@ -402,23 +402,41 @@ function region(addr) {
   return { sido, sgg };
 }
 
-/* ===================== 동기화 (Apps Script) ===================== */
+/* ===================== 동기화 (통합관리 서버) ===================== */
 let syncing = false, syncErr = '', online = navigator.onLine;
 const scheduleSync = debounce(() => sync(), 800);
 window.addEventListener('online', () => { online = true; updateSyncPill(); sync(); });
 window.addEventListener('offline', () => { online = false; updateSyncPill(); });
-/* 로그인 세션(서버 URL 단위, 현장과 무관하게 공용) */
+/* 로그인 세션(서버 URL 단위). 계정은 통합관리 서버의 것이고, 현장(PROJ)은 서버의 현장 id 와 같다 */
 let SESSION = LS.get('bunyang.session', null);
-const ROLE = () => (SESSION && SESSION.url === META.syncUrl && SESSION.role) || (META.token ? 'admin' : (META.syncUrl ? 'read' : 'admin'));
+const ROLE = () => (SESSION && SESSION.url === META.syncUrl && SESSION.role) || (META.syncUrl ? 'read' : 'admin');
 const canWrite = () => !META.syncUrl || ROLE() !== 'read';
 const isAdmin = () => !META.syncUrl ? false : ROLE() === 'admin';
 const ROLE_L = { admin: '관리자', write: '쓰기', read: '읽기전용' };
 function setSession(s) { SESSION = s ? Object.assign({ url: META.syncUrl }, s) : null; LS.set('bunyang.session', SESSION); if (s && s.name) { META.user = s.name; persistMeta(); } updateUserPill(); }
+// 예전 계약앱의 op 이름을 통합 서버 action 으로 옮긴다. global=true 는 현장과 무관한 호출
+function toAction(b) {
+  const sess = b.op === 'login' ? null : (SESSION && SESSION.url === META.syncUrl ? SESSION.st : '');
+  const m = {
+    login: ['account.login', { loginId: b.id, password: b.pw }, true],
+    logout: ['auth.logout', {}, true],
+    changePw: ['account.changePassword', { oldPassword: b.old, newPassword: b.pw }, true],
+    projects: ['project.list', {}, true],
+    ping: ['contract.poll', {}],
+    poll: ['contract.poll', {}],
+    me: ['contract.poll', {}],
+    sync: ['contract.sync', { since: b.since, changes: b.changes }],
+    wipe: ['contract.wipe', {}]
+  }[b.op];
+  if (!m) throw new Error('지원하지 않는 요청: ' + b.op);
+  return { action: m[0], data: m[1], global: !!m[2], token: sess };
+}
 async function callServer(body, noAuthFail) {
-  const r = await fetch(META.syncUrl, { method: 'POST', body: JSON.stringify(Object.assign({ st: (SESSION && SESSION.url === META.syncUrl) ? SESSION.st : undefined, token: META.token, user: META.user, pk: META.pk || undefined }, body)), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' });
-  const txt = await r.text(); let j; try { j = JSON.parse(txt); } catch (e) { throw new Error('서버 응답 오류 (Apps Script 배포/권한 확인): ' + txt.slice(0, 120)); }
+  const q = toAction(body);
+  const r = await fetch(META.syncUrl, { method: 'POST', body: JSON.stringify({ action: q.action, token: q.token || '', projectId: q.global ? undefined : (META.pk || undefined), data: q.data }), headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+  const txt = await r.text(); let j; try { j = JSON.parse(txt); } catch (e) { throw new Error('서버 응답 오류 (서버 주소 확인): ' + txt.slice(0, 120)); }
   if (!j.ok) { const e = new Error(j.error || '서버 오류'); e.code = j.code; if (j.code === 'AUTH' && !noAuthFail) { setSession(null); showLogin(); } throw e; }
-  return j;
+  return j.data || {};
 }
 
 /* 변경 전송은 "바뀐 필드만(patch)" 보냄 → 다른 사람이 같은 레코드의 다른 항목을 고쳐도 서로 덮어쓰지 않음 */
@@ -436,14 +454,14 @@ function showRejected(list) {
   openModal({ title: '일부 변경이 반영되지 않았습니다', body: `<div class="help" style="margin-bottom:8px">다른 사용자가 먼저 등록/변경한 내용과 충돌하여 서버가 거절했습니다. 해당 항목은 서버의 최신 상태로 되돌렸습니다.</div><ul style="line-height:1.8">${Object.entries(g).map(([m, n]) => `<li>${esc(m)}${n > 1 ? ` <b>(${n}건)</b>` : ''}</li>`).join('')}</ul>`, foot: '<button class="btn pri" onclick="closeModal()">확인</button>' });
 }
 async function sync(opt = {}) {
-  if (!META.syncUrl || syncing) return;
+  if (!META.syncUrl || !META.pk || syncing) return;
   if (!navigator.onLine) { online = false; updateSyncPill(); return; }
   if (needLogin()) return;
   syncing = true; updateSyncPill();
   try {
-    let loops = 0;
+    let loops = 0, more = false;
     do {
-      const keys = Object.keys(OUTBOX).slice(0, 800);
+      const keys = Object.keys(OUTBOX).slice(0, 300);
       const changes = [], sent = {};
       keys.forEach(k => {
         const i = k.indexOf('|'); const c = k.slice(0, i), id = k.slice(i + 1); const r = M[c] && M[c][id];
@@ -476,8 +494,8 @@ async function sync(opt = {}) {
       await persistMeta(); await idb.setMeta('outbox', OUTBOX);
       if (n) { rebuild(); DIRTY_BACKUP = true; if (!document.querySelector('.modal-bg') && !document.activeElement?.classList.contains('cell')) render(); }
       if ((res.rejected || []).length) showRejected(res.rejected);
-      opt.full = false; loops++;
-    } while (Object.keys(OUTBOX).length && loops < 20);
+      opt.full = false; loops++; more = !!res.more;
+    } while ((Object.keys(OUTBOX).length || more) && loops < 400);
   } catch (e) {
     syncErr = e.message || String(e); if (/Failed to fetch|NetworkError/i.test(syncErr)) { online = false; syncErr = '네트워크 연결 없음'; }
     if (e.code === 'READONLY') { await reloadStore(); }
@@ -485,16 +503,16 @@ async function sync(opt = {}) {
   } finally { syncing = false; updateSyncPill(); }
 }
 /* 실시간에 가깝게: 가벼운 poll(서버 rev만 확인)을 몇 초마다 → 바뀐 게 있을 때만 전체 동기화 */
-let lastPoll = 0, polling = false, PENDING_USERS = 0;
+let lastPoll = 0, polling = false;
 async function poll() {
-  if (!META.syncUrl || syncing || polling || needLogin() || !navigator.onLine) return;
+  if (!META.syncUrl || !META.pk || syncing || polling || needLogin() || !navigator.onLine) return;
   if (document.hidden && Date.now() - lastPoll < 60000) return;
   polling = true; lastPoll = Date.now();
   try {
     if (Object.keys(OUTBOX).length) { polling = false; return sync(); }
     const r = await callServer({ op: 'poll' }); online = true;
     if (r.role && SESSION && r.role !== SESSION.role) { setSession(Object.assign({}, SESSION, { role: r.role })); render(); }
-    PENDING_USERS = r.pending || 0; updateUserPill();
+    
     if (r.rev !== META.lastRev) await sync(); else { syncErr = ''; updateSyncPill(); }
   } catch (e) { if (/Failed to fetch|NetworkError/i.test(e.message)) { online = false; updateSyncPill(); } }
   finally { polling = false; }
@@ -568,20 +586,6 @@ async function restoreFrom(obj, opt = {}) {
   const pl = projList(); const me = pl.find(p => p.key === PROJ); const nm = (M.settings.main || {}).project?.name; if (nm) { if (me) me.name = nm; else pl.push({ key: PROJ, name: nm }); LS.set('bunyang.projects', pl); }
 }
 
-/* ===================== 새 현장 만들기: 서버 연결/초기데이터 이어받기 ===================== */
-// 새 현장은 페이지를 다시 불러와야 하므로, 서버 연결정보와 선택한 파일을 잠깐 보관했다가 새 현장 DB에 적용
-async function applyPendingProject() {
-  const pend = LS.get('bunyang.pending', null);
-  if (!pend || pend.key !== PROJ) return;
-  LS.set('bunyang.pending', null);
-  let raw = null; try { raw = sessionStorage.getItem('bunyang.pendingData'); sessionStorage.removeItem('bunyang.pendingData'); } catch (e) { }
-  Object.assign(META, pend.srv || {}); await persistMeta();
-  try { if (raw) await restoreFrom(JSON.parse(raw), { touch: true, markAll: !!META.syncUrl, resetRev: true }); } catch (e) { console.warn(e); }
-  const st = Object.assign({}, CFG(), { id: 'main' }); st.project = Object.assign({}, st.project, { name: pend.name });
-  await save('settings', st);
-  syncProjName();
-}
-
 // 현장 목록(콤보)의 이름을 현재 프로젝트 설정의 현장명과 맞춤
 function syncProjName() {
   const nm = ((M.settings.main || {}).project || {}).name; if (!nm || PROJ === 'default' && nm === '새 프로젝트') return;
@@ -604,10 +608,9 @@ async function boot() {
   META = Object.assign(META, (await idb.getMeta('local')) || {});
   OUTBOX = (await idb.getMeta('outbox')) || {};
   if (!META.syncUrl && typeof DEFAULT_SERVER === 'string' && DEFAULT_SERVER) META.syncUrl = DEFAULT_SERVER;
-  if (PROJ !== 'default' && !META.pk && LS.get('bunyang.srvProjects', []).some(p => p.pk === PROJ)) META.pk = PROJ;
+  META.pk = PROJ !== 'default' ? PROJ : ''; // 현장 id = 서버 현장 id
   if (!M.settings.main) { const st = DEFAULT_SETTINGS(); S.settings.push(st); M.settings.main = st; }
   rebuild(); buildBase();
-  await applyPendingProject();
   syncProjName();
   await migrateResv();
   await initBackup();
@@ -617,57 +620,64 @@ async function boot() {
   sync();
 }
 
-/* ===================== 로그인 / 사용자 관리 (온라인 서버 사용 시) ===================== */
-let SERVER_HAS_USERS = null; // null=알 수 없음(오프라인) / true / false(최초 관리자 설정 필요)
-const needLogin = () => !!META.syncUrl && SERVER_HAS_USERS === true && !(SESSION && SESSION.url === META.syncUrl && SESSION.st);
+/* ===================== 로그인 (통합관리 서버 계정) ===================== */
+// 계정·권한은 통합관리에서 만든다 (관리자·보조관리자=관리자, 계약담당=쓰기, 열람=읽기전용). 이 앱은 로그인만 한다.
+const needLogin = () => !!META.syncUrl && !(SESSION && SESSION.url === META.syncUrl && SESSION.st);
+const srvProjects = () => LS.get('bunyang.srvProjects', []);
 
 async function initAuth() {
   if (!META.syncUrl) { updateUserPill(); return; }
-  try { const s = await callServer({ op: 'status' }, true); SERVER_HAS_USERS = !!s.hasUsers; } catch (e) { SERVER_HAS_USERS = null; updateUserPill(); return; }
-  if (SERVER_HAS_USERS) {
-    if (!(SESSION && SESSION.url === META.syncUrl && SESSION.st)) showLogin('login');
-    else { try { const m = await callServer({ op: 'me' }, true); setSession(Object.assign({}, SESSION, { role: m.role, name: m.name })); } catch (e) { if (e.code === 'AUTH') { setSession(null); showLogin('login'); } } }
-  } else if (!META.token) showLogin('setup');
-  updateUserPill(); fetchProjects();
+  if (!(SESSION && SESSION.url === META.syncUrl && SESSION.st)) { showLogin(); return; }
+  try {
+    await fetchProjects();
+    if (META.pk) { const m = await callServer({ op: 'me' }, true); setSession(Object.assign({}, SESSION, { role: m.role, name: m.name })); }
+  } catch (e) { if (e.code === 'AUTH') { setSession(null); showLogin(); } else if (e.code === 'FORBIDDEN' || e.code === 'NO_PROJECT') pickProject(); }
+  updateUserPill();
 }
+// 서버의 현장 목록을 받아 둔다. 지금 현장이 목록에 없으면 고르게 한다
 async function fetchProjects() {
   if (!META.syncUrl || needLogin()) return;
-  try {
-    const r = await callServer({ op: 'projects' }, true); LS.set('bunyang.srvProjects', r.projects || []);
-    const pl = projList(); let ch = false;
-    (r.projects || []).forEach(p => { const x = pl.find(x => x.key === p.pk); if (!x) { pl.push({ key: p.pk, name: p.name }); ch = true; } else if (x.name !== p.name) { x.name = p.name; ch = true; } });
-    if (ch) { LS.set('bunyang.projects', pl); if (CUR === 'settings') render(); }
-  } catch (e) { }
+  const r = await callServer({ op: 'projects' }, true);
+  LS.set('bunyang.srvProjects', (r.projects || []).map(p => ({ id: p.id, name: p.name })));
+  if (!srvProjects().some(p => p.id === PROJ)) pickProject();
+}
+function switchProject(id) { LS.set('bunyang.current', id); location.reload(); }
+function pickProject() {
+  const list = srvProjects();
+  if (list.length === 1) return switchProject(list[0].id);
+  openModal({
+    title: '현장 선택', body: list.length ? `<div class="help" style="margin-bottom:10px">작업할 현장을 고르세요. (현장은 통합관리에서 만듭니다)</div><div style="display:flex;flex-direction:column;gap:6px">${list.map(p => `<button class="btn pri pj" data-id="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div>` : '<div class="banner">이 계정에 지정된 현장이 없습니다. 통합관리에서 현장 접근 권한을 확인하세요.</div>',
+    foot: '<button class="btn" onclick="closeModal()">닫기</button>',
+    onOpen: bg => bg.querySelectorAll('.pj').forEach(b => b.onclick = () => switchProject(b.dataset.id))
+  });
 }
 
-function showLogin(mode) {
-  mode = mode || 'login';
+function showLogin() {
   let bg = $('#loginBg'); if (!bg) { bg = document.createElement('div'); bg.id = 'loginBg'; document.body.appendChild(bg); }
-  const tabs = SERVER_HAS_USERS === false ? [['setup', '최초 관리자 만들기']] : [['login', '로그인'], ['signup', '사용 신청']];
-  const m = tabs.some(t => t[0] === mode) ? mode : tabs[0][0];
-  const f = (id, label, type, ph) => `<div class="f full"><label>${label}</label><input class="in" id="${id}" type="${type || 'text'}" placeholder="${ph || ''}" autocomplete="${type === 'password' ? 'current-password' : 'username'}"></div>`;
+  const f = (id, label, type) => `<div class="f full"><label>${label}</label><input class="in" id="${id}" type="${type || 'text'}" autocomplete="${type === 'password' ? 'current-password' : 'username'}"></div>`;
   bg.innerHTML = `<div class="loginBox"><h2>${esc(CFG().project.name || '분양계약관리')}</h2><div class="sub" style="margin-bottom:12px">계약·수금관리 시스템</div>
-    <div class="seg" style="margin-bottom:14px">${tabs.map(t => `<button class="${t[0] === m ? 'on' : ''}" data-m="${t[0]}">${t[1]}</button>`).join('')}</div>
-    <div class="form">
-      ${m === 'setup' ? `<div class="help full">서버에 아직 사용자가 없습니다. 서버 비밀키(Code.gs 의 TOKEN)와 함께 <b>관리자 계정</b>을 만드세요.</div>${f('aKey', '서버 비밀키', 'password')}` : ''}
-      ${f('aId', '아이디', 'text', '영문/숫자 3자 이상')}
-      ${m !== 'login' ? f('aName', '이름 (표시용)', 'text', '예: 홍길동') : ''}
-      ${f('aPw', '비밀번호' + (m === 'login' ? '' : ' (6자 이상)'), 'password')}
-    </div>
+    <div class="form">${f('aId', '아이디')}${f('aPw', '비밀번호', 'password')}</div>
+    <div class="help" style="margin-top:6px">통합관리에서 쓰는 계정으로 로그인합니다.</div>
     <div id="aMsg" class="red" style="min-height:20px;margin:8px 0;font-size:12px"></div>
-    <button class="btn pri" id="aGo" style="width:100%;padding:9px">${m === 'login' ? '로그인' : m === 'signup' ? '사용 신청 (관리자 승인 필요)' : '관리자 계정 만들기'}</button>
-    ${META.syncUrl ? '' : ''}</div>`;
-  $$('#loginBg .seg button').forEach(b => b.onclick = () => showLogin(b.dataset.m));
+    <button class="btn pri" id="aGo" style="width:100%;padding:9px">로그인</button></div>`;
   const go = async () => {
-    const id = $('#aId').value.trim(), pw = $('#aPw').value, name = $('#aName') ? $('#aName').value.trim() : '', msg = $('#aMsg'), btn = $('#aGo');
+    const id = $('#aId').value.trim(), pw = $('#aPw').value, msg = $('#aMsg'), btn = $('#aGo');
     if (!id || !pw) { msg.textContent = '아이디와 비밀번호를 입력하세요'; return; }
-    btn.disabled = true; msg.textContent = ''; msg.className = 'red';
+    btn.disabled = true; msg.textContent = '';
     try {
-      if (m === 'signup') { await callServer({ op: 'signup', id, name, pw }, true); msg.className = 'green'; msg.textContent = '신청되었습니다. 관리자가 승인하면 로그인할 수 있습니다.'; btn.disabled = false; return; }
-      const r = m === 'setup' ? await callServer({ op: 'setupAdmin', token: $('#aKey').value.trim(), id, name, pw }, true) : await callServer({ op: 'login', id, pw }, true);
-      SERVER_HAS_USERS = true; setSession({ st: r.st, id: r.id, name: r.name, role: r.role });
-      bg.remove(); render(); fetchProjects(); sync({ full: !META.lastRev });
-    } catch (e) { msg.textContent = e.message; btn.disabled = false; }
+      const r = await callServer({ op: 'login', id, pw }, true);
+      setSession({ st: r.token, id, name: (r.account || {}).name || id, role: 'read' });
+      if ((r.account || {}).mustChangePassword) {
+        const np = prompt('처음 로그인입니다. 새 비밀번호를 입력하세요 (8자 이상, 영문+숫자)');
+        if (!np) { setSession(null); throw new Error('비밀번호를 바꿔야 사용할 수 있습니다'); }
+        await callServer({ op: 'changePw', old: pw, pw: np });
+      }
+      LS.set('bunyang.srvProjects', (r.projects || []).map(p => ({ id: p.id, name: p.name })));
+      bg.remove();
+      if (!srvProjects().some(p => p.id === PROJ)) return pickProject();
+      const m = await callServer({ op: 'me' }, true); setSession(Object.assign({}, SESSION, { role: m.role, name: m.name }));
+      render(); sync({ full: !META.lastRev });
+    } catch (e) { if (!$('#loginBg')) showLogin(); const mm = $('#aMsg'); if (mm) mm.textContent = e.message; const b = $('#aGo'); if (b) b.disabled = false; }
   };
   $('#aGo').onclick = go; bg.querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
   setTimeout(() => { const i = $('#aId'); if (i) i.focus(); }, 30);
@@ -680,45 +690,17 @@ function updateUserPill() {
   const on = SESSION && SESSION.url === META.syncUrl;
   el.className = 'pill ' + (on ? (ROLE() === 'read' ? 'wait' : 'ok') : 'none');
   el.innerHTML = on ? `<i></i>${esc(SESSION.name || SESSION.id)} · ${ROLE_L[ROLE()] || ''}` : '<i></i>로그인 필요';
-  const b = $('#badge-units'); if (b) { const n = isAdmin() ? PENDING_USERS : 0; b.style.display = n ? '' : 'none'; b.textContent = n; }
 }
 function userMenu() {
   if (!(SESSION && SESSION.url === META.syncUrl)) return showLogin();
   openModal({
     title: '내 계정', body: `<div class="kv"><div>이름</div><div><b>${esc(SESSION.name)}</b> (${esc(SESSION.id)})</div><div>권한</div><div>${ROLE_L[ROLE()]}</div></div>
-    <h4 style="margin:14px 0 6px">비밀번호 변경</h4><div class="form"><div class="f"><label>현재 비밀번호</label><input class="in" type="password" id="pwOld"></div><div class="f"><label>새 비밀번호 (6자 이상)</label><input class="in" type="password" id="pwNew"></div></div>`,
+    <h4 style="margin:14px 0 6px">비밀번호 변경</h4><div class="form"><div class="f"><label>현재 비밀번호</label><input class="in" type="password" id="pwOld"></div><div class="f"><label>새 비밀번호 (8자 이상, 영문+숫자)</label><input class="in" type="password" id="pwNew"></div></div>`,
     foot: `<button class="btn dan" id="uOut" style="margin-right:auto">로그아웃</button><button class="btn" onclick="closeModal()">닫기</button><button class="btn pri" id="uPw">비밀번호 변경</button>`,
     onOpen: bg => {
       bg.querySelector('#uPw').onclick = async () => { try { await callServer({ op: 'changePw', old: $('#pwOld').value, pw: $('#pwNew').value }); toast('비밀번호를 변경했습니다'); closeModal(); } catch (e) { toast(e.message, 1); } };
-      bg.querySelector('#uOut').onclick = async () => { try { await callServer({ op: 'logout' }, true); } catch (e) { } closeModal(); setSession(null); showLogin('login'); };
+      bg.querySelector('#uOut').onclick = async () => { try { await callServer({ op: 'logout' }, true); } catch (e) { } closeModal(); setSession(null); showLogin(); };
     }
-  });
-}
-
-/* ===================== 설정 > 사용자관리 (관리자 전용) ===================== */
-async function view_users(el) {
-  if (!isAdmin()) { el.innerHTML = '<div class="banner">관리자만 볼 수 있습니다</div>'; return; }
-  el.innerHTML = `<div class="toolbar"><h2>사용자 관리</h2><span class="sp"></span><button class="btn" onclick="render()">새로고침</button></div><div id="uList" class="empty">불러오는 중…</div>`;
-  let us; try { us = (await callServer({ op: 'users' })).users; } catch (e) { $('#uList').innerHTML = `<div class="banner">${esc(e.message)}</div>`; return; }
-  const st = { pending: '승인대기', active: '사용중', disabled: '사용중지' };
-  us.sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1) || a.id.localeCompare(b.id));
-  PENDING_USERS = us.filter(u => u.status === 'pending').length; updateUserPill();
-  $('#uList').className = '';
-  $('#uList').innerHTML = `<div class="help" style="margin-bottom:8px"><b>관리자</b>: 사용자 승인·권한 관리 + 모든 기능 / <b>쓰기</b>: 데이터 입력·수정 / <b>읽기전용</b>: 조회만 가능. 사용 신청한 사람은 <b>승인대기</b>로 보이며, 승인하면서 권한을 지정합니다.</div>
-  <table class="t"><thead><tr><th>아이디</th><th>이름</th><th>상태</th><th>권한</th><th>최근 로그인</th><th>관리</th></tr></thead><tbody>${us.map(u => `<tr data-u="${esc(u.id)}" class="${u.status === 'pending' ? 'warnrow' : ''}">
-    <td>${esc(u.id)}</td><td>${esc(u.name)}</td><td><span class="chip ${u.status === 'active' ? 'ok' : u.status === 'pending' ? 'warn' : 'gray'}">${st[u.status]}</span></td>
-    <td><select class="in uRole">${['admin', 'write', 'read'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_L[r]}</option>`).join('')}</select></td>
-    <td class="muted">${esc((u.last || '').replace('T', ' ').slice(0, 16))}</td>
-    <td>${u.status === 'pending' ? '<button class="btn sm pri uAct" data-a="approve">승인</button> ' : u.status === 'active' ? '<button class="btn sm uAct" data-a="disable">사용중지</button> ' : '<button class="btn sm uAct" data-a="enable">다시 사용</button> '}<button class="btn sm uAct" data-a="pw">비밀번호 초기화</button> <button class="btn sm dan uAct" data-a="del">삭제</button></td></tr>`).join('')}</tbody></table>`;
-  const act = async (id, body) => { try { await callServer(Object.assign({ op: 'userSet', uid: id }, body)); toast('저장했습니다'); render(); } catch (e) { toast(e.message, 1); render(); } };
-  $$('#uList .uRole').forEach(s => s.onchange = () => act(s.closest('tr').dataset.u, { role: s.value }));
-  $$('#uList .uAct').forEach(b => b.onclick = () => {
-    const tr = b.closest('tr'), id = tr.dataset.u, role = tr.querySelector('.uRole').value, a = b.dataset.a;
-    if (a === 'approve') act(id, { status: 'active', role });
-    else if (a === 'enable') act(id, { status: 'active' });
-    else if (a === 'disable') confirmBox(`${id} 계정을 사용중지할까요? (즉시 로그아웃됩니다)`, () => act(id, { status: 'disabled' }));
-    else if (a === 'pw') { const pw = prompt(`${id} 의 새 비밀번호 (6자 이상)`); if (pw) act(id, { pw }); }
-    else if (a === 'del') confirmBox(`${id} 계정을 삭제할까요?`, async () => { try { await callServer({ op: 'userDel', uid: id }); toast('삭제했습니다'); } catch (e) { toast(e.message, 1); } render(); });
   });
 }
 
@@ -730,7 +712,7 @@ const GROUPS = [
   ['pay', '수금관리', [['deposits', '수금입력'], ['payments', '세대별 수납'], ['receipts', '영수증 출력']]],
   ['con', '계약관리', [['contracts', '계약입력'], ['locks', '잠금동호 관리'], ['pre', '가계약 관리'], ['print', '계약서 출력']]],
   ['reports', '레포트', [['reports', '레포트']]],
-  ['set', '설정', [['units', '세대관리'], ['settings', '일반설정'], ['users', '사용자관리']]]
+  ['set', '설정', [['units', '세대관리'], ['settings', '일반설정']]]
 ];
 const VIEWS = GROUPS.flatMap(g => g[2]);
 const groupOf = v => GROUPS.find(g => g[2].some(x => x[0] === v)) || GROUPS[0];
@@ -752,11 +734,10 @@ function go(v) { if (location.hash !== '#' + v) location.hash = v; else route();
 function route() {
   const v = (location.hash || '#dash').slice(1).split('?')[0];
   CUR = VIEWS.some(x => x[0] === v) ? v : 'dash';
-  if (CUR === 'users' && !isAdmin()) CUR = 'settings';
   const G = groupOf(CUR); LASTV[G[0]] = CUR;
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.g === G[0]));
   const sn = $('#subnav'); sn.style.display = G[2].length > 1 ? '' : 'none';
-  sn.innerHTML = G[2].filter(x => x[0] !== 'users' || isAdmin()).map(([k, l]) => `<button class="${k === CUR ? 'on' : ''}" onclick="go('${k}')">${l}</button>`).join('');
+  sn.innerHTML = G[2].map(([k, l]) => `<button class="${k === CUR ? 'on' : ''}" onclick="go('${k}')">${l}</button>`).join('');
   render();
 }
 function render() {
@@ -766,7 +747,7 @@ function render() {
   const el = $('#view');
   const sc = window.scrollY;
   el.innerHTML = '';
-  try { fn(el); if (!canWrite() && CUR !== 'users') el.insertAdjacentHTML('afterbegin', '<div class="banner info">읽기 전용 계정입니다. 조회·출력만 가능하고 저장은 되지 않습니다.</div>'); } catch (e) { console.error(e); el.innerHTML = `<div class="banner">화면 오류: ${esc(e.message)}</div>`; }
+  try { fn(el); if (!canWrite()) el.insertAdjacentHTML('afterbegin', '<div class="banner info">읽기 전용 계정입니다. 조회·출력만 가능하고 저장은 되지 않습니다.</div>'); } catch (e) { console.error(e); el.innerHTML = `<div class="banner">화면 오류: ${esc(e.message)}</div>`; }
   window.scrollTo(0, sc);
 }
 function updateNavBadges() {
@@ -2070,26 +2051,17 @@ function view_settings(el) {
       <div class="kv" style="margin:10px 0"><div>백업 폴더</div><div>${BK.dir ? `<b>${esc(BK.dir.name)}</b> ${BK.perm ? '<span class="chip ok">연결됨</span>' : '<span class="chip warn">권한 필요</span>'}` : '<span class="chip gray">미지정</span>'}</div><div>최근 백업</div><div>${esc(META.lastBackup || '-')}</div></div>
       <div class="toolbar"><button class="btn pri" onclick="pickBackupDir()">${BK.dir ? '폴더 변경' : '백업 폴더 지정'}</button>${BK.dir && !BK.perm ? '<button class="btn pri" onclick="grantBackup()">권한 허용</button>' : ''}<button class="btn" onclick="backupNow(true)">지금 백업</button><button class="btn" onclick="downloadBackup()">백업 파일 다운로드</button><label class="btn">백업 파일에서 복원<input type="file" accept=".json" id="restoreIn" style="display:none"></label></div>
     </div>
-    <div class="card" style="margin-bottom:12px"><h3>☁ 온라인 DB 동기화 (구글시트)</h3>
-      <div class="help">구글시트 + Apps Script(Code.gs)를 웹앱으로 배포한 URL과 비밀번호(토큰)를 입력하면, 모든 변경이 2~3초 내 자동 전송되고 30초마다 다른 PC의 변경을 받아옵니다. 오프라인 중 변경은 쌓아뒀다가 연결되면 자동 전송합니다.</div>
-      <div class="form" style="margin-top:10px"><div class="f full"><label>Apps Script 웹앱 URL</label><input class="in" id="sUrl" value="${esc(META.syncUrl)}" placeholder="https://script.google.com/macros/s/..../exec"></div>
-      <div class="f"><label>서버 비밀키 (선택: 사용자 계정 없이 쓸 때만)</label><input class="in" id="sTok" type="password" value="${esc(META.token)}"></div><div class="f"><label>사용자 이름(이 PC)</label><input class="in" id="sUser" value="${esc(META.user)}" placeholder="예: 윤상무"></div></div>
-      <div class="kv" style="margin:10px 0"><div>상태</div><div>${META.syncUrl ? (syncErr ? `<span class="red">${esc(syncErr)}</span>` : '정상') : '미설정(로컬 전용)'}</div><div>구글시트</div><div>${META.sheetUrl ? `<a href="${esc(META.sheetUrl)}" target="_blank" rel="noopener">시트 열기 ↗</a>` : '<span class="muted">-</span>'}${META.pk ? '' : ' <span class="muted">(공용/기본 시트)</span>'}</div><div>최근 동기화</div><div>${esc(META.lastSync || '-')} · rev ${META.lastRev || 0}</div><div>전송 대기</div><div>${nOut}건</div></div>
+    <div class="card" style="margin-bottom:12px"><h3>☁ 온라인 DB 동기화 (통합관리 서버)</h3>
+      <div class="help">통합관리 서버에 로그인하면 모든 변경이 2~3초 내 자동 전송되고 몇 초마다 다른 PC의 변경을 받아옵니다. 오프라인 중 변경은 쌓아뒀다가 연결되면 자동 전송합니다. 계정·권한은 통합관리에서 관리합니다.</div>
+      <div class="form" style="margin-top:10px"><div class="f full"><label>서버 주소 (보통 바꿀 필요 없음, 비우면 로컬 전용)</label><input class="in" id="sUrl" value="${esc(META.syncUrl)}" placeholder="https://attendance-api.….workers.dev"></div></div>
+      <div class="kv" style="margin:10px 0"><div>상태</div><div>${META.syncUrl ? (syncErr ? `<span class="red">${esc(syncErr)}</span>` : '정상') : '미설정(로컬 전용)'}</div><div>최근 동기화</div><div>${esc(META.lastSync || '-')} · rev ${META.lastRev || 0}</div><div>전송 대기</div><div>${nOut}건</div></div>
       <div class="toolbar"><button class="btn pri" id="sSave">저장 & 연결 테스트</button><button class="btn" onclick="sync().then(()=>{toast(syncErr||'동기화 완료',!!syncErr);render()})">지금 동기화</button><button class="btn" id="sPull">서버 전체 다시받기</button><button class="btn" id="sPush">이 PC 데이터를 서버에 전체 업로드</button></div>
-      <details class="box" style="margin-top:10px"><summary>설치 방법 (처음 1회)</summary><div class="help">
-        1. 구글 드라이브에서 새 <b>구글 스프레드시트</b>를 만듭니다 (예: “양주역 계약관리 DB”).<br>
-        2. 메뉴 <b>확장 프로그램 → Apps Script</b> → 기본 코드를 지우고 함께 드린 <code>Code.gs</code> 내용을 붙여넣기.<br>
-        3. 코드 맨 위 <code>TOKEN</code> 값을 원하는 비밀번호로 바꾸고 저장.<br>
-        4. <b>배포 → 새 배포 → 유형: 웹 앱</b>, 실행: <b>나</b>, 액세스: <b>모든 사용자</b> → 배포 → 권한 승인.<br>
-        5. 나온 <b>웹 앱 URL</b>(…/exec)과 토큰을 위에 입력 → 저장 & 연결 테스트.<br>
-        6. 처음 PC 한 대에서 <b>이 PC 데이터를 서버에 전체 업로드</b> → 다른 PC는 URL/토큰만 입력하면 자동으로 받아옵니다.<br>
-        ※ 코드를 수정하면 <b>배포 관리 → 편집 → 새 버전</b>으로 다시 배포해야 반영됩니다. 시트는 사람이 보기 위한 열도 함께 저장되며, 시트에서 직접 수정한 값은 앱에 반영되지 않습니다(앱에서 수정).</div></details>
     </div>
     <div class="card"><h3>🗂 프로젝트 · 데이터</h3>
       <div class="kv" style="margin-bottom:10px"><div>현재 프로젝트</div><div><b>${esc(projList().find(p => p.key === PROJ)?.name || PROJ)}</b> <span class="muted">(${PROJ})</span></div><div>데이터</div><div>세대 ${live('units').length} · 계약 ${live('contracts').length} · 가계약 ${live('pre').length} · 동호지정 ${live('resv').length} · 잠금 ${live('locks').length} · 입금 ${live('deposits').length}</div></div>
-      <div class="toolbar"><select class="in" id="pSel">${projList().map(p => `<option value="${p.key}" ${p.key === PROJ ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn" id="pGo">전환</button><button class="btn" id="pNew">새 프로젝트</button></div>
+      <div class="toolbar"><select class="in" id="pSel">${(META.syncUrl ? srvProjects().map(p => ({ key: p.id, name: p.name })) : projList()).map(p => `<option value="${esc(p.key)}" ${p.key === PROJ ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn" id="pGo">전환</button></div>
       <div class="toolbar"><label class="btn">초기데이터(JSON) 불러오기<input type="file" accept=".json" id="initIn" style="display:none"></label><button class="btn dan" id="wipe">이 프로젝트 데이터 전체 삭제</button></div>
-      <div class="help">※ 프로젝트별로 데이터와 서버 설정이 분리됩니다. 동일한 HTML 파일로 여러 현장을 관리할 수 있습니다.</div>
+      <div class="help">※ 현장은 통합관리에서 만듭니다. 현장마다 데이터가 분리됩니다.</div>
     </div>
   </div>
   <div>
@@ -2124,9 +2096,9 @@ function view_settings(el) {
     toast('설정 저장'); render();
   };
   $('#sSave').onclick = async () => {
-    META.syncUrl = $('#sUrl').value.trim(); META.token = $('#sTok').value.trim(); META.user = $('#sUser').value.trim(); await persistMeta();
+    META.syncUrl = $('#sUrl').value.trim().replace(/\/+$/, ''); await persistMeta();
     if (!META.syncUrl) { toast('로컬 전용으로 저장'); render(); return; }
-    try { const r = await callServer({ op: 'ping' }); if (r.url) { META.sheetUrl = r.url; await persistMeta(); } toast('연결 성공 · 서버 rev ' + r.rev); await sync(); } catch (e) { toast('연결 실패: ' + e.message, 1); }
+    try { if (needLogin()) return showLogin(); const r = await callServer({ op: 'ping' }); toast('연결 성공 · 서버 rev ' + r.rev); await sync(); } catch (e) { toast('연결 실패: ' + e.message, 1); }
     render();
   };
   $('#sPull').onclick = () => confirmBox('서버의 전체 데이터를 다시 받습니다. (이 PC의 미전송 변경은 유지)', async () => { await sync({ full: true }); toast(syncErr || '다시받기 완료', !!syncErr); render(); });
@@ -2134,7 +2106,7 @@ function view_settings(el) {
   const readJson = (inp, cb) => inp.onchange = () => { const f = inp.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { cb(JSON.parse(rd.result), f.name); } catch (e) { toast('JSON 오류: ' + e.message, 1); } }; rd.readAsText(f); };
   const doRestore = (obj, name) => confirmBox(`'${name}' 로 이 PC의 데이터를 교체합니다.\n세대 ${(obj.units || []).length} · 계약 ${(obj.contracts || []).length} · 입금 ${(obj.deposits || []).length}건\n\n(현재 데이터는 먼저 자동 다운로드됩니다)`, async () => {
     downloadBackup();
-    const toServer = META.syncUrl && isAdmin() && (prompt(`[주의] 서버(구글시트)의 이 현장 데이터를 모두 지우고 '${name}' 내용으로 교체하려면 아래에 "덮어쓰기"를 입력하세요.
+    const toServer = META.syncUrl && isAdmin() && (prompt(`[주의] 서버의 이 현장 데이터를 모두 지우고 '${name}' 내용으로 교체하려면 아래에 "덮어쓰기"를 입력하세요.
 
 (이 PC에만 복원하려면 취소를 누르세요. 현재 프로젝트: ${CFG().project.name || PROJ} / 서버에 이미 있는 데이터는 복구가 어렵습니다)`) || '').trim() === '덮어쓰기';
     if (toServer) { try { const w = await callServer({ op: 'wipe' }); toast(`서버의 기존 데이터 ${w.wiped}건을 정리했습니다`); } catch (e) { return toast('서버 정리 실패(관리자만 가능): ' + e.message, 1); } }
@@ -2144,34 +2116,6 @@ function view_settings(el) {
   readJson($('#restoreIn'), doRestore); readJson($('#initIn'), doRestore);
   $('#wipe').onclick = () => confirmBox('이 프로젝트의 이 PC 데이터를 모두 삭제합니다. (서버 데이터는 유지)\n삭제 전 백업 파일이 다운로드됩니다.', async () => { downloadBackup(); await restoreFrom({ units: [] }); OUTBOX = {}; META.lastRev = 0; await persistMeta(); render(); });
   $('#pGo').onclick = () => { LS.set('bunyang.current', $('#pSel').value); location.reload(); };
-  $('#pNew').onclick = newProjectDialog;
-}
-
-/* ===================== 새 현장 만들기 (구글시트 자동 생성) ===================== */
-function newProjectDialog() {
-  
-  openModal({
-    title: '새 현장(프로젝트) 만들기',
-    body: `<div class="form"><div class="f full"><label>현장명</label><input class="in" id="npName" placeholder="예: 양주역 중흥S-클래스"></div>
-      <div class="f full"><label>견본/초기데이터 파일 (선택, .json)</label><input type="file" id="npFile" accept=".json"><div class="help">세대·분양가 등이 들어있는 견본 파일(<code>견본_초기데이터.json</code>) 또는 다른 현장의 백업 파일을 고르면 자동으로 채워집니다. 비워두면 빈 현장으로 시작합니다.</div></div>
-      <div class="f full"><div class="help">${!META.syncUrl ? '서버가 연결되어 있지 않아 이 PC에만 저장되는 현장으로 만들어집니다.' : isAdmin() ? '<b>이 현장 전용 구글시트 파일이 새로 만들어지고</b>, 이 현장의 모든 데이터가 그 시트에 저장됩니다. (양주역 등 기존 현장의 시트와는 완전히 별개입니다)' : '<span class="red">새 현장은 관리자만 만들 수 있습니다 (구글시트를 새로 만들어야 하므로).</span>'}</div></div></div>`,
-    foot: '<button class="btn" onclick="closeModal()">취소</button><button class="btn pri" id="npOk">만들기</button>',
-    onOpen: bg => bg.querySelector('#npOk').onclick = async () => {
-      const name = $('#npName').value.trim(); if (!name) return toast('현장명을 입력하세요', 1);
-      if (META.syncUrl && !isAdmin()) return toast('관리자만 새 현장을 만들 수 있습니다', 1);
-      const f = $('#npFile').files[0]; const auto = !!META.syncUrl;
-      const key = 'p' + Date.now().toString(36);
-      const btn = $('#npOk'); btn.disabled = true; btn.textContent = '만드는 중…';
-      try {
-        let txt = null;
-        if (f) { txt = await f.text(); const o = JSON.parse(txt); if (!o.units) throw new Error('세대(units)가 없는 파일입니다'); sessionStorage.setItem('bunyang.pendingData', txt); }
-        const srv = {};
-        if (auto) { const r = await callServer({ op: 'newProject', pk: key, name }); Object.assign(srv, { syncUrl: META.syncUrl, token: META.token, user: META.user, pk: key, sheetUrl: r.url }); }
-        const pl = projList(); pl.push({ key, name }); LS.set('bunyang.projects', pl);
-        LS.set('bunyang.pending', { key, name, srv }); LS.set('bunyang.current', key); location.reload();
-      } catch (e) { toast('실패: ' + e.message, 1); btn.disabled = false; btn.textContent = '만들기'; }
-    }
-  });
 }
 
 boot().catch(e => { document.getElementById('view').innerHTML = '<div class="banner">시작 오류: ' + e.message + '<br>크롬 또는 엣지 최신 버전에서 열어주세요.</div>'; console.error(e); });

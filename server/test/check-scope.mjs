@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
 const src = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
-const SCOPED = ['staff', 'orgs', 'qr_issues', 'attendance', 'reservations', 'visits', 'guestbook', 'attendance_adjust', 'staff_pay', 'job_pay', 'suppliers', 'pay_runs', 'pay_items', 'surveys', 'survey_links', 'responses', 'response_answers', 'response_pii', 'customer_grades'];
+const SCOPED = ['staff', 'orgs', 'qr_issues', 'attendance', 'reservations', 'visits', 'guestbook', 'attendance_adjust', 'staff_pay', 'job_pay', 'suppliers', 'pay_runs', 'pay_items', 'surveys', 'survey_links', 'responses', 'response_answers', 'response_pii', 'customer_grades', 'ct_records', 'ct_rev'];
 
 // [파일 조각, SQL 조각, 이유]
 const EXEMPT = [

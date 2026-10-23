@@ -22,6 +22,9 @@ import { staffTelegramLink, handleTelegram } from './telegram/telegram.js';
 import { adminDashboard, adminGuestStats, adminGuestbook } from './report/stats.js';
 import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyDelete, surveyLinkList, surveyLinkSave, surveyLinkGenerate, surveyLinkToggle, surveyForm, surveySubmit, surveyResponses, surveyExport, surveyStats, surveyCompare, surveyPurgePii, surveyMyLinks, surveyRespondents } from './survey/survey.js';
 import { customerList, customerGradeSave } from './customer/customer.js';
+import { contractPoll, contractSync, contractWipe } from './contract/contract.js';
+import { contractSummary } from './contract/summary.js';
+import { contractMatchList, contractMatchSave } from './contract/match.js';
 import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook/guestbook.js';
 
 // roles: 이 action 을 부를 수 있는 역할
@@ -31,6 +34,7 @@ import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCa
 // allowMustChange: 비밀번호 변경 전에도 부를 수 있는 action
 const MGR = ['admin', 'sub'];
 const ACCOUNTS = ['admin', 'sub', 'contract', 'viewer', 'desk', 'kiosk'];
+const CONTRACT_USERS = ['admin', 'sub', 'contract', 'viewer']; // 계약앱을 쓰는 계정 (보조관리자=관리자 권한, 계약담당=쓰기, 열람=읽기)
 const ACTIONS = {
   'public.orgs': { roles: ['public'], fn: publicOrgs },
   'staff.signup': { roles: ['public'], fn: staffSignup },
@@ -141,6 +145,14 @@ const ACTIONS = {
   'admin.dashboard': { roles: MGR, fn: adminDashboard },
   'admin.guestStats': { roles: MGR, fn: adminGuestStats },
   'admin.guestbook': { roles: MGR, fn: adminGuestbook },
+  // 계약관리: 계약앱 동기화(poll·sync)와 통합관리 화면(요약·담당자 매칭). 모두 현장 범위 검사를 거친다
+  'contract.poll': { roles: CONTRACT_USERS, fn: contractPoll },
+  'contract.sync': { roles: CONTRACT_USERS, fn: contractSync },
+  'contract.wipe': { roles: MGR, fn: contractWipe },
+  'contract.summary': { roles: CONTRACT_USERS, fn: contractSummary },
+  'contract.matchList': { roles: MGR, fn: contractMatchList },
+  'contract.matchSave': { roles: MGR, fn: contractMatchSave },
+
   'admin.settings': { roles: ['admin'], scope: 'global', fn: adminSettings },
   'admin.saveSettings': { roles: ['admin'], scope: 'global', fn: adminSaveSettings },
   'admin.orgs': { roles: MGR, fn: adminOrgs },
@@ -188,8 +200,10 @@ export default {
     let req;
     try {
       const text = await request.text();
-      if (text.length > 200000) throw new AppError('요청이 너무 큽니다.');
+      if (text.length > 3000000) throw new AppError('요청이 너무 큽니다.');
       req = JSON.parse(text);
+      // 계약앱 동기화(contract.*)만 큰 요청을 받는다 (한 번에 수백 건의 레코드)
+      if (text.length > 200000 && !s(req && req.action).startsWith('contract.')) throw new AppError('요청이 너무 큽니다.');
     } catch (e) {
       return json({ ok: false, error: e instanceof AppError ? e.message : '요청 형식이 올바르지 않습니다.' }, cors);
     }
