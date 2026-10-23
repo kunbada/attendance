@@ -7,6 +7,15 @@ import { writeAll, kstIso } from './contract.js';
 const parse = (text) => { try { return JSON.parse(text) || {}; } catch (e) { return {}; } };
 const norm = (v) => s(v).replace(/\s/g, '');
 
+// 계약앱에서 담당자를 고를 직원 목록 (이름·소속만. 연락처 등 개인정보는 보내지 않는다)
+export async function contractStaffList(env, data, ctx) {
+  const rows = await all(env,
+    `SELECT s.id, s.name, s.nickname, s.job, s.status, h.name AS head, t.name AS team
+     FROM staff s LEFT JOIN orgs h ON h.id = s.head_id AND h.project_id = s.project_id LEFT JOIN orgs t ON t.id = s.team_id AND t.project_id = s.project_id
+     WHERE s.project_id = ? AND s.status IN ('활동', '퇴사') ORDER BY (s.status = '활동') DESC, s.name`, ctx.projectId);
+  return { staff: rows.map((x) => ({ id: x.id, name: x.name, nickname: x.nickname || '', job: x.job || '', head: x.head || '', team: x.team || '', status: x.status })) };
+}
+
 export async function contractMatchList(env, data, ctx) {
   const pid = ctx.projectId;
   const rows = await all(env,

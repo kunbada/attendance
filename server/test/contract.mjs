@@ -177,6 +177,10 @@ try {
   };
   const sKim = await mkStaff('김영업', '영업이', 1);
   const sLee = await mkStaff('이영업', '', 2);
+  const sl = await call('contract.staffList', {}, viewer);
+  check('담당자 후보 목록: 열람 계정도 조회, 연락처는 없음', sl.ok && sl.data.staff.some((x) => x.id === sKim) && sl.data.staff.every((x) => !('phone' in x)));
+  expectErr('담당자 후보 목록: 데스크 계정은 불가', await call('contract.staffList', {}, desk), '권한', 'FORBIDDEN');
+  check('담당자 후보 목록: 다른 현장 직원은 없음', (await call('contract.staffList', {}, subB, P2)).data.staff.length === 0);
   await sync(writer, [
     rec('contracts', 'm1', { dongho: '401-101', status: '정상', name: 'a', team: '9팀', staff: '김영업' }),
     rec('contracts', 'm2', { dongho: '401-102', status: '정상', name: 'b', team: '9팀', staff: '김영업' }),

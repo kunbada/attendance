@@ -24,7 +24,7 @@ import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyD
 import { customerList, customerGradeSave } from './customer/customer.js';
 import { contractPoll, contractSync, contractWipe } from './contract/contract.js';
 import { contractSummary } from './contract/summary.js';
-import { contractMatchList, contractMatchSave } from './contract/match.js';
+import { contractStaffList, contractMatchList, contractMatchSave } from './contract/match.js';
 import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook/guestbook.js';
 
 // roles: 이 action 을 부를 수 있는 역할
@@ -150,6 +150,7 @@ const ACTIONS = {
   'contract.sync': { roles: CONTRACT_USERS, fn: contractSync },
   'contract.wipe': { roles: MGR, fn: contractWipe },
   'contract.summary': { roles: CONTRACT_USERS, fn: contractSummary },
+  'contract.staffList': { roles: CONTRACT_USERS, fn: contractStaffList },
   'contract.matchList': { roles: MGR, fn: contractMatchList },
   'contract.matchSave': { roles: MGR, fn: contractMatchSave },
 

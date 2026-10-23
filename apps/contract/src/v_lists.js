@@ -1,10 +1,14 @@
 /* ===================== 계약관리 ===================== */
+// 통합관리 직원 목록이 있으면 목록에서 고르게 하고(staffId 저장), 없으면(로컬 전용·목록을 못 받은 때) 예전처럼 글자 입력
+let FORCE_TEXT = false; // 엑셀 붙여넣기 일괄등록은 팀·담당자를 글자 열로 받는다
+const asText = fn => { FORCE_TEXT = true; try { return fn(); } finally { FORCE_TEXT = false; } };
+const staffFields = (col, teamL, staffL) => STAFF.length && !FORCE_TEXT ? [{ k: 'staffId', l: staffL + ' (직원 선택)', type: 'staffpick' }] : [{ k: 'team', l: teamL, list: distinct(col, 'team') }, { k: 'staff', l: staffL, list: distinct(col, 'staff') }];
 const C_FIELDS = () => [
   { k: 'dongho', l: '동호수 *', type: 'dongho' }, { k: 'name', l: '성명 *' },
   { k: 'rrn', l: '주민번호', ph: '000000-0000000' }, { k: 'phone', l: '연락처', ph: '010-0000-0000' },
   { k: 'date', l: '계약일', type: 'date' }, { k: 'ctype', l: '계약유형', list: distinct('contracts', 'ctype', ['정당', '예비당첨', '선착순']) },
   { k: 'stype', l: '공급유형', list: distinct('contracts', 'stype', ['일반', '신혼부부', '청년', '고령자']) }, { k: 'fee', l: '수수료기준', list: distinct('contracts', 'fee', ['일반', '조직']) },
-  { k: 'team', l: '계약팀', list: distinct('contracts', 'team') }, { k: 'staff', l: '담당자', list: distinct('contracts', 'staff') },
+  ...staffFields('contracts', '계약팀', '담당자'),
   { k: 'report', l: '보고여부', type: 'select', opts: ['보고', '미보고', '해약'] }, { k: 'status', l: '계약상태', type: 'select', opts: ['정상', '해약'] },
   { k: 'email', l: '이메일' }, { k: 'mail', l: '우편물 주소' },
   { k: 'addr', l: '주소', full: true }, { k: 'note', l: '특이사항', full: true }, { k: 'memo', l: '비고' }, { k: 'memo2', l: '비고2' }
@@ -97,7 +101,7 @@ function S_FIELDS(col) {
     { k: 'date', l: SIMPLE_META[col].dateL, type: 'date' }, { k: 'dongho', l: '동호수 *', type: 'dongho' },
     { k: 'name', l: '성명 *' }, { k: 'phone', l: '연락처' },
     { k: 'status', l: '상태', type: 'select', opts: ['진행', '전환', '취소', '환불'] }, { k: 'plan', l: '전환예정일', type: 'date' },
-    { k: 'team', l: '팀', list: distinct(col, 'team') }, { k: 'staff', l: '직원명', list: distinct(col, 'staff') },
+    ...staffFields(col, '팀', '직원명'),
     { k: 'note', l: '비고', full: true }
   ];
 }
@@ -200,9 +204,9 @@ function editLock(id, dh) {
 
 /* ===================== 엑셀 붙여넣기 일괄 등록 ===================== */
 const BULK_MAP = {
-  contracts: { title: '계약', f: () => C_FIELDS(), alias: { dongho: ['동호', '동호수'], name: ['성명', '계약자', '이름'], rrn: ['주민번호', '주민등록번호'], phone: ['연락처', '휴대폰', '전화번호', '휴대번호'], date: ['계약일'], ctype: ['계약유형'], stype: ['공급유형', '유형'], fee: ['수수료기준', '수수료'], team: ['계약팀', '팀', '담당팀'], staff: ['담당자', '담당', '직원명'], report: ['보고여부', '보고'], addr: ['주소', '도로명 주소'], mail: ['우편물주소', '우편물 주소'], email: ['이메일'], note: ['특이사항'], memo: ['비고'] } },
-  pre: { title: '가계약', f: () => S_FIELDS('pre'), alias: { date: ['가계약일', '일자'], dongho: ['동호', '동호수'], name: ['성명', '이름'], phone: ['연락처'], status: ['상태'], plan: ['전환예정일'], team: ['담당팀', '팀'], staff: ['직원명', '담당'], note: ['비고'] } },
-  resv: { title: '동호지정', f: () => S_FIELDS('resv'), alias: { date: ['동호지정일', '일자'], dongho: ['동호', '동호수'], name: ['성명', '이름'], phone: ['연락처'], status: ['상태'], plan: ['전환예정일'], team: ['팀', '담당팀'], staff: ['직원명', '담당'], note: ['비고'] } },
+  contracts: { title: '계약', f: () => asText(C_FIELDS), alias: { dongho: ['동호', '동호수'], name: ['성명', '계약자', '이름'], rrn: ['주민번호', '주민등록번호'], phone: ['연락처', '휴대폰', '전화번호', '휴대번호'], date: ['계약일'], ctype: ['계약유형'], stype: ['공급유형', '유형'], fee: ['수수료기준', '수수료'], team: ['계약팀', '팀', '담당팀'], staff: ['담당자', '담당', '직원명'], report: ['보고여부', '보고'], addr: ['주소', '도로명 주소'], mail: ['우편물주소', '우편물 주소'], email: ['이메일'], note: ['특이사항'], memo: ['비고'] } },
+  pre: { title: '가계약', f: () => asText(() => S_FIELDS('pre')), alias: { date: ['가계약일', '일자'], dongho: ['동호', '동호수'], name: ['성명', '이름'], phone: ['연락처'], status: ['상태'], plan: ['전환예정일'], team: ['담당팀', '팀'], staff: ['직원명', '담당'], note: ['비고'] } },
+  resv: { title: '동호지정', f: () => asText(() => S_FIELDS('resv')), alias: { date: ['동호지정일', '일자'], dongho: ['동호', '동호수'], name: ['성명', '이름'], phone: ['연락처'], status: ['상태'], plan: ['전환예정일'], team: ['팀', '담당팀'], staff: ['직원명', '담당'], note: ['비고'] } },
   locks: { title: '잠금동호', f: () => L_FIELDS(), alias: { date: ['홀딩일', '일자'], dongho: ['동호', '동호수'], reason: ['내용'], note: ['비고'], status: ['상태'] } }
 };
 function bulkPaste(col) {

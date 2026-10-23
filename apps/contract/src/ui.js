@@ -80,6 +80,11 @@ function formHtml(fields, rec) {
     let inp = '';
     if (f.type === 'select') inp = `<select class="in" id="${id}">${(f.opts || []).map(o => `<option ${String(o) === String(v) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     else if (f.type === 'textarea') inp = `<textarea class="in" id="${id}" rows="3">${esc(v)}</textarea>`;
+    else if (f.type === 'staffpick') {
+      const cur = rec.staffId || '', has = STAFF.some(s => s.id === cur);
+      const legacy = !cur && (rec.staff || rec.team) ? `<option value="" selected>(기존 입력 유지: ${esc((rec.team || '') + ' ' + (rec.staff || ''))})</option>` : '<option value="">(선택)</option>';
+      inp = `<select class="in" id="${id}">${legacy}${cur && !has ? `<option value="${esc(cur)}" selected>(현재 연결된 직원)</option>` : ''}${STAFF.map(s => `<option value="${esc(s.id)}" ${s.id === cur ? 'selected' : ''}>${esc(s.name + (s.nickname ? ' (' + s.nickname + ')' : '') + ' · ' + [s.head, s.team].filter(Boolean).join(' ') + (s.status !== '활동' ? ' [' + s.status + ']' : ''))}</option>`).join('')}</select>`;
+    }
     else if (f.type === 'dongho') inp = `<input class="in" id="${id}" value="${esc(v)}" list="dl_units" placeholder="예: 101-1203" autocomplete="off">`;
     else inp = `<input class="in" id="${id}" type="${f.type === 'date' ? 'date' : 'text'}" value="${esc(f.type === 'num' ? fmt0(v) : v)}" ${f.list ? `list="dl_${f.k}"` : ''} ${f.ro ? 'readonly' : ''} ${f.ph ? `placeholder="${esc(f.ph)}"` : ''}>`;
     const dlist = f.list ? `<datalist id="dl_${f.k}">${f.list.map(o => `<option value="${esc(o)}">`).join('')}</datalist>` : '';
@@ -87,7 +92,11 @@ function formHtml(fields, rec) {
   }).join('')}<datalist id="dl_units">${live('units').map(u => `<option value="${u.id}">${u.type}</option>`).join('')}</datalist></div>`;
 }
 function formRead(fields, root, rec) {
-  fields.forEach(f => { const el = root.querySelector('#f_' + f.k); if (!el || f.ro) return; let v = el.value.trim(); if (f.type === 'num') v = toNum(v); if (f.type === 'dongho') v = v.replace(/\s/g, '').replace(/^(\d{3})동?(\d{3,4})호?$/, '$1-$2'); rec[f.k] = v; });
+  fields.forEach(f => { const el = root.querySelector('#f_' + f.k); if (!el || f.ro) return; let v = el.value.trim(); if (f.type === 'num') v = toNum(v); if (f.type === 'dongho') v = v.replace(/\s/g, '').replace(/^(\d{3})동?(\d{3,4})호?$/, '$1-$2'); if (f.type === 'staffpick') { // 직원을 고르면 팀·담당자 글자도 함께 채운다 (보고서·기존 화면은 글자를 쓴다). 비워 두면 기존 값 유지
+      if (v) { const s = STAFF.find(x => x.id === v); rec.staffId = v; if (s) { rec.staff = s.name; rec.team = s.team || ''; } } else { delete rec.staffId; }
+      return;
+    }
+    rec[f.k] = v; });
   return rec;
 }
 /* 동호 입력 시 세대정보/중복 경고 */

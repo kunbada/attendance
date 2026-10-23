@@ -187,7 +187,8 @@ function toAction(b) {
     poll: ['contract.poll', {}],
     me: ['contract.poll', {}],
     sync: ['contract.sync', { since: b.since, changes: b.changes }],
-    wipe: ['contract.wipe', {}]
+    wipe: ['contract.wipe', {}],
+    staff: ['contract.staffList', {}]
   }[b.op];
   if (!m) throw new Error('지원하지 않는 요청: ' + b.op);
   return { action: m[0], data: m[1], global: !!m[2], token: sess };
@@ -198,6 +199,13 @@ async function callServer(body, noAuthFail) {
   const txt = await r.text(); let j; try { j = JSON.parse(txt); } catch (e) { throw new Error('서버 응답 오류 (서버 주소 확인): ' + txt.slice(0, 120)); }
   if (!j.ok) { const e = new Error(j.error || '서버 오류'); e.code = j.code; if (j.code === 'AUTH' && !noAuthFail) { setSession(null); showLogin(); } throw e; }
   return j.data || {};
+}
+
+/* 담당자 후보 = 통합관리의 이 현장 직원 (오프라인에서도 쓰도록 마지막 목록을 보관) */
+let STAFF = LS.get('bunyang.staff.' + PROJ, []);
+async function fetchStaff() {
+  if (!META.syncUrl || !META.pk || needLogin()) return;
+  try { const r = await callServer({ op: 'staff' }, true); STAFF = r.staff || []; LS.set('bunyang.staff.' + PROJ, STAFF); } catch (e) { }
 }
 
 /* 변경 전송은 "바뀐 필드만(patch)" 보냄 → 다른 사람이 같은 레코드의 다른 항목을 고쳐도 서로 덮어쓰지 않음 */

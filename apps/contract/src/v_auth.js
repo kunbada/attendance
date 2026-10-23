@@ -10,7 +10,7 @@ async function initAuth() {
     await fetchProjects();
     if (META.pk) { const m = await callServer({ op: 'me' }, true); setSession(Object.assign({}, SESSION, { role: m.role, name: m.name })); }
   } catch (e) { if (e.code === 'AUTH') { setSession(null); showLogin(); } else if (e.code === 'FORBIDDEN' || e.code === 'NO_PROJECT') pickProject(); }
-  updateUserPill();
+  updateUserPill(); fetchStaff();
 }
 // 서버의 현장 목록을 받아 둔다. 지금 현장이 목록에 없으면 고르게 한다
 async function fetchProjects() {
@@ -54,7 +54,7 @@ function showLogin() {
       bg.remove();
       if (!srvProjects().some(p => p.id === PROJ)) return pickProject();
       const m = await callServer({ op: 'me' }, true); setSession(Object.assign({}, SESSION, { role: m.role, name: m.name }));
-      render(); sync({ full: !META.lastRev });
+      render(); fetchStaff(); sync({ full: !META.lastRev });
     } catch (e) { if (!$('#loginBg')) showLogin(); const mm = $('#aMsg'); if (mm) mm.textContent = e.message; const b = $('#aGo'); if (b) b.disabled = false; }
   };
   $('#aGo').onclick = go; bg.querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });

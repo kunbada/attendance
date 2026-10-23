@@ -62,7 +62,7 @@ app/
 - `callServer` 가 예전 op 이름을 action 으로 옮긴다(`toAction`): login→account.login, poll/me/ping→contract.poll, sync→contract.sync, wipe→contract.wipe …
 - 동기화 프로토콜은 그대로: 바뀐 필드만(patch, `diffRec`/`BASE`) 전송 → 서버가 필드 단위 병합, 동호 이중계약·입금 중복은 서버(DB 유일 색인)가 거절(`rejected`). 한 번에 300건씩 보내고, 서버가 `more` 를 주면 이어서 받는다. 5초마다 `poll`(rev만).
 - 서버 주소는 `server.json` → `node build.js` 가 HTML 에 내장. 빌드 결과는 `분양계약관리.html`(내 PC용)과 `../../web/contract/index.html`(GitHub Pages `/contract/`) 둘 다. `NOSERVER=1` 이면 주소를 비우고 web/ 사본은 만들지 않는다.
-- 계약의 `staffId`(직원 연결)는 통합관리 [계약관리 > 담당자 매칭]이 넣는다. 앱 화면에서는 지금 건드리지 않지만 저장/동기화 때 필드가 보존된다.
+- **담당자는 통합관리 직원 목록에서 고른다**: 계약·가계약·동호지정 입력창의 담당자 칸이 직원 선택(`staffpick`, `contract.staffList` → `STAFF`)이고, 고르면 `staffId` + 팀·담당자 글자(`team`, `staff`)를 함께 저장한다(보고서는 글자를 쓴다). 목록이 없으면(로컬 전용·아직 못 받음) 예전처럼 글자 입력. 엑셀 붙여넣기 일괄등록은 글자 열 그대로(`asText`). 통합관리 [계약관리 > 담당자 매칭]은 글자뿐인 예전 데이터·잘못된 담당자를 바로잡는 보완 용도.
 - 테스트(통합 서버 필요: server/ 에서 DB 새로 만들고 `wrangler dev --local --port 8787`): `ADMIN_PW=초기비번 node tools/test_multi.js`(브라우저 3명 동시 + 통합관리 요약 일치), `node tools/smoke.js`(전 화면, 서버 불필요).
 
 ## 동기화 구조 (오프라인 우선)

@@ -426,7 +426,8 @@ function toAction(b) {
     poll: ['contract.poll', {}],
     me: ['contract.poll', {}],
     sync: ['contract.sync', { since: b.since, changes: b.changes }],
-    wipe: ['contract.wipe', {}]
+    wipe: ['contract.wipe', {}],
+    staff: ['contract.staffList', {}]
   }[b.op];
   if (!m) throw new Error('지원하지 않는 요청: ' + b.op);
   return { action: m[0], data: m[1], global: !!m[2], token: sess };
@@ -437,6 +438,13 @@ async function callServer(body, noAuthFail) {
   const txt = await r.text(); let j; try { j = JSON.parse(txt); } catch (e) { throw new Error('서버 응답 오류 (서버 주소 확인): ' + txt.slice(0, 120)); }
   if (!j.ok) { const e = new Error(j.error || '서버 오류'); e.code = j.code; if (j.code === 'AUTH' && !noAuthFail) { setSession(null); showLogin(); } throw e; }
   return j.data || {};
+}
+
+/* 담당자 후보 = 통합관리의 이 현장 직원 (오프라인에서도 쓰도록 마지막 목록을 보관) */
+let STAFF = LS.get('bunyang.staff.' + PROJ, []);
+async function fetchStaff() {
+  if (!META.syncUrl || !META.pk || needLogin()) return;
+  try { const r = await callServer({ op: 'staff' }, true); STAFF = r.staff || []; LS.set('bunyang.staff.' + PROJ, STAFF); } catch (e) { }
 }
 
 /* 변경 전송은 "바뀐 필드만(patch)" 보냄 → 다른 사람이 같은 레코드의 다른 항목을 고쳐도 서로 덮어쓰지 않음 */
@@ -632,7 +640,7 @@ async function initAuth() {
     await fetchProjects();
     if (META.pk) { const m = await callServer({ op: 'me' }, true); setSession(Object.assign({}, SESSION, { role: m.role, name: m.name })); }
   } catch (e) { if (e.code === 'AUTH') { setSession(null); showLogin(); } else if (e.code === 'FORBIDDEN' || e.code === 'NO_PROJECT') pickProject(); }
-  updateUserPill();
+  updateUserPill(); fetchStaff();
 }
 // 서버의 현장 목록을 받아 둔다. 지금 현장이 목록에 없으면 고르게 한다
 async function fetchProjects() {
@@ -676,7 +684,7 @@ function showLogin() {
       bg.remove();
       if (!srvProjects().some(p => p.id === PROJ)) return pickProject();
       const m = await callServer({ op: 'me' }, true); setSession(Object.assign({}, SESSION, { role: m.role, name: m.name }));
-      render(); sync({ full: !META.lastRev });
+      render(); fetchStaff(); sync({ full: !META.lastRev });
     } catch (e) { if (!$('#loginBg')) showLogin(); const mm = $('#aMsg'); if (mm) mm.textContent = e.message; const b = $('#aGo'); if (b) b.disabled = false; }
   };
   $('#aGo').onclick = go; bg.querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
@@ -786,6 +794,11 @@ function formHtml(fields, rec) {
     let inp = '';
     if (f.type === 'select') inp = `<select class="in" id="${id}">${(f.opts || []).map(o => `<option ${String(o) === String(v) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     else if (f.type === 'textarea') inp = `<textarea class="in" id="${id}" rows="3">${esc(v)}</textarea>`;
+    else if (f.type === 'staffpick') {
+      const cur = rec.staffId || '', has = STAFF.some(s => s.id === cur);
+      const legacy = !cur && (rec.staff || rec.team) ? `<option value="" selected>(기존 입력 유지: ${esc((rec.team || '') + ' ' + (rec.staff || ''))})</option>` : '<option value="">(선택)</option>';
+      inp = `<select class="in" id="${id}">${legacy}${cur && !has ? `<option value="${esc(cur)}" selected>(현재 연결된 직원)</option>` : ''}${STAFF.map(s => `<option value="${esc(s.id)}" ${s.id === cur ? 'selected' : ''}>${esc(s.name + (s.nickname ? ' (' + s.nickname + ')' : '') + ' · ' + [s.head, s.team].filter(Boolean).join(' ') + (s.status !== '활동' ? ' [' + s.status + ']' : ''))}</option>`).join('')}</select>`;
+    }
     else if (f.type === 'dongho') inp = `<input class="in" id="${id}" value="${esc(v)}" list="dl_units" placeholder="예: 101-1203" autocomplete="off">`;
     else inp = `<input class="in" id="${id}" type="${f.type === 'date' ? 'date' : 'text'}" value="${esc(f.type === 'num' ? fmt0(v) : v)}" ${f.list ? `list="dl_${f.k}"` : ''} ${f.ro ? 'readonly' : ''} ${f.ph ? `placeholder="${esc(f.ph)}"` : ''}>`;
     const dlist = f.list ? `<datalist id="dl_${f.k}">${f.list.map(o => `<option value="${esc(o)}">`).join('')}</datalist>` : '';
@@ -793,7 +806,11 @@ function formHtml(fields, rec) {
   }).join('')}<datalist id="dl_units">${live('units').map(u => `<option value="${u.id}">${u.type}</option>`).join('')}</datalist></div>`;
 }
 function formRead(fields, root, rec) {
-  fields.forEach(f => { const el = root.querySelector('#f_' + f.k); if (!el || f.ro) return; let v = el.value.trim(); if (f.type === 'num') v = toNum(v); if (f.type === 'dongho') v = v.replace(/\s/g, '').replace(/^(\d{3})동?(\d{3,4})호?$/, '$1-$2'); rec[f.k] = v; });
+  fields.forEach(f => { const el = root.querySelector('#f_' + f.k); if (!el || f.ro) return; let v = el.value.trim(); if (f.type === 'num') v = toNum(v); if (f.type === 'dongho') v = v.replace(/\s/g, '').replace(/^(\d{3})동?(\d{3,4})호?$/, '$1-$2'); if (f.type === 'staffpick') { // 직원을 고르면 팀·담당자 글자도 함께 채운다 (보고서·기존 화면은 글자를 쓴다). 비워 두면 기존 값 유지
+      if (v) { const s = STAFF.find(x => x.id === v); rec.staffId = v; if (s) { rec.staff = s.name; rec.team = s.team || ''; } } else { delete rec.staffId; }
+      return;
+    }
+    rec[f.k] = v; });
   return rec;
 }
 /* 동호 입력 시 세대정보/중복 경고 */
@@ -1051,12 +1068,16 @@ function openUnit(dh) {
 }
 
 /* ===================== 계약관리 ===================== */
+// 통합관리 직원 목록이 있으면 목록에서 고르게 하고(staffId 저장), 없으면(로컬 전용·목록을 못 받은 때) 예전처럼 글자 입력
+let FORCE_TEXT = false; // 엑셀 붙여넣기 일괄등록은 팀·담당자를 글자 열로 받는다
+const asText = fn => { FORCE_TEXT = true; try { return fn(); } finally { FORCE_TEXT = false; } };
+const staffFields = (col, teamL, staffL) => STAFF.length && !FORCE_TEXT ? [{ k: 'staffId', l: staffL + ' (직원 선택)', type: 'staffpick' }] : [{ k: 'team', l: teamL, list: distinct(col, 'team') }, { k: 'staff', l: staffL, list: distinct(col, 'staff') }];
 const C_FIELDS = () => [
   { k: 'dongho', l: '동호수 *', type: 'dongho' }, { k: 'name', l: '성명 *' },
   { k: 'rrn', l: '주민번호', ph: '000000-0000000' }, { k: 'phone', l: '연락처', ph: '010-0000-0000' },
   { k: 'date', l: '계약일', type: 'date' }, { k: 'ctype', l: '계약유형', list: distinct('contracts', 'ctype', ['정당', '예비당첨', '선착순']) },
   { k: 'stype', l: '공급유형', list: distinct('contracts', 'stype', ['일반', '신혼부부', '청년', '고령자']) }, { k: 'fee', l: '수수료기준', list: distinct('contracts', 'fee', ['일반', '조직']) },
-  { k: 'team', l: '계약팀', list: distinct('contracts', 'team') }, { k: 'staff', l: '담당자', list: distinct('contracts', 'staff') },
+  ...staffFields('contracts', '계약팀', '담당자'),
   { k: 'report', l: '보고여부', type: 'select', opts: ['보고', '미보고', '해약'] }, { k: 'status', l: '계약상태', type: 'select', opts: ['정상', '해약'] },
   { k: 'email', l: '이메일' }, { k: 'mail', l: '우편물 주소' },
   { k: 'addr', l: '주소', full: true }, { k: 'note', l: '특이사항', full: true }, { k: 'memo', l: '비고' }, { k: 'memo2', l: '비고2' }
@@ -1149,7 +1170,7 @@ function S_FIELDS(col) {
     { k: 'date', l: SIMPLE_META[col].dateL, type: 'date' }, { k: 'dongho', l: '동호수 *', type: 'dongho' },
     { k: 'name', l: '성명 *' }, { k: 'phone', l: '연락처' },
     { k: 'status', l: '상태', type: 'select', opts: ['진행', '전환', '취소', '환불'] }, { k: 'plan', l: '전환예정일', type: 'date' },
-    { k: 'team', l: '팀', list: distinct(col, 'team') }, { k: 'staff', l: '직원명', list: distinct(col, 'staff') },
+    ...staffFields(col, '팀', '직원명'),
     { k: 'note', l: '비고', full: true }
   ];
 }
@@ -1252,9 +1273,9 @@ function editLock(id, dh) {
 
 /* ===================== 엑셀 붙여넣기 일괄 등록 ===================== */
 const BULK_MAP = {
-  contracts: { title: '계약', f: () => C_FIELDS(), alias: { dongho: ['동호', '동호수'], name: ['성명', '계약자', '이름'], rrn: ['주민번호', '주민등록번호'], phone: ['연락처', '휴대폰', '전화번호', '휴대번호'], date: ['계약일'], ctype: ['계약유형'], stype: ['공급유형', '유형'], fee: ['수수료기준', '수수료'], team: ['계약팀', '팀', '담당팀'], staff: ['담당자', '담당', '직원명'], report: ['보고여부', '보고'], addr: ['주소', '도로명 주소'], mail: ['우편물주소', '우편물 주소'], email: ['이메일'], note: ['특이사항'], memo: ['비고'] } },
-  pre: { title: '가계약', f: () => S_FIELDS('pre'), alias: { date: ['가계약일', '일자'], dongho: ['동호', '동호수'], name: ['성명', '이름'], phone: ['연락처'], status: ['상태'], plan: ['전환예정일'], team: ['담당팀', '팀'], staff: ['직원명', '담당'], note: ['비고'] } },
-  resv: { title: '동호지정', f: () => S_FIELDS('resv'), alias: { date: ['동호지정일', '일자'], dongho: ['동호', '동호수'], name: ['성명', '이름'], phone: ['연락처'], status: ['상태'], plan: ['전환예정일'], team: ['팀', '담당팀'], staff: ['직원명', '담당'], note: ['비고'] } },
+  contracts: { title: '계약', f: () => asText(C_FIELDS), alias: { dongho: ['동호', '동호수'], name: ['성명', '계약자', '이름'], rrn: ['주민번호', '주민등록번호'], phone: ['연락처', '휴대폰', '전화번호', '휴대번호'], date: ['계약일'], ctype: ['계약유형'], stype: ['공급유형', '유형'], fee: ['수수료기준', '수수료'], team: ['계약팀', '팀', '담당팀'], staff: ['담당자', '담당', '직원명'], report: ['보고여부', '보고'], addr: ['주소', '도로명 주소'], mail: ['우편물주소', '우편물 주소'], email: ['이메일'], note: ['특이사항'], memo: ['비고'] } },
+  pre: { title: '가계약', f: () => asText(() => S_FIELDS('pre')), alias: { date: ['가계약일', '일자'], dongho: ['동호', '동호수'], name: ['성명', '이름'], phone: ['연락처'], status: ['상태'], plan: ['전환예정일'], team: ['담당팀', '팀'], staff: ['직원명', '담당'], note: ['비고'] } },
+  resv: { title: '동호지정', f: () => asText(() => S_FIELDS('resv')), alias: { date: ['동호지정일', '일자'], dongho: ['동호', '동호수'], name: ['성명', '이름'], phone: ['연락처'], status: ['상태'], plan: ['전환예정일'], team: ['팀', '담당팀'], staff: ['직원명', '담당'], note: ['비고'] } },
   locks: { title: '잠금동호', f: () => L_FIELDS(), alias: { date: ['홀딩일', '일자'], dongho: ['동호', '동호수'], reason: ['내용'], note: ['비고'], status: ['상태'] } }
 };
 function bulkPaste(col) {

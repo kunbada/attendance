@@ -47,6 +47,17 @@ async function login(p, id) { await p.waitForSelector('#loginBg'); await p.fill(
   const B = await mk(b); await B.goto(URL + '#dash'); await login(B, lee); await B.waitForTimeout(3500);
   ok(await B.evaluate(() => ROLE()) === 'read', 'B: 읽기전용 권한');
   ok(await B.evaluate(() => live('units').length) === 40, 'B: 읽기전용도 전체 데이터 수신');
+  // 담당자는 통합관리 직원 목록에서 고른다 → staffId·팀·이름이 계약에 저장된다
+  const dk = 'dev-multi-' + uniq + '-xxxxxxxx', api2 = (a, d, tk, pj) => fetch(SRV, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: a, token: tk || '', projectId: pj, deviceKey: dk, data: d }) }).then(r => r.json());
+  const sg = await api2('staff.signup', { projectCode: 'site1', name: '선택직원', nickname: '', phone: '0108888' + uniq.slice(0, 4), pin: '1234', job: '상담사', rrn: '000101-3000000', bank: '국민', accountNo: '000-000-000000', holder: '선택직원', consent: true });
+  const stRow = (await api('admin.staffList', {}, admin, 'P01')).data.staff.find(x => x.name === '선택직원');
+  await api('admin.approve', { staffId: stRow.id }, admin, 'P01');
+  await A.evaluate(() => fetchStaff()); ok(await A.evaluate(() => STAFF.some(s => s.name === '선택직원')), 'A: 통합관리 직원 목록을 받음');
+  ok(await A.evaluate(() => STAFF.every(s => !('phone' in s))), 'A: 직원 목록에 연락처 없음');
+  await A.evaluate(() => editContract(null, '101-105')); await A.waitForSelector('#f_staffId');
+  await A.fill('#f_name', '선택테스트'); await A.selectOption('#f_staffId', stRow.id); await A.click('#mSave'); await A.waitForTimeout(1500);
+  const sc = await A.evaluate(() => live('contracts').find(c => c.name === '선택테스트'));
+  ok(sc && sc.staffId === stRow.id && sc.staff === '선택직원', 'A: 직원 선택 → staffId·담당자 저장', sc);
   // 동시 수정(같은 세대의 다른 필드) → 서로 덮어쓰지 않고 합쳐진다
   await Promise.all([
     A.evaluate(async () => { const u = M.units['101-101']; u.skind = '특공(A수정)'; await save('units', u); }),
