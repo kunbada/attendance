@@ -18,6 +18,6 @@ if (Hub.app === 'survey') {
   ] });
   Hub.group({ key: 'customers', label: '고객관리', items: [{ label: '설문고객', section: 'surveys' }, { label: '방문고객', section: 'visits' }, { label: '데이터통합관리', section: 'customers' }] });
   Hub.group({ key: 'contract', label: '계약관리', items: [{ label: '현황 요약', section: 'contract-summary' }, { label: '담당자 매칭', section: 'contract-match' }] });
-  Hub.group({ key: 'service', label: '용역관리', items: [{ label: '일급 정산', section: 'payruns' }, { label: '지급 설정', section: 'paysettings' }] });
+  Hub.group({ key: 'service', label: '용역관리', items: [{ label: '일급 정산', section: 'payruns' }, { label: '수수료 정산', section: 'feeruns' }, { label: '수수료 규칙', section: 'feerules' }, { label: '해약·환수', section: 'feecancel' }, { label: '합산 명세', section: 'paystatement' }, { label: '지급 설정', section: 'paysettings' }] });
   Hub.group({ key: 'settings', label: '설정', adminOnly: true, needsProject: false, items: [{ label: '설정', section: 'settings' }] });
 }

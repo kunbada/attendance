@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
 const src = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
-const SCOPED = ['staff', 'orgs', 'qr_issues', 'attendance', 'reservations', 'visits', 'guestbook', 'attendance_adjust', 'staff_pay', 'job_pay', 'suppliers', 'pay_runs', 'pay_items', 'surveys', 'survey_links', 'responses', 'response_answers', 'response_pii', 'customer_grades', 'ct_records', 'ct_rev'];
+const SCOPED = ['staff', 'orgs', 'qr_issues', 'attendance', 'reservations', 'visits', 'guestbook', 'attendance_adjust', 'staff_pay', 'job_pay', 'suppliers', 'pay_runs', 'pay_items', 'surveys', 'survey_links', 'responses', 'response_answers', 'response_pii', 'customer_grades', 'ct_records', 'ct_rev', 'fee_rules', 'fee_ledger'];
 
 // [파일 조각, SQL 조각, 이유]
 const EXEMPT = [
@@ -27,6 +27,8 @@ const EXEMPT = [
   ['survey/survey.js', "SELECT 1 FROM survey_links WHERE code = ?", '배포 링크 코드는 전체에서 유일해야 하므로 현장과 무관하게 중복을 확인한다'],
   ['survey/survey.js', "${base}", '조건 문자열 base 가 project_id 를 항상 포함해 만든다 (설문 통계 시험으로 확인)'],
   ['core/leader.js', "${sc.where}", '조건 문자열 scopeOf() 가 project_id 를 항상 포함해 만든다 (팀장·본부장 시험으로 확인)'],
+  ['pay/feeledger.js', "SELECT id, name FROM staff WHERE id IN", '다른 현장으로 이동한 직원의 이름만 읽는다 (이 현장에서 받은 수수료·환수 줄의 받는 사람 표시용)'],
+  ['pay/feeledger.js', "INSERT OR IGNORE INTO fee_ledger", '넣는 줄마다 project_id 값이 들어 있고, 호출하는 쪽(feeSync)이 이 현장 값으로만 만든다 (수수료 시험으로 확인)'],
   ['visit/visit.js', "${conds.join(' AND ')}", '조건 배열 conds 의 첫 항목이 s.project_id = ? 이다 (데스크 직원 검색 시험으로 확인)']
 ];
 const used = new Set();

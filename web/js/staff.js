@@ -266,14 +266,17 @@
     box.innerHTML = '';
     if (!res.pays.length) { box.appendChild(h('p', { class: 'muted' }, '확정된 지급내역이 아직 없습니다.')); return; }
     res.pays.forEach(function (p) {
+      var isFee = p.kind === '수수료';
       var days = h('div', { class: 'muted hidden', style: 'margin-top:8px' }, p.detail.map(function (d) {
+        // 수수료는 동호·몫·금액만 보여 준다 (고객 정보는 없다)
+        if (isFee) return h('div', null, d.dongho + ' · ' + (d.role === '본부장일괄' ? '본부장(일괄)' : d.role) + (d.note ? ' · ' + d.note : '') + ' · ' + won(d.amount));
         return h('div', null, d.date + ' · ' + d.note + ' · ' + d.days + '일 · ' + won(d.amount));
       }));
-      var more = h('button', { type: 'button', class: 'linkbtn' }, '날짜별 내역 보기');
+      var more = h('button', { type: 'button', class: 'linkbtn' }, isFee ? '계약별 내역 보기' : '날짜별 내역 보기');
       more.addEventListener('click', function () { days.classList.toggle('hidden'); });
       box.appendChild(h('div', { class: 'card' },
         h('div', null, h('strong', null, p.project), ' ', h('span', { class: 'badge ' + (p.status === '지급완료' ? 'ok' : 'warn') }, p.status)),
-        h('div', { class: 'muted' }, p.from + ' ~ ' + p.to + ' · ' + p.days + '일'),
+        h('div', { class: 'muted' }, p.from + ' ~ ' + p.to + (isFee ? ' · 판매수수료 ' + p.count + '건' : ' · ' + p.days + '일')),
         h('div', { class: 'stat' }, h('span', null, '지급액'), h('strong', null, won(p.gross))),
         p.adjustAmount ? h('div', { class: 'stat' }, h('span', null, '조정 (' + p.adjustMemo + ')'), h('span', null, won(p.adjustAmount))) : null,
         h('div', { class: 'stat' }, h('span', null, '공제 (소득세 ' + won(p.incomeTax) + ' + 지방소득세 ' + won(p.localTax) + ')'), h('span', null, '-' + won(p.incomeTax + p.localTax))),

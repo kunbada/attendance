@@ -24,6 +24,8 @@ import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyD
 import { customerList, customerGradeSave } from './customer/customer.js';
 import { contractPoll, contractSync, contractWipe } from './contract/contract.js';
 import { contractSummary } from './contract/summary.js';
+import { feeRuleList, feeRuleSave, feeRuleDelete, feeRunCreate, payStatement } from './pay/fee.js';
+import { feeSettingsGet, feeSettingsSave, feeCancelList, feeCancelDecide } from './pay/feeledger.js';
 import { contractStaffList, contractMatchList, contractMatchSave } from './contract/match.js';
 import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook/guestbook.js';
 
@@ -139,6 +141,15 @@ const ACTIONS = {
   'pay.runDelete': { roles: MGR, fn: payRunDelete },
   'pay.itemSave': { roles: MGR, fn: payItemSave },
   'pay.transferExport': { roles: MGR, fn: payTransferExport },
+  'pay.statement': { roles: MGR, fn: payStatement },
+  'fee.settingsGet': { roles: MGR, fn: feeSettingsGet },
+  'fee.settingsSave': { roles: MGR, fn: feeSettingsSave },
+  'fee.ruleList': { roles: MGR, fn: feeRuleList },
+  'fee.ruleSave': { roles: MGR, fn: feeRuleSave },
+  'fee.ruleDelete': { roles: MGR, fn: feeRuleDelete },
+  'fee.runCreate': { roles: MGR, fn: feeRunCreate },
+  'fee.cancelList': { roles: MGR, fn: feeCancelList },
+  'fee.cancelDecide': { roles: MGR, fn: feeCancelDecide },
 
   'admin.reservations': { roles: MGR, need: 'visit', fn: adminReservations },
   'admin.visits': { roles: MGR, need: 'visit', fn: adminVisits },

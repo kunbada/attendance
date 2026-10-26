@@ -1,5 +1,5 @@
-// 용역관리: 일급 정산(회차 만들기 → 검토 → 확정 → 지급완료), 개인별 지급 설정. 선택한 현장 기준.
-// 판매수수료 정산은 계약관리 연동 후(5단계) 이 메뉴에 추가한다.
+// 용역관리: 일급 정산·수수료 정산(회차 만들기 → 검토 → 확정 → 지급완료), 개인별 지급 설정. 선택한 현장 기준.
+// 수수료 쪽 화면 조각(규칙·해약 환수·합산 명세·수수료 회차의 생성/명세)은 fee.js 가 Hub.fee 로 내준다.
 (function () {
   var simpleTable = Hub.simpleTable, downloadCsv = Hub.downloadCsv, DATE_STYLE = Hub.DATE_STYLE;
   var STATUS_BADGE = { '작성': 'warn', '검토': 'warn', '확정': 'ok', '지급완료': 'ok' };
@@ -35,7 +35,7 @@
 
     // 2) 개인별 설정 (직군 기본 위에 덮어쓰기)
     root.appendChild(h('div', { class: 'card' }, h('h2', null, '개인별 지급 설정'),
-      h('p', { class: 'muted' }, '직군 기본과 다르게 줄 직원만 개인 설정을 합니다. 적용 시작일을 바꿔 저장하면 이력이 쌓이고, 정산은 날짜별로 그날 적용된 일당으로 계산합니다. 판매수수료 대상은 영업 직군이 기본이며 나머지 직군은 필요할 때만 켭니다. (수수료 정산은 계약관리 연동 후 추가됩니다)')));
+      h('p', { class: 'muted' }, '직군 기본과 다르게 줄 직원만 개인 설정을 합니다. 적용 시작일을 바꿔 저장하면 이력이 쌓이고, 정산은 날짜별로 그날 적용된 일당으로 계산합니다. 판매수수료 대상은 영업 직군이 기본이며 나머지 직군은 필요할 때만 켭니다. (수수료 정산은 용역관리 > 수수료 정산에서 합니다)')));
     var rows = res.staff.map(function (st) {
       var c = st.current;
       var edit = h('button', { type: 'button', class: 'btn small' }, st.personal ? '변경' : '개인 설정');
@@ -121,7 +121,7 @@
     var histText = hist.length ? h('p', { class: 'muted' }, '이력: ' + hist.map(function (x) { return x.effectiveFrom + ' ' + won(x.dailyWage) + '/' + x.cycle; }).join(' → ')) : null;
     modal(title, h('div', null, field('일당 (원)', wage, '하루 기준 금액. 반일은 절반으로 계산하고 원 단위 미만은 버립니다.'), field('지급 주기', cycle),
       h('label', { class: 'check' }, daily, ' 일당 지급 대상 (출근 일수 × 일당으로 정산)'),
-      h('label', { class: 'check' }, fee, ' 판매수수료 대상 (계약 담당자로 연결된 경우, 5단계에서 사용)'),
+      h('label', { class: 'check' }, fee, ' 판매수수료 대상 (계약 담당자로 연결된 계약의 수수료를 받는 사람)'),
       field('지급 방식', mode), supField,
       field('적용 시작일', from, '이 날짜부터 새 설정이 적용됩니다.'), histText), [{
         label: '저장', primary: true, onClick: async function (close) {
@@ -151,24 +151,27 @@
   // 일급 정산 회차
   // ====================================================================
   var openRunId = '';
+  var curKind = '일급';
 
-  async function renderRuns(root) {
+  async function renderRuns(root, kind) {
+    curKind = kind || '일급';
     if (openRunId) { try { await renderRunDetail(root, openRunId); return; } catch (e) { openRunId = ''; } }
-    var res = await Api.call('pay.runList');
+    var isFee = curKind === '수수료';
+    var res = await Api.call('pay.runList', { kind: curKind });
     root.innerHTML = '';
     var add = h('button', { type: 'button', class: 'btn small primary' }, '+ 새 정산');
-    add.addEventListener('click', function () { openCreate(root); });
-    root.appendChild(h('div', { class: 'toolbar' }, h('strong', null, '일급 정산 회차'), add,
-      h('span', { class: 'muted' }, '정산은 "현장 + 기간" 단위입니다. 기간 안에 이 현장에서 일한 사람이 대상이며, 다른 현장으로 옮긴 사람도 이 현장에서 일한 날은 이 현장 정산에 들어갑니다.')));
+    add.addEventListener('click', function () { if (isFee) Hub.fee.openCreate(root, function (id) { openRunId = id; return renderRuns(root, curKind); }); else openCreate(root); });
+    root.appendChild(h('div', { class: 'toolbar' }, h('strong', null, isFee ? '수수료 정산 회차' : '일급 정산 회차'), add,
+      h('span', { class: 'muted' }, isFee ? '계약금을 낸 계약의 수수료를 담당 직원·팀장·본부장에게 정산합니다. 규칙과 지급 시점은 [수수료 규칙]에서 정합니다.' : '정산은 "현장 + 기간" 단위입니다. 기간 안에 이 현장에서 일한 사람이 대상이며, 다른 현장으로 옮긴 사람도 이 현장에서 일한 날은 이 현장 정산에 들어갑니다.')));
     var rows = res.runs.map(function (r) {
       var open = h('button', { type: 'button', class: 'btn small primary' }, '열기');
-      open.addEventListener('click', function () { openRunId = r.id; runBusy(open, function () { return renderRuns(root); }); });
-      return h('tr', null, h('td', null, h('strong', null, r.title)), h('td', null, r.cycle), h('td', null, r.from + ' ~ ' + r.to),
+      open.addEventListener('click', function () { openRunId = r.id; runBusy(open, function () { return renderRuns(root, curKind); }); });
+      return h('tr', null, h('td', null, h('strong', null, r.title)), isFee ? null : h('td', null, r.cycle), h('td', null, r.from + ' ~ ' + r.to),
         h('td', null, h('span', { class: 'badge ' + STATUS_BADGE[r.status] }, r.status)), h('td', null, r.people + '명'),
         h('td', null, won(r.gross)), h('td', null, won(r.tax)), h('td', null, h('strong', null, won(r.net))),
         h('td', null, r.supply ? won(r.supplyTotal) + ' (공급가 ' + won(r.supply) + ')' : ''), h('td', null, open));
     });
-    root.appendChild(simpleTable(['회차', '주기', '기간', '상태', '인원', '개인 지급액', '공제', '개인 실지급액', '업체 청구(부가세 포함)', ''], rows));
+    root.appendChild(simpleTable(isFee ? ['회차', '기간', '상태', '인원', '개인 지급액', '공제', '개인 실지급액', '업체 청구(부가세 포함)', ''] : ['회차', '주기', '기간', '상태', '인원', '개인 지급액', '공제', '개인 실지급액', '업체 청구(부가세 포함)', ''], rows));
   }
 
   function openCreate(root) {
@@ -181,7 +184,7 @@
     modal('새 일급 정산', h('div', null, field('지급 주기', cycle, '이 주기로 설정된 직원만 대상이 됩니다.'), field('시작일', from), field('종료일', to), field('회차 이름', title)), [{
       label: '만들기', primary: true, onClick: async function (close) {
         var res = await Api.call('pay.runCreate', { cycle: cycle.value, from: from.value, to: to.value, title: title.value });
-        close(); openRunId = res.id; await renderRuns(root);
+        close(); openRunId = res.id; await renderRuns(root, curKind);
         toast(res.people + '명 (개인 실지급 ' + won(res.net) + (res.supplierTotal ? ' + 업체 청구 ' + won(res.supplierTotal) : '') + ') 으로 작성했습니다.' + (res.notIncluded.length ? ' (제외된 사람 ' + res.notIncluded.length + '명 — 아래 안내 확인)' : ''));
       }
     }]);
@@ -190,10 +193,12 @@
   async function renderRunDetail(root, runId) {
     var d = await Api.call('pay.runGet', { runId: runId });
     var r = d.run;
+    var isFee = r.kind === '수수료';
+    curKind = r.kind;
     root.innerHTML = '';
     var editable = r.status === '작성' || r.status === '검토';
     var back = h('button', { type: 'button', class: 'btn small' }, '← 목록');
-    back.addEventListener('click', function () { openRunId = ''; runBusy(back, function () { return renderRuns(root); }); });
+    back.addEventListener('click', function () { openRunId = ''; runBusy(back, function () { return renderRuns(root, curKind); }); });
     var again = function () { return renderRunDetail(root, runId); };
     var act = function (label, cls, fn, confirmText) {
       var b = h('button', { type: 'button', class: 'btn small ' + (cls || '') }, label);
@@ -223,6 +228,7 @@
       buttons.push(tf, ' ');
       var csv = h('button', { type: 'button', class: 'btn small' }, '명세 CSV');
       csv.addEventListener('click', function () {
+        if (isFee) { Hub.fee.downloadCsv(r, d.items); return; }
         downloadCsv('정산명세_' + r.from + '_' + r.to + '.csv', [['성명', '지급 방식', '업체', '일수', '일급 합계', '조정', '조정 사유', '지급액(업체는 공급가)', '소득세', '지방소득세', '실지급액']].concat(d.items.map(function (i) {
           return [i.name, i.payMode, i.supplierName, i.days, i.baseAmount, i.adjustAmount, i.adjustMemo, i.gross, i.incomeTax, i.localTax, i.net];
         })));
@@ -236,7 +242,7 @@
     root.appendChild(h('div', { class: 'toolbar no-print' }, back));
     root.appendChild(h('div', { class: 'card' },
       h('h2', null, r.title + ' ', h('span', { class: 'badge ' + STATUS_BADGE[r.status] }, r.status)),
-      h('div', { class: 'muted' }, r.cycle + ' 단위 · ' + r.from + ' ~ ' + r.to + ' · 작성 ' + r.createdBy + (r.confirmedAt ? ' · 확정 ' + r.confirmedBy + ' ' + r.confirmedAt : '') + (r.paidAt ? ' · 지급완료 ' + r.paidAt : '')),
+      h('div', { class: 'muted' }, (isFee ? '' : r.cycle + ' 단위 · ') + r.from + ' ~ ' + r.to + ' · 작성 ' + r.createdBy + (r.confirmedAt ? ' · 확정 ' + r.confirmedBy + ' ' + r.confirmedAt : '') + (r.paidAt ? ' · 지급완료 ' + r.paidAt : '')),
       h('div', { class: 'no-print', style: 'margin-top:10px' }, buttons)));
     root.appendChild(h('div', { class: 'summary' },
       Hub.statCard('대상', d.totals.people + '명'), Hub.statCard('개인 지급액', won(d.totals.gross), d.totals.ownPeople + '명'), Hub.statCard('공제 합계(3.3%)', won(d.totals.tax)), Hub.statCard('개인 실지급액', won(d.totals.net)),
@@ -248,10 +254,15 @@
           return h('tr', null, h('td', null, h('strong', null, b.name)), h('td', null, b.people + '명'), h('td', null, won(b.supply)), h('td', null, won(b.vat)), h('td', null, h('strong', null, won(b.total))));
         }))));
     }
-    if (d.notIncluded.length) {
+    if (!isFee && d.notIncluded.length) {
       root.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '이 기간에 일했지만 포함되지 않은 사람 (' + d.notIncluded.length + '명)'),
         h('p', { class: 'muted' }, '지급 설정을 한 뒤 [다시 계산]하면 반영됩니다.'),
         simpleTable(['성명', '이유'], d.notIncluded.map(function (n) { return h('tr', null, h('td', null, n.name), h('td', null, n.reason)); }))));
+    }
+    if (isFee) {
+      Hub.fee.extraCards(d.fee).forEach(function (c) { root.appendChild(c); });
+      root.appendChild(Hub.fee.itemsTable(r, d, editable, again, openAdjust));
+      return;
     }
     var rows = d.items.map(function (i) {
       var detailBtn = h('button', { type: 'button', class: 'btn small no-print' }, '명세');
@@ -292,7 +303,7 @@
     var amount = h('input', { type: 'number', step: 1000, value: i.adjustAmount });
     var memo = h('input', { type: 'text', maxLength: 100, value: i.adjustMemo, placeholder: '예: 선지급 차감, 이전 회차 정정' });
     modal('조정 금액 — ' + i.name, h('div', null,
-      h('p', { class: 'muted' }, '일급 합계 ' + won(i.baseAmount) + ' 에 더하거나 뺄 금액입니다 (빼려면 마이너스). 세금은 조정 후 금액으로 다시 계산됩니다. 확정된 회차의 정정은 다음 회차에서 이 조정으로 처리하세요.'),
+      h('p', { class: 'muted' }, (r.kind === '수수료' ? '수수료 합계 ' : '일급 합계 ') + won(i.baseAmount) + ' 에 더하거나 뺄 금액입니다 (빼려면 마이너스). 세금은 조정 후 금액으로 다시 계산됩니다. 확정된 회차의 정정은 다음 회차에서 이 조정으로 처리하세요.'),
       field('조정 금액 (원)', amount), field('사유 (필수)', memo)), [{
         label: '저장', primary: true, onClick: async function (close) {
           await Api.call('pay.itemSave', { runId: r.id, staffId: i.staffId, adjustAmount: Number(amount.value || 0), adjustMemo: memo.value });
@@ -302,5 +313,7 @@
   }
 
   Hub.section('paysettings', { render: renderSettings });
-  Hub.section('payruns', { render: renderRuns });
+  // 다른 종류 탭으로 옮기면 열려 있던 회차는 닫는다
+  Hub.section('payruns', { render: function (root) { if (curKind !== '일급') openRunId = ''; return renderRuns(root, '일급'); } });
+  Hub.section('feeruns', { render: function (root) { if (curKind !== '수수료') openRunId = ''; return renderRuns(root, '수수료'); } });
 })();

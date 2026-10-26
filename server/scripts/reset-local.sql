@@ -30,3 +30,5 @@ DROP TABLE IF EXISTS response_answers;
 DROP TABLE IF EXISTS response_pii;
 DROP TABLE IF EXISTS ct_records;
 DROP TABLE IF EXISTS ct_rev;
+DROP TABLE IF EXISTS fee_rules;
+DROP TABLE IF EXISTS fee_ledger;
