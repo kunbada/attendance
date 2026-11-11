@@ -32,3 +32,6 @@ DROP TABLE IF EXISTS ct_records;
 DROP TABLE IF EXISTS ct_rev;
 DROP TABLE IF EXISTS fee_rules;
 DROP TABLE IF EXISTS fee_ledger;
+DROP TABLE IF EXISTS customers;
+DROP TABLE IF EXISTS customer_notes;
+DROP TABLE IF EXISTS customer_imports;

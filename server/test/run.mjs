@@ -1245,10 +1245,109 @@ try {
   expectErr('등급 지정은 A~D 만', await call('customer.gradeSave', { id: s3_gV.id, grade: 'E' }, admin, '', PP), 'A, B, C, D');
   expectOk('TM 등 직접 입력: 방문만 고객을 B 로', await call('customer.gradeSave', { id: s3_gV.id, grade: 'B', memo: 'TM 재통화 관심' }, admin, '', PP));
   const s3_gV2 = (await call('customer.list', {}, admin, '', PP)).data.customers.find((c) => c.name === '방문만고객');
-  check('직접 입력한 등급이 자동 분류보다 우선', s3_gV2.grade === 'B' && s3_gV2.gradeSource === '수동' && s3_gV2.memo === 'TM 재통화 관심');
+  check('직접 입력한 등급이 자동 분류보다 우선', s3_gV2.grade === 'B' && s3_gV2.gradeSource === '수동' && s3_gV2.gradeMemo === 'TM 재통화 관심');
   expectErr('다른 현장 고객은 등급 지정 불가', await call('customer.gradeSave', { id: s3_gV.id, grade: 'A' }, admin, '', P2), '찾을 수 없습니다');
   expectOk('수동 등급 해제 → 자동 분류로 복귀', await call('customer.gradeSave', { id: s3_gV.id, grade: '' }, admin, '', PP));
   check('해제 후 방문만 고객은 다시 C', (await call('customer.list', {}, admin, '', PP)).data.customers.find((c) => c.name === '방문만고객').grade === 'C');
+  // ===== 고객 DB 고도화 + 외부 데이터 업로드 =====
+  const cdb = (action, data, tok = admin, pid = PP) => call(action, data, tok, '', pid);
+  const cdb_p1 = '010' + rnd(), cdb_p2 = '010' + rnd(), cdb_p3 = '010' + rnd();
+  const cdb_base = { kind: '명단', source: 'TM업체A', consent: '미확인', fileName: '명단.xlsx' };
+  expectErr('업로드: 출처 없으면 거부', await cdb('customer.import', { ...cdb_base, source: '', rows: [{ name: '가', phone: cdb_p1 }] }), '출처');
+  expectErr('업로드: 동의 여부 없으면 거부', await cdb('customer.import', { ...cdb_base, consent: '', rows: [{ name: '가', phone: cdb_p1 }] }), '동의');
+  expectErr('업로드: 종류 값 검사', await cdb('customer.import', { ...cdb_base, kind: '아무거나', rows: [{ name: '가', phone: cdb_p1 }] }), '종류');
+  expectErr('업로드: 한 번에 200줄까지', await cdb('customer.import', { ...cdb_base, rows: Array.from({ length: 201 }, () => ({ name: 'x', phone: cdb_p1 })) }), '200');
+  expectErr('업로드: 다른 현장 보조관리자 불가', await cdb('customer.import', { ...cdb_base, rows: [{ name: '가', phone: cdb_p1 }] }, subA), '접근할 수 없습니다', 'FORBIDDEN');
+  const cdb_im = await cdb('customer.import', { ...cdb_base, rows: [
+    { line: 2, name: '외부고객일', phone: cdb_p1.slice(0, 3) + '-' + cdb_p1.slice(3, 7) + '-' + cdb_p1.slice(7), memo: '84타입 문의', grade: 'b', region: '양주', interest: '84B' },
+    { line: 3, name: '외부고객이', phone: cdb_p2.slice(1) },            // 엑셀에서 앞의 0 이 빠진 번호
+    { line: 4, name: '중복줄', phone: cdb_p1 },                          // 파일 안 중복 → 한 고객
+    { line: 5, name: '번호오류', phone: '12345' },
+    { line: 6, name: '등급오류', phone: cdb_p3, grade: 'Z' },
+    { line: 7, name: '설문고객일', phone: s3_sp1, memo: '이미 있는 고객' }   // 설문+방문에 이미 있는 고객
+  ] });
+  expectOk('업로드: 고객 명단', cdb_im);
+  check('업로드 결과: 새 고객 2 · 기존 고객 1 · 건너뜀 2(번호 오류·등급 오류, 줄 번호와 사유)', cdb_im.data.added === 2 && cdb_im.data.updated === 1 && cdb_im.data.skipped === 2
+    && cdb_im.data.errors.some((e) => e.line === 5 && /전화번호/.test(e.reason)) && cdb_im.data.errors.some((e) => e.line === 6 && /등급/.test(e.reason)), JSON.stringify(cdb_im.data).slice(0, 200));
+  const cdb_l = (await cdb('customer.list', {})).data;
+  const cdb_c1 = cdb_l.customers.find((c) => c.name === '외부고객일'), cdb_c2 = cdb_l.customers.find((c) => c.name === '외부고객이'), cdb_cs = cdb_l.customers.find((c) => c.name === '설문고객일');
+  check('외부 고객: 채널 외부, 출처, 동의 미확인, 전화번호는 뒤 4자리만', cdb_c1 && cdb_c1.channels.join() === '외부' && cdb_c1.source === 'TM업체A' && cdb_c1.consent === '미확인' && cdb_c1.phone === '***-****-' + cdb_p1.slice(-4) && cdb_c1.region === '양주', JSON.stringify(cdb_c1));
+  check('외부 고객: 명단의 등급이 직접 지정 등급으로, 상태는 자동 신규', cdb_c1.grade === 'B' && cdb_c1.gradeSource === '수동' && cdb_c1.status === '신규' && cdb_c1.statusAuto === true);
+  check('앞의 0 이 빠진 번호도 고객으로 등록', !!cdb_c2 && cdb_c2.phone.endsWith(cdb_p2.slice(-4)));
+  check('이미 있던 설문+방문 고객은 한 명으로 유지되고 외부 채널이 더해짐(동의는 그대로 동의)', cdb_cs && cdb_cs.channels.includes('설문') && cdb_cs.channels.includes('방문') && cdb_cs.channels.includes('외부') && cdb_cs.consent === '동의'
+    && cdb_l.customers.filter((c) => c.name === '설문고객일').length === 1, JSON.stringify(cdb_cs && cdb_cs.channels));
+  check('요약: 전체 고객 수·채널별·동의 미확인 수', cdb_l.summary.total === 4 && cdb_l.summary.channels.외부 === 3 && cdb_l.summary.unconfirmed === 2 && cdb_l.sources.join() === 'TM업체A', JSON.stringify(cdb_l.summary).slice(0, 300));
+  check('필터: 채널 외부 3명, 동의 미확인 2명, 출처, 뒤 4자리 검색, 전체 번호 검색', (await cdb('customer.list', { channel: '외부' })).data.matched === 3 && (await cdb('customer.list', { consent: '미확인' })).data.matched === 2
+    && (await cdb('customer.list', { source: 'TM업체A' })).data.matched === 3 && (await cdb('customer.list', { q: cdb_p1.slice(-4) })).data.customers.some((c) => c.name === '외부고객일')
+    && (await cdb('customer.list', { q: cdb_p2 })).data.customers.length === 1);
+  expectErr('필터 값 검사(채널)', await cdb('customer.list', { channel: '없는값' }), '구분');
+  check('응답에 전화번호 원문·해시·암호문이 없음', !JSON.stringify(cdb_l).includes(cdb_p1) && !/phoneEnc|phone_enc|"hash"/.test(JSON.stringify(cdb_l)));
+
+  // 이어 올리기(같은 업로드 기록) + 업로드 기록
+  const cdb_im2 = await cdb('customer.import', { ...cdb_base, importId: cdb_im.data.importId, rows: [{ line: 8, name: '외부고객삼', phone: cdb_p3 }] });
+  expectOk('업로드: 같은 기록에 이어 올리기', cdb_im2);
+  expectErr('업로드: 다른 출처로 같은 기록에 이어 올릴 수 없음', await cdb('customer.import', { ...cdb_base, source: '다른출처', importId: cdb_im.data.importId, rows: [{ name: 'x', phone: cdb_p3 }] }), '처음부터');
+  const cdb_hist = (await cdb('customer.importList', {})).data.imports;
+  check('업로드 기록: 1건, 합계(전체 7줄 · 새 고객 3 · 기존 1 · 건너뜀 2)', cdb_hist.length === 1 && cdb_hist[0].total === 7 && cdb_hist[0].added === 3 && cdb_hist[0].updated === 1 && cdb_hist[0].skipped === 2 && cdb_hist[0].source === 'TM업체A', JSON.stringify(cdb_hist[0]));
+
+  // 상담·TM 결과 업로드
+  const cdb_tm = await cdb('customer.import', { kind: '상담결과', source: 'TM업체A', consent: '미확인', fileName: 'tm.csv', rows: [
+    { line: 2, phone: cdb_p1, at: '2026.11.3 14:05', result: '방문약속', memo: '토요일 오후 방문 예정', grade: 'A', status: '방문예정' },
+    { line: 3, phone: cdb_p1, at: '2026-11-01', result: '부재' },
+    { line: 4, phone: cdb_p2, result: '', memo: '' },
+    { line: 5, phone: cdb_p2, status: '없는상태', result: '통화' }
+  ] });
+  expectOk('업로드: 상담·TM 결과', cdb_tm);
+  check('상담 결과: 기록 2건 추가, 내용 없는 줄·상태 값 오류는 건너뜀', cdb_tm.data.notes === 2 && cdb_tm.data.skipped === 2 && cdb_tm.data.added === 0, JSON.stringify(cdb_tm.data).slice(0, 200));
+  const cdb_d1 = (await cdb('customer.get', { id: cdb_c1.id })).data;
+  check('고객 상세: 상담 결과의 등급 A·상태 방문예정이 반영되고, 이력에 TM 2건(최근 먼저)과 외부 등록', cdb_d1.customer.grade === 'A' && cdb_d1.customer.status === '방문예정' && cdb_d1.customer.statusAuto === false
+    && cdb_d1.timeline.filter((x) => x.type === 'TM').length === 2 && cdb_d1.timeline.filter((x) => x.type === 'TM')[0].at === '2026-11-03 14:05' && cdb_d1.timeline.some((x) => x.type === '등록'), JSON.stringify(cdb_d1.timeline).slice(0, 300));
+  const cdb_ds = (await cdb('customer.get', { id: cdb_cs.id })).data;
+  check('고객 상세: 설문+방문 고객의 이력에 설문과 방문이 함께', cdb_ds.timeline.some((x) => x.type === '설문') && cdb_ds.timeline.some((x) => x.type === '방문'));
+  expectErr('고객 상세: 다른 현장에서는 찾을 수 없음', await cdb('customer.get', { id: cdb_c1.id }, admin, P2), '찾을 수 없습니다');
+
+  // 관리 정보·상담 기록·연락처 보기
+  const cdb_owner = (await cdb('customer.list', {})).data.staff[0];
+  expectErr('고객 수정: 상태 값 검사', await cdb('customer.save', { id: cdb_c2.id, status: '몰라' }), '진행 상태');
+  expectErr('고객 수정: 다른 현장 직원은 담당 불가', await cdb('customer.save', { id: cdb_c2.id, ownerId: 'S-없는직원' }), '직원');
+  expectOk('고객 수정: 상태·담당·메모·연락 거부', await cdb('customer.save', { id: cdb_c2.id, status: '연락중', ownerId: cdb_owner.id, memo: '저녁 통화 선호', dnc: true }));
+  expectOk('설문+방문 고객에도 관리 정보를 덧붙일 수 있음', await cdb('customer.save', { id: cdb_cs.id, status: '보류', memo: '재방문 의사' }));
+  const cdb_l2 = (await cdb('customer.list', { ownerId: cdb_owner.id })).data;
+  check('담당 필터 + 수정 내용 반영', cdb_l2.matched === 1 && cdb_l2.customers[0].status === '연락중' && cdb_l2.customers[0].dnc === true && cdb_l2.customers[0].owner === cdb_owner.name && cdb_l2.customers[0].memo === '저녁 통화 선호');
+  check('연락 가능 필터는 연락 거부 고객을 뺌', !(await cdb('customer.list', { callable: true })).data.customers.some((c) => c.name === '외부고객이'));
+  check('상태 필터', (await cdb('customer.list', { status: '보류' })).data.customers.some((c) => c.name === '설문고객일'));
+  expectErr('상담 기록: 내용 없이 불가', await cdb('customer.noteAdd', { id: cdb_c2.id, kind: 'TM' }), '입력');
+  expectErr('상담 기록: 구분 값 검사', await cdb('customer.noteAdd', { id: cdb_c2.id, kind: '기타', content: 'x' }), 'TM');
+  const cdb_n = await cdb('customer.noteAdd', { id: cdb_c2.id, kind: '상담', result: '재통화', content: '다음 주 연락' });
+  expectOk('상담 기록 추가', cdb_n);
+  check('상담 기록이 상세 이력과 목록의 기록 수에 반영', (await cdb('customer.get', { id: cdb_c2.id })).data.timeline.some((x) => x.noteId === cdb_n.data.id && x.title === '재통화')
+    && (await cdb('customer.list', { q: '외부고객이' })).data.customers[0].notes === 1);
+  expectErr('상담 기록 삭제: 다른 현장에서는 불가', await cdb('customer.noteDelete', { noteId: cdb_n.data.id }, admin, P2), '찾을 수 없습니다');
+  expectOk('상담 기록 삭제', await cdb('customer.noteDelete', { noteId: cdb_n.data.id }));
+  const cdb_rv = await cdb('customer.reveal', { id: cdb_c1.id });
+  check('연락처 보기: 원문 번호', cdb_rv.ok && cdb_rv.data.phone === cdb_p1);
+  expectErr('연락처 보기: 다른 현장에서는 불가', await cdb('customer.reveal', { id: cdb_c1.id }, admin, P2), '찾을 수 없습니다');
+  const cdb_ex = await cdb('customer.export', { channel: '외부' });
+  check('내보내기(관리자): 조건에 맞는 고객 + 전화번호 원문', cdb_ex.ok && cdb_ex.data.rows.length === 4 && cdb_ex.data.rows.some((r) => r.phone === cdb_p1), cdb_ex.error || String(cdb_ex.data.rows.length));
+  expectErr('내보내기: 허용받지 않은 보조관리자는 불가', await cdb('customer.export', {}, spA), '', 'FORBIDDEN');
+
+  // 계약 연결: 계약앱 계약자의 전화번호가 같으면 계약 고객
+  expectOk('계약앱에 계약 등록(외부고객일의 번호)', await cdb('contract.sync', { since: 0, changes: [{ c: 'contracts', r: { id: 'cdbct1', dongho: '109-901', status: '정상', name: '외부고객일', phone: cdb_p1, date: '2026-11-05', updatedAt: '2026-11-05T10:00:00.000' } }] }));
+  const cdb_l3 = (await cdb('customer.list', { channel: '계약' })).data;
+  check('계약 고객 표시 + 요약의 계약 수', cdb_l3.matched === 1 && cdb_l3.customers[0].name === '외부고객일' && cdb_l3.customers[0].contract.dongho === '109-901' && cdb_l3.summary.channels.계약 === 1);
+  check('B현장 고객 목록에는 이 현장의 외부 고객·계약이 섞이지 않음', (await cdb('customer.list', {}, admin, P2)).data.customers.every((c) => !c.channels.includes('외부')) && (await cdb('customer.importList', {}, admin, P2)).data.imports.length === 0);
+
+  // 직접 등록(업로드 기록 없이) + 업로드 취소
+  const cdb_p4 = '010' + rnd();
+  expectOk('고객 직접 등록', await cdb('customer.import', { kind: '명단', source: '직접 입력', consent: '동의', direct: true, rows: [{ name: '직접고객', phone: cdb_p4 }] }));
+  check('직접 등록은 업로드 기록을 만들지 않음', (await cdb('customer.importList', {})).data.imports.length === 2);
+  expectErr('업로드 취소: 다른 현장에서는 불가', await cdb('customer.importDelete', { importId: cdb_im.data.importId }, admin, P2), '찾을 수 없습니다');
+  const cdb_del = await cdb('customer.importDelete', { importId: cdb_im.data.importId });
+  expectOk('업로드 취소', cdb_del);
+  expectErr('이미 취소된 업로드는 다시 취소 불가', await cdb('customer.importDelete', { importId: cdb_im.data.importId }), '이미 취소');
+  const cdb_l4 = (await cdb('customer.list', {})).data;
+  check('취소 후: 그 업로드로 생긴 고객은 사라지고, 설문+방문 고객과 직접 등록 고객은 남음', !cdb_l4.customers.some((c) => /^외부고객/.test(c.name)) && cdb_l4.customers.some((c) => c.name === '설문고객일') && cdb_l4.customers.some((c) => c.name === '직접고객'), cdb_l4.customers.map((c) => c.name).join(','));
+
   const s3_rs = (await call('survey.respondents', {}, admin, '', PP)).data;
   check('설문 응답 고객 목록: 동의한 응답은 이름·마스킹 전화, 미동의는 이름 없음', s3_rs.rows.length >= 4 && s3_rs.rows.some((r) => r.name === '설문고객일' && r.phone.includes('****') && r.intent) && s3_rs.rows.filter((r) => !r.consentPi).every((r) => !r.name && !r.phone) && !JSON.stringify(s3_rs).includes(s3_sp1), JSON.stringify(s3_rs.rows[0]));
   check('응답 고객 목록 검색', (await call('survey.respondents', { q: '설문고객' }, admin, '', PP)).data.rows.length >= 1);

@@ -21,7 +21,8 @@ import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, de
 import { staffTelegramLink, handleTelegram } from './telegram/telegram.js';
 import { adminDashboard, adminGuestStats, adminGuestbook } from './report/stats.js';
 import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyDelete, surveyLinkList, surveyLinkSave, surveyLinkGenerate, surveyLinkToggle, surveyForm, surveySubmit, surveyResponses, surveyExport, surveyStats, surveyCompare, surveyPurgePii, surveyMyLinks, surveyRespondents } from './survey/survey.js';
-import { customerList, customerGradeSave } from './customer/customer.js';
+import { customerList, customerGradeSave, customerGet, customerSave, customerNoteAdd, customerNoteDelete, customerReveal, customerExport } from './customer/customer.js';
+import { customerImport, customerImportList, customerImportDelete } from './customer/import.js';
 import { contractPoll, contractSync, contractWipe } from './contract/contract.js';
 import { contractSummary } from './contract/summary.js';
 import { feeRuleList, feeRuleSave, feeRuleDelete, feeRunCreate, payStatement } from './pay/fee.js';
@@ -123,6 +124,15 @@ const ACTIONS = {
   'survey.respondents': { roles: MGR, fn: surveyRespondents },
   'customer.list': { roles: MGR, fn: customerList },
   'customer.gradeSave': { roles: MGR, fn: customerGradeSave },
+  'customer.get': { roles: MGR, fn: customerGet },
+  'customer.save': { roles: MGR, fn: customerSave },
+  'customer.noteAdd': { roles: MGR, fn: customerNoteAdd },
+  'customer.noteDelete': { roles: MGR, fn: customerNoteDelete },
+  'customer.reveal': { roles: MGR, fn: customerReveal },
+  'customer.export': { roles: MGR, fn: customerExport }, // 관리자 또는 설문 관리가 허용된 계정만 (함수 안에서 확인)
+  'customer.import': { roles: MGR, fn: customerImport },
+  'customer.importList': { roles: MGR, fn: customerImportList },
+  'customer.importDelete': { roles: MGR, fn: customerImportDelete },
 
   'pay.settingList': { roles: MGR, fn: paySettingList },
   'pay.settingSave': { roles: MGR, fn: paySettingSave },

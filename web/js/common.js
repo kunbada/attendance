@@ -85,7 +85,8 @@ function bindFormat(input, fn) {
 
 // ---------- 모달 ----------
 // buttons: [{ label, primary, onClick(close) }]. onClick 이 Promise 를 돌려주면 끝날 때까지 버튼 잠금.
-function modal(title, body, buttons) {
+// opts.wide: 넓은 창 (고객 상세처럼 좌우로 나눠 보여 줄 때)
+function modal(title, body, buttons, opts) {
   var overlay = h('div', { class: 'modal-overlay' });
   function close() { overlay.remove(); }
   var actions = h('div', { class: 'modal-actions' });
@@ -96,7 +97,7 @@ function modal(title, body, buttons) {
     });
     actions.appendChild(btn);
   });
-  overlay.appendChild(h('div', { class: 'modal' }, h('h3', null, title), body, actions));
+  overlay.appendChild(h('div', { class: 'modal' + (opts && opts.wide ? ' wide' : '') }, h('h3', null, title), body, actions));
   document.body.appendChild(overlay);
   return { close: close };
 }
