@@ -620,6 +620,7 @@ CREATE TABLE IF NOT EXISTS realtor_responses (
   ocr INTEGER NOT NULL DEFAULT 0,              -- 명함 인식을 써서 입력했는지
   mgm TEXT NOT NULL DEFAULT '',                -- 부동산 MGM 참여 여부: 참여 / 불참 / 고려중
   cust_hash TEXT NOT NULL DEFAULT '',          -- 고객 DB 연결 키 (휴대폰, 없으면 사무실 전화의 해시)
+  card_key TEXT NOT NULL DEFAULT '',           -- 명함 사진 파일 이름 (R2 버킷 realtor-cards). 없으면 ''
   memo TEXT NOT NULL DEFAULT '',               -- 관리자 메모
   nonce TEXT NOT NULL DEFAULT '',
   submitted_at TEXT NOT NULL,

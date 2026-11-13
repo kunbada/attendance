@@ -132,9 +132,9 @@
   async function exportCsv() {
     var ex = await Api.call('realtor.export', filter);
     var sc = ex.scale;
-    downloadCsv('부동산고객_' + Hub.todayLocal() + '.csv', [['중개업소 번호', '조사 일시', '상호', '사무실 전화', '주소', '개인정보 동의', '이름', '직함', '휴대폰', '시장 동향', '분양 의향', '소개 의향', '소개 가능 고객 수', 'MGM 참여', '기타 의견', '명함 인식', '메모']].concat(
+    downloadCsv('부동산고객_' + Hub.todayLocal() + '.csv', [['중개업소 번호', '조사 일시', '상호', '사무실 전화', '주소', '개인정보 동의', '이름', '직함', '휴대폰', '시장 동향', '분양 의향', '소개 의향', '소개 가능 고객 수', 'MGM 참여', '기타 의견', '명함 인식', '명함 사진', '메모']].concat(
       ex.rows.map(function (r) {
-        return [r.office, r.at, r.officeName, r.officeTel, r.address, r.consent ? '동의' : '미동의', r.name, r.position, r.phone, sc.market[r.market], sc.intent[r.intent], sc.refer[r.refer], r.referCount, r.mgm, r.opinion, r.ocr ? '사용' : '', r.memo];
+        return [r.office, r.at, r.officeName, r.officeTel, r.address, r.consent ? '동의' : '미동의', r.name, r.position, r.phone, sc.market[r.market], sc.intent[r.intent], sc.refer[r.refer], r.referCount, r.mgm, r.opinion, r.ocr ? '사용' : '', r.hasCard ? '있음' : '', r.memo];
       })));
     toast(ex.rows.length + '건을 내려받았습니다. 개인정보가 들어 있으니 안전하게 보관해 주세요.');
   }
@@ -151,6 +151,11 @@
     function drawHist(list) {
       hist.innerHTML = '';
       list.forEach(function (r) {
+        var cardBtn = null;
+        if (r.hasCard) {
+          cardBtn = h('button', { type: 'button', class: 'btn small' }, '명함 보기');
+          cardBtn.addEventListener('click', function () { runBusy(cardBtn, function () { return showCard(r); }); });
+        }
         var ed = h('button', { type: 'button', class: 'btn small' }, '수정');
         ed.addEventListener('click', function () { openEdit(r, scale, async function () { dirty = true; var nd = await Api.call('realtor.get', { id: id }); drawHist(nd.responses); }); });
         var del = h('button', { type: 'button', class: 'btn small danger' }, '삭제');
@@ -165,7 +170,7 @@
         });
         hist.appendChild(h('div', { class: 'card', style: 'background:#fafbfd;margin:0 0 10px' },
           h('div', { class: 'toolbar', style: 'margin:0 0 6px' }, h('strong', null, r.at.slice(0, 16)), r.ocr ? h('span', { class: 'badge info' }, '명함 인식') : null,
-            h('span', { class: 'badge ' + (r.consent ? 'ok' : '') }, r.consent ? '동의' : '미동의'), h('span', { style: 'flex:1' }), ed, del),
+            h('span', { class: 'badge ' + (r.consent ? 'ok' : '') }, r.consent ? '동의' : '미동의'), h('span', { style: 'flex:1' }), cardBtn, ed, del),
           h('div', { class: 'toolbar', style: 'margin:0 0 6px;gap:6px' }, '시장 동향 ', scaleBadge(scale, 'market', r.market), ' 분양 의향 ', scaleBadge(scale, 'intent', r.intent), ' 소개 의향 ', scaleBadge(scale, 'refer', r.refer), ' 소개 가능 ' + r.referCount + '명', r.mgm ? [' MGM ', h('span', { class: 'badge ' + (MGM_BADGE[r.mgm] || '') }, r.mgm)] : null),
           h('div', { class: 'cust-sub' }, [r.officeName, r.name ? r.name + (r.position ? ' ' + r.position : '') : '', r.phone, r.officeTel, r.address].filter(Boolean).join(' · ')),
           h('p', { style: 'margin:6px 0 0;white-space:pre-wrap' }, r.opinion),
@@ -187,6 +192,17 @@
     var overlay = document.querySelector('.modal-overlay:last-of-type');
     if (overlay) new MutationObserver(function (_, ob) { if (!document.body.contains(overlay)) { ob.disconnect(); if (dirty) runBusy(null, again); } }).observe(document.body, { childList: true });
     return m;
+  }
+
+  // 저장된 명함 사진 보기·내려받기 (볼 때마다 기록)
+  async function showCard(r) {
+    var c = await Api.call('realtor.card', { id: r.id });
+    var src = 'data:' + c.mime + ';base64,' + c.image;
+    var name = (r.officeName + '_' + r.at.slice(0, 10)).replace(/[\\/:*?"<>|\s]+/g, '_') + '.jpg';
+    var dl = h('a', { class: 'btn small', href: src, download: name }, '사진 내려받기');
+    modal('명함 — ' + r.officeName, h('div', { style: 'text-align:center' },
+      h('img', { src: src, alt: '명함', style: 'max-width:100%;max-height:70vh;border-radius:8px;border:1px solid #e3e7ee' }),
+      h('p', { class: 'muted' }, r.at.slice(0, 16) + ' · ' + Math.round(c.size / 1024) + 'KB'), dl), [], { wide: true });
   }
 
   // 조사 한 건 수정 (명함 인식 오류 고치기 등)

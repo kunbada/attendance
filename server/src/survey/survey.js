@@ -1,6 +1,7 @@
 // 설문(고객관리 > 설문고객): 빌더, 배포 링크, 공개 응답, 응답 원장·통계·내보내기, 현장 간 공통문항 비교.
 // 개인정보 원칙: 이름·전화번호는 개인정보 수집에 동의한 응답만, 전화번호는 암호화 + 해시(고객 연결용)로 저장한다.
 import { AppError, s, all, first, run, stmt, nowStr, todayStr, newId, randomToken, encryptText, decryptText, phoneHash, orgNameMap, writeLog } from '../core/util.js';
+import { purgeRealtorCards } from '../realtor/realtor.js';
 import { STD, PII_KEYS, CHOICE_TYPES, CUSTOM_TYPES, DEFAULT_CONSENT_TEXT, DEFAULT_STD, bankList } from './std.js';
 
 const STATUSES = ['작성', '진행', '마감'];
@@ -435,7 +436,8 @@ export async function surveyPurgePii(env, data, ctx) {
   for (const p of projects) {
     const res = await run(env, 'DELETE FROM response_pii WHERE project_id = ?', p.id);
     await run(env, `UPDATE responses SET phone_hash = '' WHERE project_id = ? AND phone_hash <> ''`, p.id);
-    // 부동산고객(중개업소 조사)의 이름·직함·휴대폰도 같은 기준으로 파기한다
+    // 부동산고객(중개업소 조사)의 명함 사진·이름·직함·휴대폰도 같은 기준으로 파기한다
+    await purgeRealtorCards(env, p.id);
     await run(env, `UPDATE realtor_responses SET name = '', position = '', phone_enc = '', phone_hash = '', phone_tail = '', cust_hash = '' WHERE project_id = ? AND (phone_enc <> '' OR name <> '')`, p.id);
     removed += res.meta.changes || 0;
   }

@@ -23,7 +23,7 @@ import { adminDashboard, adminGuestStats, adminGuestbook } from './report/stats.
 import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyDelete, surveyLinkList, surveyLinkSave, surveyLinkGenerate, surveyLinkToggle, surveyForm, surveySubmit, surveyResponses, surveyExport, surveyStats, surveyCompare, surveyPurgePii, surveyMyLinks, surveyRespondents } from './survey/survey.js';
 import { customerList, customerGradeSave, customerGet, customerSave, customerNoteAdd, customerNoteDelete, customerReveal, customerExport } from './customer/customer.js';
 import { customerImport, customerImportList, customerImportDelete } from './customer/import.js';
-import { realtorFormGet, realtorFormSave, realtorPublicForm, realtorOcr, realtorSubmit, realtorList, realtorGet, realtorSave, realtorDelete, realtorReveal, realtorExport } from './realtor/realtor.js';
+import { realtorFormGet, realtorFormSave, realtorPublicForm, realtorOcr, realtorSubmit, realtorList, realtorGet, realtorSave, realtorDelete, realtorReveal, realtorExport, realtorCard } from './realtor/realtor.js';
 import { contractPoll, contractSync, contractWipe } from './contract/contract.js';
 import { contractSummary } from './contract/summary.js';
 import { feeRuleList, feeRuleSave, feeRuleDelete, feeRunCreate, payStatement } from './pay/fee.js';
@@ -145,6 +145,7 @@ const ACTIONS = {
   'realtor.save': { roles: MGR, fn: realtorSave },
   'realtor.delete': { roles: MGR, fn: realtorDelete },
   'realtor.reveal': { roles: MGR, fn: realtorReveal },
+  'realtor.card': { roles: MGR, fn: realtorCard },
   'realtor.export': { roles: MGR, fn: realtorExport }, // 관리자 또는 설문 관리가 허용된 계정만 (함수 안에서 확인)
 
   'pay.settingList': { roles: MGR, fn: paySettingList },
@@ -237,9 +238,9 @@ export default {
       const text = await request.text();
       if (text.length > 3000000) throw new AppError('요청이 너무 큽니다.');
       req = JSON.parse(text);
-      // 큰 요청은 계약앱 동기화(contract.*, 한 번에 수백 건)와 명함 사진(realtor.ocr)만 받는다
+      // 큰 요청은 계약앱 동기화(contract.*, 한 번에 수백 건)와 명함 사진(realtor.ocr, realtor.submit)만 받는다
       const act = s(req && req.action);
-      if (text.length > 200000 && !act.startsWith('contract.') && act !== 'realtor.ocr') throw new AppError('요청이 너무 큽니다.');
+      if (text.length > 200000 && !act.startsWith('contract.') && act !== 'realtor.ocr' && act !== 'realtor.submit') throw new AppError('요청이 너무 큽니다.');
     } catch (e) {
       return json({ ok: false, error: e instanceof AppError ? e.message : '요청 형식이 올바르지 않습니다.' }, cors);
     }

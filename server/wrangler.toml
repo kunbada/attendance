@@ -8,6 +8,11 @@ binding = "DB"
 database_name = "attendance"
 database_id = "eb820731-a9d1-479d-9788-c51a62d10ecb"
 
+# 명함 사진 백업 저장소 (R2). 버킷은 배포가이드 5-12 순서로 만든다
+[[r2_buckets]]
+binding = "CARDS"
+bucket_name = "realtor-cards"
+
 [vars]
 # 브라우저에서 이 서버를 부를 수 있는 화면 주소 (쉼표로 구분). 여기 없는 사이트는 브라우저가 막는다.
 # "null" = 내 PC에 저장해 둔 계약앱 파일(분양계약관리.html)을 직접 열 때의 주소. 모든 요청에 로그인(토큰)이 필요하므로 데이터는 열리지 않는다.

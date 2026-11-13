@@ -1414,7 +1414,11 @@ try {
   expectErr('제출: 기타 의견 필수', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), opinion: ' ' }), '기타 의견');
   expectErr('제출: 전화번호가 하나도 없으면 거부', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), mobile: '', officeTel: '' }), '하나는');
   expectErr('제출: 휴대폰 형식 검사', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), mobile: '02-123-4567' }), '휴대폰');
-  expectOk('제출: 동의 + 명함 정보', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1) }));
+  const CARD = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('fake-card-jpeg-' + 'x'.repeat(2000))]).toString('base64');
+  expectErr('제출: 명함 사진 형식 검사(JPEG 만)', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), card: Buffer.from('PNG....').toString('base64') }), '형식');
+  expectErr('제출: 명함 사진 크기 상한', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), card: '/9j/' + 'A'.repeat(400000) }), '너무 크거나');
+  const rt_s1 = await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), card: CARD });
+  check('제출: 동의 + 명함 정보 + 명함 사진 저장', rt_s1.ok && rt_s1.data.cardSaved === true, JSON.stringify(rt_s1));
   expectOk('같은 제출이 다시 들어와도 한 건', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1) }));
   expectOk('같은 휴대폰으로 다음 달 재조사', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(2), market: 2, referCount: '5', opinion: '거래 줄어듦', officeTel: '' }));
   expectOk('미동의 제출 (명함 정보는 그대로 저장)', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(3), consent: false, mgm: '불참', officeName: '우리부동산', name: '이비공개', mobile: '010-0000-7702', officeTel: '02-000-7703', address: '서울 강남구', market: 3, refer: 2, referCount: '0', opinion: '없음' }));
@@ -1435,6 +1439,14 @@ try {
     && (await rt('realtor.list', { q: '7704' })).data.matched === 1 && (await rt('realtor.list', { q: '강남' })).data.matched === 1 && (await rt('realtor.list', { q: '없는곳' })).data.matched === 0);
   check('정렬: 소개 가능 고객 많은 순', (await rt('realtor.list', { sort: '소개' })).data.offices[0].officeName === '우리부동산');
   check('다른 현장 목록에는 섞이지 않음', (await rt('realtor.list', {}, admin, P2)).data.summary.responses === 0);
+  const rt_hc = (await rt('realtor.get', { id: rt_happy.id })).data.responses;
+  check('명함 사진이 있는 조사만 표시', rt_hc.filter((r) => r.hasCard).length === 1, JSON.stringify(rt_hc.map((r) => r.hasCard)));
+  const rt_cid = rt_hc.find((r) => r.hasCard).id;
+  const rt_card = await rt('realtor.card', { id: rt_cid });
+  check('명함 사진 보기: 저장한 사진 그대로 + 기록', rt_card.ok && rt_card.data.image === CARD && rt_card.data.mime === 'image/jpeg' && (await query(`SELECT COUNT(*) AS n FROM logs WHERE action = '부동산명함열람'`))[0].n === 1);
+  expectErr('명함 사진 보기: 다른 현장에서는 불가', await rt('realtor.card', { id: rt_cid }, admin, P2), '찾을 수 없습니다');
+  expectErr('명함 사진 보기: 다른 현장 보조관리자 불가', await rt('realtor.card', { id: rt_cid }, subA), '접근할 수 없습니다', 'FORBIDDEN');
+  expectErr('사진 없는 조사는 명함 보기 불가', await rt('realtor.card', { id: rt_hc.find((r) => !r.hasCard).id }), '없습니다');
 
   check('MGM 바로가기 건수와 필터', rt_l.summary.mgm.find((m) => m.label === '참여').count === 2 && (await rt('realtor.list', { mgm: '참여' })).data.matched === 2 && (await rt('realtor.list', { mgm: '불참' })).data.matched === 0);
   expectErr('MGM 필터 값 검사', await rt('realtor.list', { mgm: '몰라' }), 'MGM');
@@ -1491,6 +1503,7 @@ try {
   check('종료일이 없거나 6개월이 지나지 않은 현장은 파기하지 않음', s3_pg0.ok && (await query(`SELECT COUNT(*) AS n FROM response_pii WHERE project_id = '${PP}'`))[0].n === 1);
   expectOk('정산현장을 8개월 전에 종료한 것으로 설정', await call('project.save', { id: PP, name: '정산현장', code: codePP, status: '종료', endDate: new Date(Date.now() + 9 * 3600e3 - 240 * 86400e3).toISOString().slice(0, 10) }, admin, '', null));
   const s3_pg1 = await call('survey.purgePii', { months: 6 }, admin, '', null);
+  check('부동산고객 명함 사진도 파기', (await query(`SELECT COUNT(*) AS n FROM realtor_responses WHERE project_id = '${PP}' AND card_key <> ''`))[0].n === 0);
   check('부동산고객 이름·휴대폰도 함께 파기 (조사 응답은 남음)', (await query(`SELECT COUNT(*) AS n FROM realtor_responses WHERE project_id = '${PP}' AND (phone_enc <> '' OR name <> '')`))[0].n === 0 && (await query(`SELECT COUNT(*) AS n FROM realtor_responses WHERE project_id = '${PP}'`))[0].n === 4);
   check('보유기간이 지난 종료 현장의 이름·전화번호 파기 (응답 통계는 남음)', s3_pg1.ok && s3_pg1.data.removed === 1 && (await query(`SELECT COUNT(*) AS n FROM response_pii WHERE project_id = '${PP}'`))[0].n === 0 && (await query(`SELECT COUNT(*) AS n FROM responses WHERE project_id = '${PP}' AND phone_hash <> ''`))[0].n === 0 && (await query(`SELECT COUNT(*) AS n FROM responses WHERE project_id = '${PP}'`))[0].n >= 4);
   expectOk('정산현장 상태 복구', await call('project.save', { id: PP, name: '정산현장', code: codePP, status: '진행', endDate: '' }, admin, '', null));

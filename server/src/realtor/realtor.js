@@ -1,4 +1,5 @@
 // 고객관리 > 부동산고객: 중개업소 조사. 현장마다 조사 링크 1개(QR), 명함 사진 AI 인식(Google Gemini), 조사 원장·중개업소 묶음.
+// 명함 사진은 백업용으로 줄여서 R2(realtor-cards)에 저장한다(제출 때).
 // 명함을 건네받은 것 자체로 연락처 제공 의사로 보고(사용자 결정 2026-11-13), 동의 여부와 무관하게 명함 정보를 저장한다.
 // 동의 여부는 기록만 한다. 휴대폰은 암호화 + 해시, 고객 DB 와는 cust_hash(휴대폰, 없으면 사무실 전화의 해시)로 묶는다.
 import { AppError, s, all, first, run, nowStr, todayStr, newId, randomToken, encryptText, decryptText, phoneHash, writeLog } from '../core/util.js';
@@ -16,7 +17,7 @@ export const DEFAULT_REALTOR_CONSENT = [
   '1. 수집 항목: 명함에 적힌 정보(상호, 성명, 직함, 휴대폰·사무실 전화, 주소)',
   '2. 이용 목적: 분양 정보 안내, 고객 소개·부동산 MGM 관련 연락',
   '3. 보유 기간: 현장 분양 종료 후 6개월 (이후 파기)',
-  '4. 명함 사진은 글자를 읽기 위해 외부 AI 서비스(Google)로 보내지며, 당사 서버에는 사진을 저장하지 않습니다.',
+  '4. 명함 사진은 글자를 읽기 위해 외부 AI 서비스(Google)로 보내지며, 사진은 백업용으로 줄여서 보유 기간 동안 보관합니다.',
   '',
   '위 내용에 동의하지 않으실 수 있습니다. 동의 여부는 기록되며, 연락을 원하지 않으시면 담당자에게 말씀해 주세요.'
 ].join('\n');
@@ -212,17 +213,63 @@ export async function realtorSubmit(env, data) {
   const nonce = s(data.nonce).slice(0, 64);
   if (!/^[A-Za-z0-9-]{8,64}$/.test(nonce)) throw new AppError('제출 정보를 확인할 수 없습니다. 페이지를 새로고침해 주세요.');
   const v = await cleanInput(env, data);
+  const card = cardBytes(data.card);
+  const id = newId('RT');
   try {
     await run(env,
       `INSERT INTO realtor_responses (id, project_id, office_name, office_tel, address, consent, name, position, phone_enc, phone_hash, phone_tail, cust_hash, market, intent, refer, refer_count, mgm, opinion, ocr, nonce, submitted_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      newId('RT'), f.project_id, v.officeName, v.officeTel, v.address, v.consent ? 1 : 0, v.name, v.position, v.phoneEnc, v.phoneHash, v.phoneTail, v.custHash,
+      id, f.project_id, v.officeName, v.officeTel, v.address, v.consent ? 1 : 0, v.name, v.position, v.phoneEnc, v.phoneHash, v.phoneTail, v.custHash,
       v.market, v.intent, v.refer, v.referCount, v.mgm, v.opinion, data.ocr === true ? 1 : 0, nonce, nowStr());
   } catch (e) {
     if (/UNIQUE/i.test(String(e.message))) return {}; // 같은 제출이 다시 들어온 것
     throw e;
   }
+  // 명함 사진 백업: 조사 기록이 저장된 뒤에 올린다. 사진 저장이 실패해도 조사 기록은 남긴다
+  if (card && env.CARDS) {
+    const key = 'realtor/' + f.project_id + '/' + id + '.jpg';
+    try {
+      await env.CARDS.put(key, card, { httpMetadata: { contentType: 'image/jpeg' } });
+      await run(env, 'UPDATE realtor_responses SET card_key = ? WHERE id = ? AND project_id = ?', key, id, f.project_id);
+    } catch (e) { return { cardSaved: false }; }
+    return { cardSaved: true };
+  }
   return {};
+}
+
+// 명함 사진(JPEG, base64) 검사 → 바이트. 없으면 null. 화면에서 긴 변 1000px 안팎으로 줄여 보낸다 (보통 50~150KB)
+const CARD_MAX = 400000; // base64 글자 수 (약 300KB)
+function cardBytes(b64) {
+  b64 = s(b64);
+  if (!b64) return null;
+  if (b64.length > CARD_MAX || !/^[A-Za-z0-9+/=]+$/.test(b64)) throw new AppError('명함 사진이 너무 크거나 올바르지 않습니다. 다시 찍어 주세요.');
+  const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  if (bin[0] !== 0xff || bin[1] !== 0xd8) throw new AppError('명함 사진 형식이 올바르지 않습니다.');
+  return bin;
+}
+
+// 명함 사진 보기 (통합관리). 볼 때마다 기록
+export async function realtorCard(env, data, ctx) {
+  const pid = ctx.projectId;
+  const r = await first(env, `SELECT id, office_name, card_key FROM realtor_responses WHERE id = ? AND project_id = ?`, s(data.id), pid);
+  if (!r) throw new AppError('조사 기록을 찾을 수 없습니다.');
+  if (!r.card_key || !env.CARDS) throw new AppError('저장된 명함 사진이 없습니다.');
+  const obj = await env.CARDS.get(r.card_key);
+  if (!obj) throw new AppError('명함 사진 파일을 찾을 수 없습니다.');
+  const buf = new Uint8Array(await obj.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  await writeLog(env, ctx.account.login_id, '부동산명함열람', r.id, r.office_name, pid);
+  return { image: btoa(bin), mime: 'image/jpeg', size: buf.length };
+}
+
+// 현장의 명함 사진을 모두 지운다 (보유기간 파기용). 지운 장수
+export async function purgeRealtorCards(env, pid) {
+  const rows = await all(env, `SELECT id, card_key FROM realtor_responses WHERE project_id = ? AND card_key <> ''`, pid);
+  if (!rows.length || !env.CARDS) return 0;
+  for (let i = 0; i < rows.length; i += 1000) await env.CARDS.delete(rows.slice(i, i + 1000).map((r) => r.card_key));
+  await run(env, `UPDATE realtor_responses SET card_key = '' WHERE project_id = ? AND card_key <> ''`, pid);
+  return rows.length;
 }
 
 // ---------- 관리: 중개업소 목록·상세·수정 ----------
@@ -261,7 +308,7 @@ function officeView(list) {
 const responseView = (r) => ({
   id: r.id, at: r.submitted_at, officeName: r.office_name, officeTel: fmtTel(r.office_tel), address: r.address, consent: !!r.consent, name: r.name, position: r.position,
   phone: r.phone_tail ? '***-****-' + r.phone_tail : '', hasPhone: !!r.phone_enc, market: r.market, intent: r.intent, refer: r.refer, referCount: r.refer_count, mgm: r.mgm, opinion: r.opinion,
-  ocr: !!r.ocr, memo: r.memo, updatedAt: r.updated_at, updatedBy: r.updated_by
+  ocr: !!r.ocr, hasCard: !!r.card_key, memo: r.memo, updatedAt: r.updated_at, updatedBy: r.updated_by
 });
 
 async function loadOffices(env, pid) {
@@ -347,9 +394,10 @@ export async function realtorSave(env, data, ctx) {
 
 export async function realtorDelete(env, data, ctx) {
   const pid = ctx.projectId;
-  const cur = await first(env, 'SELECT id, office_name FROM realtor_responses WHERE id = ? AND project_id = ?', s(data.id), pid);
+  const cur = await first(env, 'SELECT id, office_name, card_key FROM realtor_responses WHERE id = ? AND project_id = ?', s(data.id), pid);
   if (!cur) throw new AppError('조사 기록을 찾을 수 없습니다.');
   await run(env, 'DELETE FROM realtor_responses WHERE id = ? AND project_id = ?', cur.id, pid);
+  if (cur.card_key && env.CARDS) { try { await env.CARDS.delete(cur.card_key); } catch (e) { /* 파일이 이미 없으면 무시 */ } }
   await writeLog(env, ctx.account.login_id, '부동산조사삭제', cur.id, cur.office_name, pid);
   return {};
 }
