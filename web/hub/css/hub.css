@@ -191,3 +191,8 @@ body.hub .toolbar .btn + .btn, body.hub .pager .btn + .btn, body.hub .modal-acti
 /* 부동산고객: 조사 기록 수정 창 (두 칸) */
 body.hub .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
 @media (max-width: 760px) { body.hub .edit-grid { grid-template-columns: 1fr; } }
+
+/* 다시 연 화면: 예전 내용을 흐리게 보여 주며 뒤에서 새로 그리는 중 (hub.js showSection) */
+body.hub .refreshing { opacity: .55; pointer-events: none; transition: opacity .15s; }
+body.hub.bg-loading::after { content: ''; position: fixed; top: 0; left: 0; height: 3px; width: 35%; background: var(--primary, #2563eb); z-index: 95; animation: bgload 1s ease-in-out infinite; }
+@keyframes bgload { 0% { left: -35%; } 100% { left: 100%; } }

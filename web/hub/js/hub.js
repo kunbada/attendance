@@ -155,6 +155,7 @@ var Hub = (function () {
 
   $('#project-select').addEventListener('change', function () {
     Api.setProject($('#project-select').value);
+    clearViews();
     state.staff = []; state.orgs = []; state.settings = {};
     renderProjectSelect();
     runBusy(null, refresh);
@@ -166,29 +167,64 @@ var Hub = (function () {
   function section(key, def) { sections[key] = def; }
   function register(menu) { menus.push(menu); }
 
+  // 화면 다시 보기 빠르게: 한 번 그린 화면은 (현장·화면별로) 기억해 두었다가, 다시 열면 즉시 보여 주고
+  // 뒤에서 최신 내용으로 다시 그려 바꾼다. 다시 그리는 동안(보통 1초 안팎)은 흐리게 하고 누를 수 없게 한다.
+  var viewCache = {};
+  function cacheKey(key) { return (Api.getProject() || '') + '|' + key; }
+  function hasView(key) { return !!viewCache[cacheKey(key)]; }
+  function clearViews() { viewCache = {}; }
+  var bgCount = 0;
+  function bgLoading(on) { bgCount += on ? 1 : -1; document.body.classList.toggle('bg-loading', bgCount > 0); }
+  async function showSection(holder, key) {
+    var ck = cacheKey(key), old = viewCache[ck], box = h('div');
+    if (old) {
+      holder.replaceChildren(old);
+      old.classList.add('refreshing');
+      bgLoading(true);
+      try { await sections[key].render(box); } catch (e) { old.classList.remove('refreshing'); throw e; } finally { bgLoading(false); }
+      old.classList.remove('refreshing');
+      if (holder.firstChild === old) holder.replaceChildren(box); // 그사이 다른 탭으로 옮겼으면 바꾸지 않는다
+    } else {
+      holder.replaceChildren(box);
+      await sections[key].render(box);
+    }
+    viewCache[ck] = box;
+  }
+  // 기억해 둔 화면이 있으면 전체 로딩 표시 없이, 없으면 로딩 표시와 함께
+  function go(cached, fn) {
+    if (cached) Promise.resolve().then(fn).catch(function (e) { toast(e.message || '오류가 발생했습니다.', true); });
+    else runBusy(null, fn);
+  }
+
   // 묶음 메뉴: 위쪽에 하위 탭(예: 인사관리 > 현장인력관리 / 현장근태관리)을 두고 선택한 화면 조각을 그린다
   function group(menu) {
     var chosen = menu.items[0].section;
     register({
       key: menu.key, label: menu.label, adminOnly: menu.adminOnly, needsProject: menu.needsProject,
+      cached: function () { return hasView(chosen); },
       render: async function (root) {
-        root.innerHTML = '';
-        var box = h('div');
-        if (menu.items.length > 1) {
-          var bar = h('div', { class: 'sub-tabs no-print' });
-          menu.items.forEach(function (it) {
-            var b = h('button', { type: 'button', class: 'btn' + (chosen === it.section ? ' active' : '') }, it.label);
-            b.addEventListener('click', function () {
-              chosen = it.section;
-              $$('.btn', bar).forEach(function (x) { x.classList.toggle('active', x === b); });
-              runBusy(null, function () { return sections[chosen].render(box); });
+        var pid = Api.getProject() || '';
+        // 틀(하위 탭 + 화면 자리)은 처음과 현장이 바뀌었을 때만 만든다
+        if (!root._holder || root._pid !== pid) {
+          root.innerHTML = '';
+          var holder = h('div');
+          if (menu.items.length > 1) {
+            var bar = h('div', { class: 'sub-tabs no-print' });
+            menu.items.forEach(function (it) {
+              var b = h('button', { type: 'button', class: 'btn' + (chosen === it.section ? ' active' : '') }, it.label);
+              b.addEventListener('click', function () {
+                chosen = it.section;
+                $$('.btn', bar).forEach(function (x) { x.classList.toggle('active', x === b); });
+                go(hasView(chosen), function () { return showSection(holder, chosen); });
+              });
+              bar.appendChild(b);
             });
-            bar.appendChild(b);
-          });
-          root.appendChild(bar);
+            root.appendChild(bar);
+          }
+          root.appendChild(holder);
+          root._holder = holder; root._pid = pid;
         }
-        root.appendChild(box);
-        await sections[chosen].render(box);
+        await showSection(root._holder, chosen);
       }
     });
   }
@@ -200,9 +236,10 @@ var Hub = (function () {
   function buildMenu() {
     var bar = $('#menu'), panels = $('#panels');
     bar.innerHTML = ''; panels.innerHTML = '';
+    clearViews(); // 다른 계정으로 다시 들어온 경우 예전 화면을 보여 주지 않는다
     visibleMenus().forEach(function (m) {
       var tab = h('button', { type: 'button', class: 'tab', 'data-menu': m.key }, m.label);
-      tab.addEventListener('click', function () { runBusy(null, function () { return open(m.key); }); });
+      tab.addEventListener('click', function () { go(m.cached && m.cached(), function () { return open(m.key); }); });
       bar.appendChild(tab);
       panels.appendChild(h('div', { id: 'panel-' + m.key, class: 'hidden' }));
     });
