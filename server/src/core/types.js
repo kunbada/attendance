@@ -7,6 +7,8 @@ import { AppError, s, all, stmt, writeLog } from './util.js';
 const CODE_RE = /^[0-9A-Za-z가-힣][0-9A-Za-z가-힣.\-]{0,11}$/;
 // 84A → 84, 59 → 59, 101.5B → 101.5. 숫자로 시작하지 않으면 코드 그대로
 export const guessGroup = (code) => { const m = s(code).match(/^\d+(\.\d+)?/); return m ? m[0] : s(code); };
+// 관심 타입을 아직 정하지 못한 고객 (설문 보기·상담 앱 공통 값)
+export const UNDECIDED = '미정';
 export const groupLabel = (g) => (/^\d/.test(s(g)) ? g + '타입' : s(g));
 
 export async function loadTypes(env, pid) {
@@ -45,7 +47,7 @@ export function typeLabel(value, types) {
 export function cleanInterest(list, types) {
   const vals = [...new Set((Array.isArray(list) ? list : s(list).split(',')).map((x) => s(x).trim()).filter(Boolean))].slice(0, 12);
   if (!types.length) return vals.map((v) => v.slice(0, 20));
-  const ok = new Set(types.map((t) => t.code).concat(types.map((t) => t.grp)));
+  const ok = new Set(types.map((t) => t.code).concat(types.map((t) => t.grp)).concat([UNDECIDED]));
   const bad = vals.filter((v) => !ok.has(v));
   if (bad.length) throw new AppError('프로젝트에 없는 주택형입니다: ' + bad.join(', ') + ' (통합관리 > 프로젝트 > 주택형에서 추가)');
   return vals;

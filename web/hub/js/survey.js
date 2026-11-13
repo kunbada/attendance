@@ -59,6 +59,12 @@
   async function editSurvey(id) {
     await loadBank();
     editing = (await Api.call('survey.get', { surveyId: id })).survey;
+    // 저장된 문항에는 은행의 성질(보기 편집 가능·필수·개인정보)이 없어서 다시 붙인다
+    editing.questions.forEach(function (q) {
+      var s = bank.bank.filter(function (x) { return x.key === q.key; })[0];
+      if (!s) return;
+      q.std = true; q.forceRequired = !!s.forceRequired; q.pii = !!s.pii; q.editableOptions = !!s.editableOptions && !q.fromProject;
+    });
     view.mode = 'edit'; renderEditor();
   }
 
@@ -67,7 +73,7 @@
     var q = { key: s.key, std: true, type: s.type, title: s.title, required: !!s.required, options: JSON.parse(JSON.stringify(s.options || [])), editableOptions: !!s.editableOptions, forceRequired: !!s.forceRequired, pii: !!s.pii };
     // 관심 타입: 프로젝트 주택형의 타입군이 있으면 그것을 보기로 쓴다 (설문마다 따로 적지 않게 — 데이터 일관성)
     if (key === 'STD_TYPE' && b.typeGroups && b.typeGroups.length) {
-      q.options = b.typeGroups.map(function (g) { return { code: g.code, label: g.label }; }); q.editableOptions = false; q.fromProject = true;
+      q.options = b.typeGroups.map(function (g) { return { code: g.code, label: g.label }; }).concat([{ code: '미정', label: '미정' }]); q.editableOptions = false; q.fromProject = true; q.type = 'checkbox';
     }
     return q;
   }
@@ -132,9 +138,35 @@
     root.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '개인정보 수집·이용 동의 문구'),
       h('p', { class: 'muted' }, '응답 화면 맨 앞에 나옵니다. 고객이 동의하지 않아도 참여할 수 있고, 이 경우 이름·연락처는 저장하지 않고 응답 내용만 익명으로 집계됩니다. 기본 문구는 임시 문구이므로 운영 전에 회사에서 확정한 문구로 바꿔 주세요.'), consent));
     root.appendChild(h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '문항'),
-      h('p', { class: 'muted' }, '공통 문항은 현장이 달라도 같은 기준으로 합산·비교됩니다 (보기 코드가 고정). 문구는 다듬어도 됩니다. "분양 의향"은 필수 문항입니다.'), qbox,
+      h('p', { class: 'muted' }, '공통 문항은 현장이 달라도 같은 기준으로 합산·비교됩니다. 제목과 보기를 고치거나 보기를 추가·삭제해도 이미 있는 보기의 코드는 그대로라 예전 응답과 이어집니다. "분양 의향"·"관심 타입"은 필수 문항이라 지울 수 없습니다. [미리보기]로 고객 화면을 확인하세요.'), qbox,
       h('div', { class: 'toolbar' }, pick, customType, addCustom)));
-    root.appendChild(h('div', { class: 'toolbar' }, save, cancel));
+    var pv = h('button', { type: 'button', class: 'btn', style: 'max-width:140px' }, '미리보기');
+    pv.addEventListener('click', function () {
+      editing.title = title.value; editing.description = desc.value; editing.theme = theme.value; editing.consentText = consent.value;
+      preview(editing);
+    });
+    root.appendChild(h('div', { class: 'toolbar' }, save, pv, cancel));
+  }
+
+  // 미리보기: 저장하지 않은 지금 내용을 휴대폰 화면 모양으로 (응답은 보내지 않음)
+  function preview(sv) {
+    var color = sv.theme || '#2f6fb3';
+    var phone = h('div', { class: 'sv-preview' });
+    phone.appendChild(h('div', { class: 'pv-hero', style: 'background:' + color }, h('div', { class: 'pv-pj' }, (Hub.currentProject() || {}).name || ''), h('h3', null, sv.title || '(제목 없음)'), sv.description ? h('p', null, sv.description) : null,
+      h('small', null, '총 ' + sv.questions.length + '문항')));
+    phone.appendChild(h('div', { class: 'pv-q' }, h('div', { class: 'pv-no', style: 'color:' + color }, '먼저 확인해 주세요'), h('b', null, '개인정보 수집·이용 동의'),
+      h('div', { class: 'pv-consent' }, sv.consentText || ''), h('label', { class: 'pv-opt' }, h('input', { type: 'radio', name: 'pvc' }), ' 동의합니다'), h('label', { class: 'pv-opt' }, h('input', { type: 'radio', name: 'pvc' }), ' 동의하지 않고 참여합니다')));
+    sv.questions.forEach(function (q, i) {
+      var box = h('div', { class: 'pv-q' }, h('div', { class: 'pv-no', style: 'color:' + color }, 'Q' + (i + 1) + ' / ' + sv.questions.length),
+        h('b', null, q.title || '(제목 없음)'), h('div', { class: 'pv-badge' }, (q.required || q.forceRequired ? '필수' : '선택') + (q.type === 'checkbox' ? ' · 복수 선택 가능' : '') + (q.pii ? ' · 동의한 경우만' : '')));
+      if (q.type === 'radio' || q.type === 'checkbox') (q.options || []).forEach(function (o) { box.appendChild(h('label', { class: 'pv-opt' }, h('input', { type: q.type, name: 'pv' + i }), ' ' + (o.label || '(보기)'))); });
+      else if (q.type === 'select') box.appendChild(h('select', null, option('', '선택해 주세요'), (q.options || []).map(function (o) { return option(o.code, o.label); })));
+      else if (q.type === 'textarea') box.appendChild(h('textarea', { rows: 3, placeholder: '자유롭게 입력해 주세요' }));
+      else box.appendChild(h('input', { type: q.type === 'phone' || q.key === 'STD_PHONE' ? 'tel' : q.type === 'number' ? 'number' : 'text', placeholder: q.key === 'STD_PHONE' ? '010-0000-0000' : '입력해 주세요' }));
+      phone.appendChild(box);
+    });
+    phone.appendChild(h('div', { class: 'pv-submit', style: 'background:' + color }, '제출하기'));
+    modal('미리보기 — 고객 휴대폰 화면 (실제 응답 화면은 한 문항씩 넘어갑니다)', h('div', { class: 'sv-preview-wrap' }, phone), []);
   }
 
   function questionCard(q, i, redraw) {
@@ -147,7 +179,7 @@
       b.addEventListener('click', function () { var j = i + d; if (j < 0 || j >= editing.questions.length) return; var a = editing.questions; var t = a[i]; a[i] = a[j]; a[j] = t; redraw(); });
       return b;
     };
-    var del = h('button', { type: 'button', class: 'btn small danger' }, '삭제');
+    var del = h('button', { type: 'button', class: 'btn small danger', disabled: !!q.forceRequired, title: q.forceRequired ? '필수 문항은 지울 수 없습니다' : '' }, q.forceRequired ? '필수' : '삭제');
     del.addEventListener('click', function () { editing.questions.splice(i, 1); redraw(); renderEditorPick(); });
     var head = h('div', { class: 'toolbar' }, h('strong', null, (i + 1) + '.'),
       q.std ? h('span', { class: 'badge ok' }, '공통 ' + q.key) : h('span', { class: 'badge' }, TYPE_LABEL[q.type]),

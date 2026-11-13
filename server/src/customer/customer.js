@@ -114,6 +114,11 @@ export async function loadCustomers(env, pid) {
     // 상담고객 앱에서 남긴 기록: 누가 상담했는지 (중복 상담사 표시용)
     if (n.staff_id) { c.counselors.add(n.staff_id); c.counselNotes += n.n; if (s(n.last) > s(c.lastCounsel)) c.lastCounsel = n.last; }
   });
+  // 가장 최근 상담 기록 내용 (목록의 "상담 기록" 칸)
+  (await all(env,
+    `SELECT n.phone_hash, n.result, n.content FROM customer_notes n
+     JOIN (SELECT phone_hash, MAX(at) AS m FROM customer_notes WHERE project_id = ? GROUP BY phone_hash) x ON x.phone_hash = n.phone_hash AND x.m = n.at
+     WHERE n.project_id = ?`, pid, pid)).forEach((n) => { if (map[n.phone_hash]) map[n.phone_hash].lastNoteText = [n.result, n.content].filter(Boolean).join(' · ').slice(0, 120); });
   const contracts = await contractIndex(env, pid);
   contracts.forEach((ct, h) => { if (map[h]) map[h].contract = { dongho: ct.dongho, date: ct.date }; });
 
@@ -135,10 +140,23 @@ export async function loadCustomers(env, pid) {
     c.owner = staff[c.ownerId] || '';
     // 관심 타입군: 설문(타입군 코드) + 상담·외부 자료의 관심 타입(세부 주택형이면 타입군으로). 기준표에 있는 타입군만 센다
     const gs = new Set();
-    c.surveyTypes.forEach((v) => { if (groupCodes.has(v)) gs.add(v); });
-    s(c.interest).split(',').filter(Boolean).forEach((v) => { const g = toGroup(v, types); if (groupCodes.has(g)) gs.add(g); });
+    c.surveyTypes.forEach((v) => { if (groupCodes.has(v) || v === '미정') gs.add(v); });
+    s(c.interest).split(',').filter(Boolean).forEach((v) => { const g = v === '미정' ? v : toGroup(v, types); if (groupCodes.has(g) || g === '미정') gs.add(g); });
+    // 타입이 정해진 게 하나라도 있으면 "미정"은 빼고 센다
+    if (gs.size > 1) gs.delete('미정');
     c.typeGroups = [...gs];
     c.interestLabel = s(c.interest).split(',').filter(Boolean).map((v) => typeLabel(v, types)).join(', ');
+    if (!c.interestLabel && c.typeGroups.length) c.interestLabel = c.typeGroups.map((g) => (g === '미정' ? g : g + '타입')).join(', ');
+    // 주요 내용: 청약 순위·설문 의향·방문·계약·중개업소·메모를 한 줄로 (목록 표시·검색용)
+    c.summary = [
+      c.rank ? '청약 ' + c.rank + (c.special ? '(' + c.special + ')' : '') : '',
+      c.intent ? '의향 ' + (INTENT_LABEL[c.intent] || c.intent) : '',
+      c.visits ? '방문 ' + c.visits + '회' : '',
+      c.contract ? '계약 ' + c.contract.dongho : '',
+      c.realtor ? '중개업소 ' + c.realtor.office + (c.realtor.mgm ? '(MGM ' + c.realtor.mgm + ')' : '') : '',
+      c.ext ? c.ext.kind + '·' + c.ext.source : '',
+      c.memo ? '메모: ' + s(c.memo).split(/\r?\n/)[0].slice(0, 40) : ''
+    ].filter(Boolean).join(' · ');
     // 상담 경로: 상담고객 앱에서 등록했거나, 상담사가 기록을 남긴 고객 (중개사만인 사람은 "부동산"으로 둔다)
     c.isCounsel = !!(c.counselAt || (c.counselors.size && !(c.realtor && !c.surveys && !c.visits && !c.ext && !c.contract)));
     c.channels = [c.surveys ? '설문' : '', c.visits ? '방문' : '', c.ext ? '외부' : '', c.realtor ? '부동산' : '', c.isCounsel ? '상담' : '', c.contract ? '계약' : ''].filter(Boolean);
@@ -147,13 +165,14 @@ export async function loadCustomers(env, pid) {
   return { rows, staff, types };
 }
 
+const INTENT_LABEL = Object.fromEntries(STD.STD_INTENT.options.map((o) => [o.code, o.label]));
 const phoneText = (c) => (c.phone ? maskPhone(c.phone) : maskTail(c.tail));
 const rowView = (c) => ({
   id: c.hash.slice(0, 12), name: c.name, phone: phoneText(c), grade: c.grade, gradeSource: c.gradeSource, gradeMemo: c.gradeMemo,
   status: c.status, statusAuto: c.statusAuto, channels: c.channels, source: c.ext ? c.ext.source : '', sourceKind: c.ext ? c.ext.kind : '',
   surveys: c.surveys, lastSurveyAt: c.lastSurveyAt, intent: c.intent, visits: c.visits, lastVisit: c.lastVisit, people: c.people,
   stage: c.surveys && c.visits ? '설문+방문' : c.surveys ? '설문만' : c.visits ? '방문만' : '외부',
-  contract: c.contract, realtor: c.realtor, rank: c.rank, special: c.special, typeGroups: c.typeGroups, interestLabel: c.interestLabel, counselNotes: c.counselNotes, notes: c.notes, lastNote: c.lastNote, consent: c.consent, dnc: c.dnc, owner: c.owner, ownerId: c.ownerId, memo: c.memo, region: c.region, interest: c.interest, last: c.last
+  contract: c.contract, realtor: c.realtor, rank: c.rank, special: c.special, typeGroups: c.typeGroups, interestLabel: c.interestLabel, summary: c.summary, lastNoteText: c.lastNoteText || '', counselNotes: c.counselNotes, notes: c.notes, lastNote: c.lastNote, consent: c.consent, dnc: c.dnc, owner: c.owner, ownerId: c.ownerId, memo: c.memo, region: c.region, interest: c.interest, last: c.last
 });
 
 // 조건에 맞는 고객만 남긴다 (목록·내보내기 공용)
@@ -166,7 +185,8 @@ async function applyFilter(env, rows, data) {
       // 설문만 있는 고객은 번호가 암호화되어 있어, 번호로 찾을 때만 풀어 본다
       for (const c of rows) if (!c.phone && !c.tail && c.phoneEnc) { try { c.phone = await decryptText(env, c.phoneEnc); } catch (e) { /* 풀 수 없는 값은 건너뜀 */ } }
     }
-    rows = rows.filter((c) => ((c.name || '') + (c.realtor ? ' ' + c.realtor.office : '')).toLowerCase().includes(q) || (fullHash && c.hash === fullHash)
+    // 이름·중개업소·주요 내용(청약·메모 등)·최근 상담 기록 내용으로도 찾는다
+    rows = rows.filter((c) => ((c.name || '') + ' ' + (c.realtor ? c.realtor.office : '') + ' ' + (c.summary || '') + ' ' + (c.lastNoteText || '')).toLowerCase().includes(q) || (fullHash && c.hash === fullHash)
       || (!fullHash && qd.length >= 3 && ((c.phone && c.phone.includes(qd)) || (c.tail && qd.length <= 4 && c.tail.endsWith(qd)))));
   }
   const channel = s(data.channel);
@@ -189,6 +209,17 @@ async function applyFilter(env, rows, data) {
   if (source) rows = rows.filter((c) => c.ext && c.ext.source === source);
   if (data.callable === true) rows = rows.filter((c) => !c.dnc && c.status !== '거부' && c.status !== '계약');
   if (data.noNote === true) rows = rows.filter((c) => !c.notes);
+  const note = s(data.note);
+  if (note === '있음') rows = rows.filter((c) => c.notes); else if (note === '없음') rows = rows.filter((c) => !c.notes);
+  // 최근 활동: 7일·30일 이내, 또는 30일 넘게 활동 없음
+  const recent = s(data.recent);
+  if (recent) {
+    const ago = (n) => new Date(Date.now() + 9 * 3600e3 - n * 86400e3).toISOString().slice(0, 10);
+    if (recent === '7') rows = rows.filter((c) => c.last >= ago(7));
+    else if (recent === '30') rows = rows.filter((c) => c.last >= ago(30));
+    else if (recent === 'old') rows = rows.filter((c) => !c.last || c.last < ago(30));
+    else throw new AppError('최근 활동 조건 값이 올바르지 않습니다.');
+  }
   const type = s(data.type);
   if (type) rows = rows.filter((c) => c.typeGroups.includes(type));
   const sort = s(data.sort) || '최근';
@@ -214,7 +245,8 @@ export async function customerList(env, data, ctx) {
     highIntent: high.length, highIntentVisited: high.filter((c) => c.visits).length,
     realtorMgm: count((c) => c.realtor && c.realtor.mgm === '참여'), realtorRefer: allRows.reduce((a, c) => a + (c.realtor ? c.realtor.referCount : 0), 0),
     // 관심 타입군별 고객 수 (프로젝트 주택형 기준표의 타입군 순서)
-    types: typeGroups(types).map((g) => ({ code: g.code, label: g.label, units: g.units, n: count((c) => c.typeGroups.includes(g.code)) })),
+    types: typeGroups(types).map((g) => ({ code: g.code, label: g.label, units: g.units, n: count((c) => c.typeGroups.includes(g.code)) }))
+      .concat(types.length ? [{ code: '미정', label: '미정', units: 0, n: count((c) => c.typeGroups.includes('미정')) }] : []),
     unconfirmed: count((c) => c.consent === '미확인'), dnc: count((c) => c.dnc), noNote: count((c) => !c.notes), noOwner: count((c) => !c.ownerId)
   };
   // 예전 화면·시험이 쓰던 이름도 함께 준다

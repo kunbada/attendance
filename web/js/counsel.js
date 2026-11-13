@@ -45,6 +45,11 @@
       box.appendChild(h('div', { class: 'notice warn', style: 'margin-top:0' }, '이 현장의 주택형이 아직 입력되지 않았습니다. 관리자에게 [통합관리 > 프로젝트 > 주택형·세대수] 입력을 요청해 주세요.'));
       return box;
     }
+    // 맨 위: 아직 타입을 정하지 못한 고객
+    box.appendChild(h('div', { style: 'display:flex;gap:10px;align-items:center;margin-bottom:6px' }, h('b', { style: 'min-width:64px;font-size:13px;color:#6b7686' }, '전체'),
+      chips([{ v: '미정', l: '미정 (아직 모름)' }], state.interest.indexOf('미정') >= 0 ? ['미정'] : [], true, function (v) {
+        state.interest = state.interest.filter(function (x) { return x !== '미정'; }).concat(v);
+      })));
     OPT.groups.forEach(function (g) {
       var hasSub = OPT.types.some(function (t) { return t.grp === g.code && t.code !== g.code; });
       var opts = [{ v: g.code, l: g.label + (hasSub ? ' (미정)' : (g.units ? ' · ' + g.units + '세대' : '')) }].concat(OPT.types.filter(function (t) { return t.grp === g.code; })

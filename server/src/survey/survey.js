@@ -3,7 +3,7 @@
 import { AppError, s, all, first, run, stmt, nowStr, todayStr, newId, randomToken, encryptText, decryptText, phoneHash, orgNameMap, writeLog } from '../core/util.js';
 import { purgeRealtorCards } from '../realtor/realtor.js';
 import { loadTypes, typeGroups } from '../core/types.js';
-import { STD, PII_KEYS, CHOICE_TYPES, CUSTOM_TYPES, DEFAULT_CONSENT_TEXT, DEFAULT_STD, bankList } from './std.js';
+import { STD, REQUIRED_KEYS, PII_KEYS, CHOICE_TYPES, CUSTOM_TYPES, DEFAULT_CONSENT_TEXT, DEFAULT_STD, bankList } from './std.js';
 
 const STATUSES = ['작성', '진행', '마감'];
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -27,18 +27,19 @@ function buildOptions(raw) {
 
 // 관심 타입(STD_TYPE) 보기는 프로젝트 주택형의 타입군에서 자동으로 만든다 (보기 코드 = 타입군, 예: '84').
 // 주택형이 아직 없으면 예전처럼 설문에서 직접 적은 보기를 쓴다
-const typeOptions = (groups) => groups.map((g) => ({ code: g.code, label: g.label }));
+// 관심 타입 보기 = 타입군 + 미정 (상담 앱의 '미정'과 같은 값)
+const typeOptions = (groups) => groups.map((g) => ({ code: g.code, label: g.label })).concat([{ code: '미정', label: '미정' }]);
 async function projectTypeGroups(env, pid) { return typeGroups(await loadTypes(env, pid)); }
 function withProjectTypes(qs, groups) {
   if (!groups.length) return qs;
-  return qs.map((q) => (q.key === 'STD_TYPE' ? { ...q, options: typeOptions(groups), fromProject: true } : q));
+  return qs.map((q) => (q.key === 'STD_TYPE' ? { ...q, type: 'checkbox', required: true, options: typeOptions(groups), fromProject: true } : q));
 }
 
 function cleanQuestions(raw, groups = []) {
   if (!Array.isArray(raw) || !raw.length) throw new AppError('문항을 1개 이상 추가하세요.');
   if (raw.length > 60) throw new AppError('문항은 60개까지 만들 수 있습니다.');
   const keys = new Set();
-  return raw.map((q, i) => {
+  const out = raw.map((q, i) => {
     const std = STD[s(q.key)];
     const no = (i + 1) + '번 문항';
     const title = s(q.title).trim().slice(0, 150);
@@ -50,7 +51,10 @@ function cleanQuestions(raw, groups = []) {
       if (key === 'STD_TYPE' && groups.length) {
         options = typeOptions(groups);
       } else if (std.editableOptions) {
-        options = buildOptions(q.options);
+        // 보기를 보내지 않으면 은행의 기본 보기 (보기를 빈 목록으로 보내면 오류)
+        options = Array.isArray(q.options) ? buildOptions(q.options) : JSON.parse(JSON.stringify(std.options || []));
+        // 관심 타입은 주택형이 아직 없어도 "미정"은 항상 둔다
+        if (key === 'STD_TYPE' && !options.some((o) => o.code === '미정')) options.push({ code: '미정', label: '미정' });
         if (!options.length) throw new AppError(no + ': 보기를 1개 이상 입력해 주세요.');
       }
       return { key, std: true, type: std.type, title: title || std.title, required: std.forceRequired ? true : !!q.required, options };
@@ -64,6 +68,9 @@ function cleanQuestions(raw, groups = []) {
     if (CHOICE_TYPES.includes(type) && !options.length) throw new AppError(no + '의 선택지가 없습니다.');
     return { key, std: false, type, title, required: !!q.required, options };
   });
+  const missing = REQUIRED_KEYS.filter((k) => !keys.has(k));
+  if (missing.length) throw new AppError('필수 문항은 지울 수 없습니다: ' + missing.map((k) => STD[k].title).join(', '));
+  return out;
 }
 
 const surveyView = (r, extra) => ({

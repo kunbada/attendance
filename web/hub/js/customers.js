@@ -69,7 +69,7 @@
   // ====================================================================
   // 고객 DB: 같은 전화번호의 설문·방문·외부 자료·계약을 한 고객으로. 등급·진행 상태·담당·상담 기록
   // ====================================================================
-  var EMPTY = { q: '', channel: '', grade: '', status: '', ownerId: '', source: '', consent: '', type: '', sort: '최근', callable: false, noNote: false, page: 1 };
+  var EMPTY = { q: '', channel: '', grade: '', status: '', ownerId: '', source: '', consent: '', type: '', note: '', recent: '', sort: '최근', callable: false, noNote: false, page: 1 };
   var filter = Object.assign({}, EMPTY);
   var INTENT = { '1': '1점', '2': '2점', '3': '3점', '4': '4점', '5': '5점' };
   var STATUS_BADGE = { '신규': 'info', '연락중': 'warn', '부재': '', '방문예정': 'warn', '방문완료': 'ok', '계약': 'ok', '보류': '', '거부': 'danger' };
@@ -118,19 +118,27 @@
       chip('동의 미확인', sm.unconfirmed, filter.consent === '미확인', { consent: filter.consent === '미확인' ? '' : '미확인' }),
       sm.types && sm.types.length ? [h('span', { class: 'sep' })].concat(sm.types.map(function (tg) { return chip('관심 ' + tg.label, tg.n, filter.type === tg.code, { type: filter.type === tg.code ? '' : tg.code }); })) : null));
 
-    // 3) 검색·조건
-    var q = h('input', { type: 'search', value: filter.q, placeholder: '이름, 전화번호 전체 또는 뒤 4자리' });
-    var status = h('select', null, option('', '상태 전체'), res.statuses.map(function (x) { return option(x, x + ' (' + sm.statuses[x] + ')', filter.status === x); }));
-    var owner = h('select', null, option('', '담당 전체'), option('-', '담당 없음', filter.ownerId === '-'), res.staff.map(function (x) { return option(x.id, x.name, filter.ownerId === x.id); }));
+    // 3) 검색·조건 — 목록 칸(등급·관심 평형·유입 경로·주요 내용·상담 기록·담당자·최근 활동)마다 거를 수 있다
+    var q = h('input', { type: 'search', value: filter.q, placeholder: '이름·전화(뒤 4자리)·주요 내용·상담 내용' });
+    var grade = h('select', null, option('', '등급 전체'), ['A', 'B', 'C', 'D'].map(function (g) { return option(g, g + '등급', filter.grade === g); }), option('없음', '등급 없음', filter.grade === '없음'));
+    var type = h('select', null, option('', '관심 평형 전체'), (sm.types || []).map(function (x) { return option(x.code, x.label + ' (' + x.n + ')', filter.type === x.code); }));
+    var channel = h('select', null, option('', '유입 경로 전체'), ['설문', '방문', '외부', '부동산', '상담', '계약'].map(function (x) { return option(x, x + ' (' + (sm.channels[x] || 0) + ')', filter.channel === x); }));
+    var note = h('select', null, option('', '상담 기록 전체'), option('있음', '상담 기록 있음', filter.note === '있음'), option('없음', '상담 기록 없음', filter.note === '없음'));
+    var owner = h('select', null, option('', '담당자 전체'), option('-', '담당 없음', filter.ownerId === '-'), res.staff.map(function (x) { return option(x.id, x.name, filter.ownerId === x.id); }));
+    var recent = h('select', null, option('', '최근 활동 전체'), option('7', '7일 이내', filter.recent === '7'), option('30', '30일 이내', filter.recent === '30'), option('old', '30일 넘게 없음', filter.recent === 'old'));
+    var status = h('select', null, option('', '진행 상태 전체'), res.statuses.map(function (x) { return option(x, x + ' (' + sm.statuses[x] + ')', filter.status === x); }));
     var source = h('select', null, option('', '출처 전체'), res.sources.map(function (x) { return option(x, x, filter.source === x); }));
     var sort = h('select', null, ['최근', '등급', '이름'].map(function (x) { return option(x, x === '최근' ? '최근 활동순' : x + '순', filter.sort === x); }));
     var callable = h('input', { type: 'checkbox', checked: filter.callable });
     var find = h('button', { type: 'button', class: 'btn small primary' }, '조회');
     var reset = h('button', { type: 'button', class: 'btn small' }, '조건 지우기');
-    var run = function () { return go({ q: q.value, status: status.value, ownerId: owner.value, source: source.value, sort: sort.value, callable: callable.checked }); };
+    var run = function () {
+      return go({ q: q.value, grade: grade.value, type: type.value, channel: channel.value, note: note.value, ownerId: owner.value, recent: recent.value,
+        status: status.value, source: source.value, sort: sort.value, callable: callable.checked });
+    };
     find.addEventListener('click', run);
     q.addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
-    [status, owner, source, sort, callable].forEach(function (el) { el.addEventListener('change', run); });
+    [grade, type, channel, note, owner, recent, status, source, sort, callable].forEach(function (el) { el.addEventListener('change', run); });
     reset.addEventListener('click', function () { filter = Object.assign({}, EMPTY); runBusy(reset, again); });
     var add = h('button', { type: 'button', class: 'btn small' }, '+ 고객 등록');
     add.addEventListener('click', function () { openAdd(again); });
@@ -139,31 +147,27 @@
       if (!confirm('지금 조건에 맞는 고객 ' + res.matched + '명을 전화번호 원문과 함께 내려받습니다. 내려받은 기록이 남습니다. 계속할까요?')) return;
       runBusy(exp, exportCsv);
     });
-    root.appendChild(h('div', { class: 'toolbar filterbar' }, q, status, owner, res.sources.length ? source : null, sort,
-      h('label', { class: 'check', style: 'margin:0' }, callable, ' 연락 가능한 고객만'), find, reset, h('span', { style: 'flex:1' }), add, exp));
+    root.appendChild(h('div', { class: 'toolbar filterbar' }, q, grade, (sm.types || []).length ? type : null, channel, note, owner, recent, find, reset));
+    root.appendChild(h('div', { class: 'toolbar filterbar', style: 'margin-top:-6px' }, h('span', { class: 'muted' }, '더 보기:'), status, res.sources.length ? source : null, sort,
+      h('label', { class: 'check', style: 'margin:0' }, callable, ' 연락 가능한 고객만'), h('span', { style: 'flex:1' }), add, exp));
 
-    // 4) 목록
+    // 4) 목록: 고객 | 등급 | 관심 평형 | 유입 경로 | 주요 내용 | 상담 기록 | 담당자 | 최근 활동
     var rows = res.customers.map(function (c) {
       var tr = h('tr', { class: 'clickable' },
         h('td', null, h('div', { class: 'cust-name' }, c.name || '(이름 없음)', c.dnc ? [' ', h('span', { class: 'badge danger' }, '연락 거부')] : null),
           h('div', { class: 'cust-sub' }, c.phone + (c.consent === '미확인' ? ' · 동의 미확인' : ''))),
         h('td', null, gradeBadge(c.grade), c.gradeSource === '수동' ? h('span', { class: 'cust-sub' }, ' 직접') : null),
-        h('td', null, h('span', { class: 'badge ' + (STATUS_BADGE[c.status] || '') }, c.status)),
+        h('td', null, c.interestLabel || h('span', { class: 'muted' }, '-')),
         h('td', null, c.channels.map(function (x) { return [h('span', { class: 'badge ' + CHANNEL_BADGE[x] }, x), ' ']; }), c.source ? h('div', { class: 'cust-sub' }, c.source) : null),
-        h('td', null, c.surveys ? '설문 ' + c.surveys + '회' + (c.intent ? ' · 의향 ' + (INTENT[c.intent] || c.intent) : '') : '',
-          c.visits ? h('div', null, '방문 ' + c.visits + '회' + (c.people > c.visits ? ' (동반 포함 ' + c.people + '명)' : '')) : null,
-          c.contract ? h('div', null, '계약 ' + c.contract.dongho) : null,
-          c.typeGroups && c.typeGroups.length ? h('div', null, '관심 ' + (c.interestLabel || c.typeGroups.map(function (g) { return g + '타입'; }).join(', '))) : null,
-          c.rank ? h('div', null, '청약 ' + c.rank + (c.special ? ' (' + c.special + ')' : '')) : null,
-          c.realtor ? h('div', null, '중개업소 ' + c.realtor.office + (c.realtor.mgm ? ' · MGM ' + c.realtor.mgm : '') + ' · 소개 ' + c.realtor.referCount + '명') : null,
-          !c.surveys && !c.visits && !c.contract && !c.realtor && !c.rank && !(c.typeGroups && c.typeGroups.length) ? h('span', { class: 'muted' }, c.interest || c.region || '-') : null),
-        h('td', null, c.notes ? c.notes + '건' : h('span', { class: 'muted' }, '-'), c.lastNote ? h('div', { class: 'cust-sub' }, String(c.lastNote).slice(5, 10)) : null),
+        h('td', { class: 'cust-summary' }, c.summary || h('span', { class: 'muted' }, '-'), c.status && !c.statusAuto ? h('div', { class: 'cust-sub' }, '상태 ' + c.status) : null),
+        h('td', { class: 'cust-summary' }, c.notes ? [h('b', null, c.notes + '건'), c.lastNote ? ' · ' + String(c.lastNote).slice(5, 10) : ''] : h('span', { class: 'muted' }, '-'),
+          c.lastNoteText ? h('div', { class: 'cust-sub' }, c.lastNoteText) : null),
         h('td', null, c.owner || h('span', { class: 'muted' }, '-')),
         h('td', null, c.last || '-'));
       tr.addEventListener('click', function () { openDetail(c.id, again); });
       return tr;
     });
-    root.appendChild(simpleTable(['고객', '등급', '진행 상태', '유입 경로', '설문·방문·계약', '상담 기록', '담당', '최근 활동'], rows));
+    root.appendChild(simpleTable(['고객', '등급', '관심 평형', '유입 경로', '주요 내용', '상담 기록', '담당자', '최근 활동'], rows));
 
     var from = res.matched ? (res.page - 1) * res.pageSize + 1 : 0, to = Math.min(res.page * res.pageSize, res.matched);
     var prev = h('button', { type: 'button', class: 'btn small', disabled: res.page <= 1 }, '← 이전');
@@ -177,9 +181,9 @@
 
   async function exportCsv() {
     var ex = await Api.call('customer.export', filter);
-    downloadCsv('고객DB_' + Hub.todayLocal() + '.csv', [['이름', '전화번호', '등급', '진행 상태', '유입 경로', '출처', '동의', '연락 거부', '설문 횟수', '분양 의향', '방문 횟수', '최근 방문', '계약 동호', '중개업소', 'MGM', '상담 기록 수', '담당', '지역', '관심', '메모', '최근 활동']].concat(
+    downloadCsv('고객DB_' + Hub.todayLocal() + '.csv', [['이름', '전화번호', '등급', '진행 상태', '유입 경로', '출처', '동의', '연락 거부', '설문 횟수', '분양 의향', '방문 횟수', '최근 방문', '계약 동호', '중개업소', 'MGM', '상담 기록 수', '담당', '지역', '관심 평형', '청약 순위', '주요 내용', '최근 상담 기록', '메모', '최근 활동']].concat(
       ex.rows.map(function (c) {
-        return [c.name, c.phone, c.grade, c.status, c.channels.join('+'), c.source, c.consent, c.dnc ? '거부' : '', c.surveys, c.intent, c.visits, c.lastVisit, c.contract ? c.contract.dongho : '', c.realtor ? c.realtor.office : '', c.realtor ? c.realtor.mgm : '', c.notes, c.owner, c.region, c.interest, c.memo, c.last];
+        return [c.name, c.phone, c.grade, c.status, c.channels.join('+'), c.source, c.consent, c.dnc ? '거부' : '', c.surveys, c.intent, c.visits, c.lastVisit, c.contract ? c.contract.dongho : '', c.realtor ? c.realtor.office : '', c.realtor ? c.realtor.mgm : '', c.notes, c.owner, c.region, c.interestLabel || c.interest, c.rank + (c.special ? ' (' + c.special + ')' : ''), c.summary, c.lastNoteText, c.memo, c.last];
       })));
     toast(ex.rows.length + '명을 내려받았습니다.' + (ex.rows.length >= ex.max ? ' (한 번에 ' + ex.max + '명까지 — 조건을 나눠 받아 주세요)' : '') + ' 개인정보가 들어 있으니 안전하게 보관해 주세요.');
   }

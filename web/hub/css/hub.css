@@ -222,3 +222,22 @@ body.hub .mini-bar { height: 8px; background: #eef1f6; border-radius: 6px; overf
 body.hub .mini-bar i { display: block; height: 100%; background: var(--primary, #2457d6); border-radius: 6px; }
 body.hub .mini-val { color: var(--muted, #6b7686); font-size: 12px; white-space: nowrap; }
 body.hub a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+/* 설문 미리보기 (휴대폰 모양) */
+body.hub .sv-preview-wrap { display: flex; justify-content: center; background: #eef1f6; padding: 16px; border-radius: 12px; }
+body.hub .sv-preview { width: 360px; max-height: 66vh; overflow: auto; background: #f5f6fa; border-radius: 26px; border: 8px solid #18212f; padding: 14px; }
+body.hub .pv-hero { color: #fff; border-radius: 18px; padding: 20px 18px; margin-bottom: 12px; }
+body.hub .pv-hero h3 { margin: 6px 0; font-size: 20px; color: #fff; }
+body.hub .pv-hero p { margin: 0 0 8px; font-size: 13.5px; opacity: .92; white-space: pre-wrap; }
+body.hub .pv-pj { display: inline-block; font-size: 11.5px; background: rgba(255,255,255,.22); border-radius: 12px; padding: 2px 10px; }
+body.hub .pv-q { background: #fff; border-radius: 14px; padding: 14px; margin-bottom: 10px; border: 1px solid #e3e7ee; }
+body.hub .pv-q b { display: block; font-size: 16px; margin: 4px 0; }
+body.hub .pv-no { font-size: 12px; font-weight: 700; }
+body.hub .pv-badge { font-size: 11.5px; color: #6b7686; margin-bottom: 8px; }
+body.hub .pv-opt { display: flex; align-items: center; gap: 8px; border: 1.5px solid #e3e7ee; border-radius: 10px; padding: 9px 12px; margin-bottom: 6px; font-size: 14.5px; }
+body.hub .pv-consent { font-size: 12px; color: #6b7686; white-space: pre-wrap; max-height: 110px; overflow: auto; background: #f8f9fc; border-radius: 10px; padding: 8px 10px; margin: 6px 0 8px; }
+body.hub .pv-submit { color: #fff; text-align: center; font-weight: 700; border-radius: 12px; padding: 13px; margin-top: 4px; }
+
+/* 고객 DB: 주요 내용·상담 기록 칸은 두 줄까지 */
+body.hub td.cust-summary { max-width: 300px; font-size: 13px; line-height: 1.45; }
+body.hub td.cust-summary .cust-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

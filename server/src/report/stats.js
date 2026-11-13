@@ -134,7 +134,8 @@ async function homeExtra(env, pid, today, groups, names) {
   const svBy = Object.fromEntries(svTypes.map((r) => [r.code, r.n]));
   const csBy = {};
   csTypes.forEach((r) => new Set(s(r.interest).split(',').filter(Boolean).map((v) => toGroup(v, types))).forEach((g) => { csBy[g] = (csBy[g] || 0) + 1; }));
-  const typeInterest = tg.map((g) => ({ code: g.code, label: g.label, units: g.units, survey: svBy[g.code] || 0, customers: csBy[g.code] || 0 }));
+  const typeInterest = tg.map((g) => ({ code: g.code, label: g.label, units: g.units, survey: svBy[g.code] || 0, customers: csBy[g.code] || 0 }))
+    .concat(tg.length ? [{ code: '미정', label: '미정', units: 0, survey: svBy['미정'] || 0, customers: csBy['미정'] || 0 }] : []);
   const mAtt = byDay(att), mSv = byDay(sv), mGb = byDay(gb), mRt = byDay(rt), mRv = byDay(rv);
   const trend30 = days30.map((d) => ({ date: d, attendance: mAtt[d] || 0, surveys: mSv[d] || 0, guests: mGb[d] || 0, realtors: mRt[d] || 0, reservations: mRv[d] || 0 }));
   // 이번 달 하루 평균 출근 (출근이 있었던 날 기준)

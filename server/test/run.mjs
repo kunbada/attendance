@@ -1137,7 +1137,7 @@ try {
   const s3_svBank = (await call('survey.bank', {}, admin, '', PP)).data;
   check('공통 문항 은행: 필수 STD_INTENT 포함, 보기 코드 고정', s3_svBank.bank.some((b) => b.key === 'STD_INTENT' && b.options.map((o) => o.code).join() === '5,4,3,2,1') && s3_svBank.bank.length === 15 && /임시 문구/.test(s3_svBank.defaultConsentText));
   const s3_svq = (extra) => [
-    { key: 'STD_INTENT', required: false }, { key: 'STD_NAME' }, { key: 'STD_PHONE' }, { key: 'STD_AGE' },
+    { key: 'STD_INTENT', required: false }, { key: 'STD_TYPE' }, { key: 'STD_NAME' }, { key: 'STD_PHONE' }, { key: 'STD_AGE' },
     { key: 'STD_CONSENT_MKT' }, { key: 'STD_BUDGET', options: ['3억 미만', '3~5억', '5억 이상'] },
     { key: 'QX', type: 'radio', title: '방문 계기', required: false, options: ['지인', '광고'] },
     { key: 'QY', type: 'checkbox', title: '관심 항목(복수)', options: ['입지', '가격', '교통'] },
@@ -1146,13 +1146,19 @@ try {
   expectErr('설문 제목 필수', await call('survey.save', { title: ' ', questions: s3_svq() }, admin, '', PP), '제목');
   expectErr('문항 1개 이상', await call('survey.save', { title: 'x', questions: [] }, admin, '', PP), '문항');
   expectErr('같은 공통 문항을 두 번 넣을 수 없음', await call('survey.save', { title: 'x', questions: [{ key: 'STD_AGE' }, { key: 'STD_AGE' }] }, admin, '', PP), '두 번');
+  expectErr('필수 문항(분양 의향·관심 타입)은 지울 수 없음', await call('survey.save', { title: 'x', questions: [{ key: 'STD_INTENT' }, { key: 'STD_AGE' }] }, admin, '', PP), '관심 타입');
+  const sv_ed = await call('survey.save', { title: '보기 편집', status: '작성', questions: [{ key: 'STD_INTENT' }, { key: 'STD_TYPE' }, { key: 'STD_AGE', options: [{ code: '30', label: '30대(편집)' }, { code: '40', label: '40대' }, { label: '70대 이상' }] }] }, admin, '', PP);
+  const sv_edq = sv_ed.ok && (await call('survey.get', { surveyId: sv_ed.data.id }, admin, '', PP)).data.survey.questions;
+  check('공통 문항 보기 편집: 기존 코드 유지·새 보기 추가·관심 타입은 미정 포함·여러 개 선택', sv_edq && sv_edq.find((q) => q.key === 'STD_AGE').options.map((o) => o.code + ':' + o.label).join() === '30:30대(편집),40:40대,1:70대 이상'
+    && sv_edq.find((q) => q.key === 'STD_TYPE').options.some((o) => o.code === '미정') && sv_edq.find((q) => q.key === 'STD_TYPE').type === 'checkbox' && sv_edq.find((q) => q.key === 'STD_TYPE').required === true, JSON.stringify(sv_edq));
+  expectOk('편집 시험 설문 지우기', await call('survey.delete', { surveyId: sv_ed.data.id }, admin, '', PP));
   expectErr('선택형 문항은 선택지 필수', await call('survey.save', { title: 'x', questions: [{ key: 'Q1', type: 'radio', title: 'a', options: [] }] }, admin, '', PP), '선택지');
   expectErr('전화번호 문항은 공통 문항으로만', await call('survey.save', { title: 'x', questions: [{ key: 'Q1', type: 'phone', title: 'a' }] }, admin, '', PP), '종류');
   expectErr('공통 문항 STD_BUDGET 은 보기 필요', await call('survey.save', { title: 'x', questions: [{ key: 'STD_BUDGET', options: [] }] }, admin, '', PP), '보기');
   const s3_svA = await call('survey.save', { title: '사전판촉 설문', description: '시험', theme: '#2f6fb3', status: '진행', questions: s3_svq() }, admin, '', PP);
   expectOk('설문 만들기 (P-현장)', s3_svA);
   const s3_svGet = (await call('survey.get', { surveyId: s3_svA.data.id }, admin, '', PP)).data.survey;
-  check('필수 공통 문항(STD_INTENT)은 필수로 고정, 공통 문항 보기 코드는 은행 값, 직접 만든 문항 키 발급', s3_svGet.questions[0].required === true && s3_svGet.questions[3].options.length === 5 && s3_svGet.questions[5].options.map((o) => o.code).join() === '1,2,3' && s3_svGet.questions.filter((q) => !q.std).every((q) => /^Q[A-Z0-9]{4,10}$/.test(q.key)) && /임시 문구/.test(s3_svGet.consentText));
+  check('필수 공통 문항(STD_INTENT)은 필수로 고정, 공통 문항 보기 코드는 은행 값, 직접 만든 문항 키 발급', s3_svGet.questions[0].required === true && s3_svGet.questions[4].options.length === 5 && s3_svGet.questions[6].options.map((o) => o.code).join() === '1,2,3' && s3_svGet.questions.filter((q) => !q.std).every((q) => /^Q[A-Z0-9]{4,10}$/.test(q.key)) && /임시 문구/.test(s3_svGet.consentText));
   const s3_qk = (title) => s3_svGet.questions.find((q) => q.title === title).key;
   const s3_radioQ = s3_qk('방문 계기'), s3_checkQ = s3_qk('관심 항목(복수)'), s3_textQ = s3_qk('건의 사항');
   expectErr('다른 현장 화면에서는 이 설문을 못 봄', await call('survey.get', { surveyId: s3_svA.data.id }, admin, '', P1), '설문을 찾을 수 없습니다');
@@ -1182,9 +1188,9 @@ try {
   expectErr('틀린 링크 코드', await s3_pub('ZZZZZZ'), '존재하지 않는');
   expectErr('형식이 틀린 링크 코드', await s3_pub('abc'), '링크가 올바르지');
   const s3_form = (await s3_pub(s3_lkTeam.data.code)).data;
-  check('응답 화면 정의: 제목·문항·동의 문구, 내부 정보(project_id 등) 없음', s3_form.title === '사전판촉 설문' && s3_form.questions.length === 9 && /임시 문구/.test(s3_form.consentText) && !JSON.stringify(s3_form).includes(PP) && s3_form.questions.find((q) => q.key === 'STD_NAME').pii === true);
+  check('응답 화면 정의: 제목·문항·동의 문구, 내부 정보(project_id 등) 없음', s3_form.title === '사전판촉 설문' && s3_form.questions.length === 10 && /임시 문구/.test(s3_form.consentText) && !JSON.stringify(s3_form).includes(PP) && s3_form.questions.find((q) => q.key === 'STD_NAME').pii === true);
   const s3_nonce = (n) => 'nonce-' + uniq + '-' + n;
-  const s3_submit = (code, answers, o) => call('survey.submit', { code, nonce: s3_nonce(++tcount), consentPi: true, answers, ...o }, '', '', null);
+  const s3_submit = (code, answers, o) => call('survey.submit', { code, nonce: s3_nonce(++tcount), consentPi: true, answers: { STD_TYPE: '미정', ...answers }, ...o }, '', '', null);
   const s3_sp1 = '010' + rnd(), s3_sp2 = '010' + rnd();
   expectErr('필수 문항(분양 의향) 누락', await s3_submit(s3_lkTeam.data.code, { STD_NAME: '홍길동' }), '필수');
   expectErr('보기 코드가 아닌 값은 거부', await s3_submit(s3_lkTeam.data.code, { STD_INTENT: '9' }), '올바르지 않은 선택');
@@ -1197,8 +1203,8 @@ try {
   const s3_r3 = await s3_submit(s3_lkW, { STD_INTENT: '3', STD_AGE: '40', [s3_checkQ]: ['2'] });
   expectOk('응답 3 (직원 개인 링크)', s3_r3);
   const s3_dupNonce = s3_nonce(9999);
-  expectOk('같은 제출 식별값으로 두 번 보내도 오류 없이', await call('survey.submit', { code: s3_lkEtc, nonce: s3_dupNonce, consentPi: false, answers: { STD_INTENT: '2' } }, '', '', null));
-  expectOk('두 번째 제출', await call('survey.submit', { code: s3_lkEtc, nonce: s3_dupNonce, consentPi: false, answers: { STD_INTENT: '2' } }, '', '', null));
+  expectOk('같은 제출 식별값으로 두 번 보내도 오류 없이', await call('survey.submit', { code: s3_lkEtc, nonce: s3_dupNonce, consentPi: false, answers: { STD_INTENT: '2', STD_TYPE: '미정' } }, '', '', null));
+  expectOk('두 번째 제출', await call('survey.submit', { code: s3_lkEtc, nonce: s3_dupNonce, consentPi: false, answers: { STD_INTENT: '2', STD_TYPE: '미정' } }, '', '', null));
   check('중복 제출은 한 건만 저장', (await query(`SELECT COUNT(*) AS n FROM responses WHERE nonce = '${s3_dupNonce}'`))[0].n === 1);
 
   // 개인정보 원칙: 동의 N 응답에는 이름·번호가 어디에도 없다
@@ -1251,7 +1257,7 @@ try {
   check('다른 직원은 다른 개인 링크를 받음 (처음 호출 때 자동 발급)', s3_mine2.length === 1 && s3_mine2[0].code !== s3_lkW && (await call('survey.myLinks', {}, s3_lwOther.data.token, W12.dev, null)).data.links[0].code === s3_mine2[0].code);
 
   // --- 현장 간 공통문항 비교 + 고객 연결 (두 번째 현장에서도 같은 공통 문항으로 응답) ---
-  const s3_svB = await call('survey.save', { title: 'B현장 설문', status: '진행', questions: [{ key: 'STD_INTENT' }, { key: 'STD_NAME' }, { key: 'STD_PHONE' }, { key: 'STD_AGE' }] }, admin, '', P2);
+  const s3_svB = await call('survey.save', { title: 'B현장 설문', status: '진행', questions: [{ key: 'STD_INTENT' }, { key: 'STD_TYPE' }, { key: 'STD_NAME' }, { key: 'STD_PHONE' }, { key: 'STD_AGE' }] }, admin, '', P2);
   expectOk('다른 현장(B현장)에도 설문', s3_svB);
   const s3_lkB = (await call('survey.linkSave', { surveyId: s3_svB.data.id, kind: '기타', label: '문자' }, admin, '', P2)).data.code;
   expectOk('B현장 응답: 의향 5 + 같은 사람(s3_sp1)', await s3_submit(s3_lkB, { STD_INTENT: '5', STD_NAME: '설문고객일', STD_PHONE: s3_sp1, STD_AGE: '40' }));
@@ -1564,15 +1570,16 @@ try {
   const ty_sv = await call('survey.save', { title: '타입 설문', status: '진행', questions: [{ key: 'STD_INTENT', title: '분양 의향', required: true }, { key: 'STD_NAME', title: '성함' }, { key: 'STD_PHONE', title: '연락처' }, { key: 'STD_TYPE', title: '관심 타입', options: [{ label: '아무거나' }] }] }, admin);
   const ty_get = (await call('survey.get', { surveyId: ty_sv.data.id }, admin)).data.survey;
   const ty_q = ty_get.questions.find((q) => q.key === 'STD_TYPE');
-  check('설문 관심 타입 보기는 프로젝트 타입군으로 고정 (설문에서 적은 보기 무시)', ty_q.options.map((o) => o.code).join() === '84,59' && ty_q.fromProject === true, JSON.stringify(ty_q));
+  check('설문 관심 타입 보기는 프로젝트 타입군으로 고정 (설문에서 적은 보기 무시)', ty_q.options.map((o) => o.code).join() === '84,59,미정' && ty_q.fromProject === true, JSON.stringify(ty_q));
   const ty_link = (await call('survey.linkSave', { surveyId: ty_sv.data.id, kind: '기타', label: '타입시험' }, admin)).data.code;
   const ty_form = (await call('survey.form', { code: ty_link })).data;
-  check('공개 설문 화면에도 타입군 보기', ty_form.questions.find((q) => q.key === 'STD_TYPE').options.map((o) => o.label).join() === '84타입,59타입');
+  check('공개 설문 화면에도 타입군 보기 + 미정, 여러 개 선택·필수', ty_form.questions.find((q) => q.key === 'STD_TYPE').options.map((o) => o.label).join() === '84타입,59타입,미정' && ty_form.questions.find((q) => q.key === 'STD_TYPE').type === 'checkbox' && ty_form.questions.find((q) => q.key === 'STD_TYPE').required);
   const TYP = '010-0000-8701';
-  expectOk('설문 응답: 84타입 (개인정보 동의)', await call('survey.submit', { code: ty_link, nonce: 'ty-nonce-0001', consentPi: true, answers: { STD_INTENT: '4', STD_NAME: '타입설문고객', STD_PHONE: TYP, STD_TYPE: '84' } }));
+  expectOk('설문 응답: 84타입 (개인정보 동의)', await call('survey.submit', { code: ty_link, nonce: 'ty-nonce-0001', consentPi: true, answers: { STD_INTENT: '4', STD_NAME: '타입설문고객', STD_PHONE: TYP, STD_TYPE: ['84', '59'] } }));
+  expectErr('설문 응답: 관심 타입은 필수', await call('survey.submit', { code: ty_link, nonce: 'ty-nonce-0003', consentPi: false, answers: { STD_INTENT: '4' } }), '관심 타입');
   expectErr('설문 응답: 세부 주택형 코드는 받지 않음', await call('survey.submit', { code: ty_link, nonce: 'ty-nonce-0002', consentPi: false, answers: { STD_INTENT: '4', STD_TYPE: '84A' } }), '올바르지 않은');
   const ty_dash = (await call('admin.dashboard', {}, admin)).data.customerStats.typeInterest;
-  check('홈 통계: 관심 타입군 (설문 응답)', ty_dash.length === 2 && ty_dash[0].survey === 1 && ty_dash[0].units === 150, JSON.stringify(ty_dash));
+  check('홈 통계: 관심 타입군 (설문 응답) + 미정', ty_dash.length === 3 && ty_dash[2].code === '미정' && ty_dash[0].survey === 1 && ty_dash[0].units === 150, JSON.stringify(ty_dash));
 
   // ===== 상담고객 앱: PIN + 텔레그램 인증, 나의 고객·중복·담당 넘기기, 나의 부동산업소, 고객 DB 통합 =====
   const C1 = person(71), C2 = person(72);
@@ -1643,7 +1650,13 @@ try {
   const cs_dbc = cs_db.customers[0] || {};
   check('고객 DB 에 "상담" 경로로 합쳐짐 (등급·순위·담당)', cs_db.matched === 1 && cs_db.summary.channels.상담 === 1 && cs_dbc.grade === 'B' && cs_dbc.rank === '1순위' && cs_dbc.owner === C2.name && !cs_dbc.channels.includes('외부') && cs_dbc.typeGroups.join() === '84' && cs_dbc.interestLabel === '84타입', JSON.stringify(cs_dbc));
   const ty_cl = (await call('customer.list', { type: '84' }, admin)).data;
-  check('고객 DB: 관심 타입군 바로가기·필터 (설문 84 + 상담 84)', ty_cl.matched === 2 && ty_cl.summary.types.find((x) => x.code === '84').n === 2 && ty_cl.summary.types.find((x) => x.code === '59').n === 0, JSON.stringify(ty_cl.summary.types));
+  check('고객 DB: 관심 타입군 바로가기·필터 (설문 84 + 상담 84)', ty_cl.matched === 2 && ty_cl.summary.types.find((x) => x.code === '84').n === 2 && ty_cl.summary.types.find((x) => x.code === '59').n === 1, JSON.stringify(ty_cl.summary.types));
+  check('고객 DB 목록: 주요 내용·최근 상담 기록 내용', cs_dbc.summary.includes('청약 1순위') && cs_dbc.lastNoteText.length > 0, JSON.stringify({ s: cs_dbc.summary, n: cs_dbc.lastNoteText }));
+  check('고객 DB 필터: 상담 기록 있음/없음, 최근 활동, 주요 내용 검색',
+    (await call('customer.list', { channel: '상담', note: '있음' }, admin)).data.matched === 1 && (await call('customer.list', { channel: '상담', note: '없음' }, admin)).data.matched === 0
+    && (await call('customer.list', { channel: '상담', recent: '7' }, admin)).data.matched === 1 && (await call('customer.list', { channel: '상담', recent: 'old' }, admin)).data.matched === 0
+    && (await call('customer.list', { q: '1순위' }, admin)).data.customers.some((c) => c.name === '상담고객일'));
+  expectErr('최근 활동 조건 값 검사', await call('customer.list', { recent: 'x' }, admin), '최근 활동');
   const cs_adm = (await call('counsel.adminList', {}, admin)).data;
   check('상담고객 탭: 목록·중복·상담사별 현황', cs_adm.total === 1 && cs_adm.customers[0].duplicate && cs_adm.perStaff.some((p) => p.id === c2id && p.owned === 1) && cs_adm.perStaff.some((p) => p.id === c1id && p.notes >= 1), JSON.stringify(cs_adm.perStaff));
   check('상담고객 탭 필터: 중복만·상담사별', (await call('counsel.adminList', { duplicate: true }, admin)).data.matched === 1 && (await call('counsel.adminList', { ownerId: c1id }, admin)).data.matched === 0);
