@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
-  <link rel="stylesheet" href="css/style.css?v=20261113g">
+  <link rel="stylesheet" href="css/style.css?v=20261113h">
 </head>
 <body>
   <div class="topbar"><h1 id="siteName">근태·예약</h1></div>
@@ -101,9 +101,13 @@
         <div class="stat"><span>이번 달 출근일수</span><strong id="home-month"></strong></div>
       </div>
       <button type="button" class="btn primary" id="btn-checkin" style="min-height:64px;font-size:20px;margin-bottom:12px">출근하기</button>
-      <button type="button" class="btn primary" id="btn-reserve" style="margin-bottom:12px">고객 방문 예약</button>
-      <button type="button" class="btn" id="btn-mypay" style="margin-bottom:12px">내 지급내역</button>
-      <button type="button" class="btn" id="btn-mysurvey" style="margin-bottom:12px">내 설문 QR</button>
+      <div class="home-menu">
+        <button type="button" class="btn" id="btn-reserve"><span class="ic">📅</span>방문예약</button>
+        <button type="button" class="btn" id="btn-mysurvey"><span class="ic">📝</span>고객설문</button>
+        <button type="button" class="btn" id="btn-realtor"><span class="ic">🏢</span>부동산설문</button>
+        <button type="button" class="btn" id="btn-myatt"><span class="ic">🕘</span>출근현황</button>
+        <button type="button" class="btn" id="btn-mypay"><span class="ic">💰</span>지급내역</button>
+      </div>
       <button type="button" class="btn hidden" id="btn-approve" style="margin-bottom:12px">직원 승인 관리</button>
       <div class="card">
         <div class="stat"><span>텔레그램 호출 알림</span><strong id="tg-status"></strong></div>
@@ -115,26 +119,38 @@
 
     <!-- 내 지급내역: 확정된 정산만 보인다 -->
     <section id="screen-mypay" class="screen hidden">
+      <div class="backbar"><button type="button" class="btn back" id="btn-mypay-back">← 홈으로</button></div>
       <div class="card">
-        <h2>내 지급내역</h2>
+        <h2>지급내역</h2>
         <p class="muted">정산이 확정된 내역만 표시됩니다. 일당 × 근무일수에서 3.3%(소득세 3% + 지방소득세 0.3%)를 뺀 금액입니다.</p>
         <div id="mp-list"></div>
       </div>
-      <button type="button" class="btn" id="btn-mypay-back">← 홈으로</button>
     </section>
 
     <!-- 내 설문 QR: 고객에게 보여 주면 이 직원의 실적으로 집계된다 -->
     <section id="screen-mysurvey" class="screen hidden">
+      <div class="backbar"><button type="button" class="btn back" id="btn-mysurvey-back">← 홈으로</button></div>
       <div class="card">
-        <h2>내 설문 QR</h2>
-        <p class="muted">고객이 이 QR 을 찍어 설문에 응답하면 내 실적으로 집계됩니다.</p>
+        <h2>고객설문</h2>
+        <p class="muted">고객이 QR 을 찍거나, [바로 연결]로 이 휴대폰에서 바로 응답하면 내 실적으로 집계됩니다.</p>
         <div id="sv-list"></div>
       </div>
-      <button type="button" class="btn" id="btn-mysurvey-back">← 홈으로</button>
+    </section>
+
+    <!-- 출근현황: 월별 출근 시각·관리자 보정·근무일수 -->
+    <section id="screen-myatt" class="screen hidden">
+      <div class="backbar"><button type="button" class="btn back" id="btn-myatt-back">← 홈으로</button></div>
+      <div class="card">
+        <h2>출근현황</h2>
+        <div class="month-nav"><button type="button" class="btn small" id="ma-prev">◀</button><strong id="ma-month"></strong><button type="button" class="btn small" id="ma-next">▶</button></div>
+        <div id="ma-summary"></div>
+        <div id="ma-list"></div>
+      </div>
     </section>
 
     <!-- 승인 관리 (관리자가 권한을 준 팀장·본부장만) -->
     <section id="screen-approve" class="screen hidden">
+      <div class="backbar"><button type="button" class="btn back" id="btn-approve-back">← 홈으로</button></div>
       <div class="card">
         <h2>직원 승인 관리</h2>
         <p class="muted" id="ap-scope"></p>
@@ -143,13 +159,13 @@
         <h3>소속 직원</h3>
         <div id="ap-members"></div>
       </div>
-      <button type="button" class="btn" id="btn-approve-back">← 홈으로</button>
     </section>
 
     <!-- 예약 -->
     <section id="screen-reserve" class="screen hidden">
+      <div class="backbar"><button type="button" class="btn back" id="btn-reserve-back">← 홈으로</button></div>
       <form id="form-reserve" class="card" autocomplete="off">
-        <h2>고객 방문 예약</h2>
+        <h2>방문예약</h2>
         <label class="field"><span class="field-label">고객 전화번호 뒤 5자리</span>
           <input id="rv-last5" type="tel" inputmode="numeric" maxlength="5" placeholder="12345" required></label>
         <label class="field"><span class="field-label">방문 예정일</span>
@@ -167,7 +183,6 @@
         </div>
         <div id="rv-list"></div>
       </div>
-      <button type="button" class="btn" id="btn-reserve-back">← 홈으로</button>
     </section>
 
     <!-- 출근: QR 스캔 -->
@@ -194,9 +209,9 @@
   <!-- QR 스캔 라이브러리 (버전 고정) -->
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <script src="js/config.js?v=20261113g"></script>
-  <script src="js/api.js?v=20261113g"></script>
-  <script src="js/common.js?v=20261113g"></script>
-  <script src="js/staff.js?v=20261113g"></script>
+  <script src="js/config.js?v=20261113h"></script>
+  <script src="js/api.js?v=20261113h"></script>
+  <script src="js/common.js?v=20261113h"></script>
+  <script src="js/staff.js?v=20261113h"></script>
 </body>
 </html>

@@ -170,3 +170,15 @@ body.kiosk { background: #eef3fb; font-size: 20px; }
 /* 탭이 많아도 줄바꿈 없이 가로로 넘겨 본다 */
 .tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
 .tab { white-space: nowrap; flex: 0 0 auto; }
+
+/* 직원 앱: 홈 메뉴(2열 타일), 하위 화면 맨 위 홈으로, 월 이동 */
+.home-menu { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.home-menu .btn { min-height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 16px; font-weight: 700; margin: 0; }
+.home-menu .btn .ic { font-size: 24px; line-height: 1; }
+.home-menu .btn.hidden { display: none; }
+.backbar { position: sticky; top: 0; z-index: 5; background: var(--bg, #f5f6fa); padding: 6px 0 8px; margin-bottom: 4px; }
+.backbar .btn.back { width: auto; min-height: 40px; padding: 0 16px; font-weight: 700; }
+.month-nav { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 4px 0 12px; font-size: 18px; }
+.month-nav .btn { width: auto; min-width: 48px; }
+.att-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line, #e3e7ee); }
+.att-row:last-child { border-bottom: 0; }

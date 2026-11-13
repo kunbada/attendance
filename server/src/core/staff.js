@@ -1,5 +1,6 @@
 // 직원 가입, 로그인, 내 정보, 기기 변경 요청
 import { AppError, s, all, first, run, stmt, nowStr, todayStr, newId, hashSecret, safeEqual, encryptText, getSettings, writeLog } from './util.js';
+import { loadStaffMenu, menuFor } from './staffmenu.js';
 import { MAX_FAILS, createSession, projectBrief } from './auth.js';
 
 export const SALES_JOB = '영업'; // 이 직군만 본부→팀을 선택한다
@@ -209,7 +210,11 @@ export async function staffMe(env, data, ctx) {
     `SELECT COUNT(DISTINCT date) AS n FROM attendance WHERE project_id = ? AND staff_id = ? AND result = '성공' AND date >= ? AND date <= ?`,
     ctx.projectId, ctx.staff.id, month + '-01', month + '-31');
   const settings = await getSettings(env, ctx.projectId);
+  const menu = menuFor(await loadStaffMenu(env, ctx.projectId), ctx.staff.job);
+  // 부동산설문: 이 현장의 중개업소 조사 링크(사용 중일 때만)
+  const rf = menu.realtor ? await first(env, 'SELECT code FROM realtor_forms WHERE project_id = ? AND active = 1', ctx.projectId) : null;
   return {
+    menu, realtorCode: rf ? rf.code : '',
     staff: staffSelf(ctx.staff),
     project: projectBrief(ctx.project),
     checkedInToday: !!todayRec,

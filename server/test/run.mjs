@@ -273,6 +273,33 @@ try {
   expectErr('본인이 또 등록 → 내 예약 안내', await call('reservation.create', { last5: r5, date: today }, tokA3, A.dev), '이미 내 예약이 있습니다');
   expectErr('형식 오류', await call('reservation.create', { last5: '123', date: today }, tokA3, A.dev), '5자리');
   expectErr('지난 날짜', await call('reservation.create', { last5: r5b, date: '2000-01-01' }, tokA3, A.dev), '오늘 이후');
+
+  // --- 직원 앱: 직군별 메뉴 + 출근현황 ---
+  const sm_me0 = (await call('staff.me', {}, tokA3, A.dev)).data;
+  check('직원 앱 메뉴: 기본은 모두 보임, 부동산 링크 없음', sm_me0.menu.reserve && sm_me0.menu.survey && sm_me0.menu.realtor && sm_me0.realtorCode === '', JSON.stringify(sm_me0.menu));
+  const sm_g = (await call('admin.staffMenuGet', {}, admin)).data;
+  check('직군별 메뉴 설정 조회', sm_g.jobs.includes('상담사') && sm_g.menu['상담사'].reserve === true && sm_g.menus.length === 3, JSON.stringify(sm_g.jobs));
+  expectErr('없는 직군은 저장 불가', await call('admin.staffMenuSave', { menu: { 없는직군: { reserve: false } } }, admin), '없는 직군');
+  expectErr('직원은 메뉴 설정 불가', await call('admin.staffMenuSave', { menu: {} }, tokA3, A.dev), '', 'FORBIDDEN');
+  expectOk('상담사: 방문예약·부동산설문 숨김', await call('admin.staffMenuSave', { menu: { 상담사: { reserve: false, survey: true, realtor: false } } }, admin));
+  const sm_me1 = (await call('staff.me', {}, tokA3, A.dev)).data;
+  check('숨긴 메뉴가 직원 앱에 반영', sm_me1.menu.reserve === false && sm_me1.menu.survey === true && sm_me1.menu.realtor === false);
+  expectErr('숨긴 방문예약은 서버에서도 막힘(등록)', await call('reservation.create', { last5: last5(), date: today }, tokA3, A.dev), '방문예약', 'FORBIDDEN');
+  expectErr('숨긴 방문예약은 서버에서도 막힘(목록)', await call('reservation.list', { tab: '예정' }, tokA3, A.dev), '방문예약', 'FORBIDDEN');
+  expectOk('보이는 고객설문은 사용 가능', await call('survey.myLinks', {}, tokA3, A.dev));
+  expectOk('부동산 조사 링크 만들기(이 현장)', await call('realtor.formSave', {}, admin));
+  check('부동산설문을 숨기면 링크도 주지 않음', (await call('staff.me', {}, tokA3, A.dev)).data.realtorCode === '');
+  expectOk('메뉴 모두 보이게 되돌리기', await call('admin.staffMenuSave', { menu: { 상담사: { reserve: true, survey: true, realtor: true } } }, admin));
+  const sm_rc = (await call('realtor.formGet', {}, admin)).data.form.code;
+  check('부동산설문이 보이면 조사 링크 코드를 줌', (await call('staff.me', {}, tokA3, A.dev)).data.realtorCode === sm_rc);
+  expectOk('되돌린 뒤 방문예약 다시 가능', await call('reservation.list', { tab: '예정' }, tokA3, A.dev));
+  expectOk('부동산 조사 링크 다시 없애기 위해 중지', await call('realtor.formSave', { active: false }, admin));
+  check('중지된 조사 링크는 직원에게 주지 않음', (await call('staff.me', {}, tokA3, A.dev)).data.realtorCode === '');
+  const sm_att = (await call('staff.myAttendance', {}, tokA3, A.dev)).data;
+  check('출근현황: 이번 달 오늘 출근 1일, 시각 표시', sm_att.month === today.slice(0, 7) && sm_att.summary.checkins === 1 && sm_att.summary.workDays === 1 && sm_att.days[0].date === today && /^\d{2}:\d{2}$/.test(sm_att.days[0].time), JSON.stringify(sm_att));
+  check('출근현황: 지난달은 기록 없음', (await call('staff.myAttendance', { month: '2000-01' }, tokA3, A.dev)).data.days.length === 0);
+  expectErr('출근현황: 월 형식 검사', await call('staff.myAttendance', { month: '2026-13' }, tokA3, A.dev), '월 형식');
+  expectErr('출근현황: 관리자 계정은 불가(직원 전용)', await call('staff.myAttendance', {}, admin), '', 'FORBIDDEN');
   const race = last5();
   const [x, y] = await Promise.all([
     call('reservation.create', { last5: race, date: today }, tokA3, A.dev), call('reservation.create', { last5: race, date: today }, tokB, B.dev)

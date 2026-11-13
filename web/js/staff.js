@@ -4,6 +4,8 @@
   var BANKS = ['국민', '신한', '우리', '하나', '농협', '기업', 'SC제일', '카카오뱅크', '토스뱅크', '케이뱅크', '새마을금고', '우체국', '신협', '수협', '부산', '대구', '광주', '전북', '경남', '제주', '기타'];
   var orgs = null;
   var genderRequired = false;
+  var realtorCode = '';
+  function appBase() { return location.href.replace(/[?#].*$/, '').replace(/[^\/]*$/, ''); }
 
   function show(name) {
     $$('.screen').forEach(function (s) { s.classList.add('hidden'); });
@@ -52,6 +54,12 @@
     $('#tg-status').textContent = me.telegramLinked ? '연결됨' : '연결 안 됨';
     $('#tg-status').style.color = me.telegramLinked ? 'var(--ok)' : 'var(--danger)';
     $('#btn-telegram').textContent = me.telegramLinked ? '텔레그램 다시 연결' : '텔레그램 연결';
+    // 직군별 메뉴 (관리자가 통합관리 > 인사관리 > 조직에서 정함)
+    var menu = me.menu || {};
+    $('#btn-reserve').classList.toggle('hidden', menu.reserve === false);
+    $('#btn-mysurvey').classList.toggle('hidden', menu.survey === false);
+    $('#btn-realtor').classList.toggle('hidden', menu.realtor === false);
+    realtorCode = me.realtorCode || '';
     $('#btn-checkin').disabled = me.checkedInToday;
     $('#btn-checkin').textContent = me.checkedInToday ? '오늘 출근 완료' : '출근하기';
     show('home');
@@ -298,13 +306,16 @@
     box.innerHTML = '';
     if (!res.links.length) { box.appendChild(h('p', { class: 'muted' }, '진행 중인 설문이 없습니다.')); return; }
     res.links.forEach(function (l) {
-      var url = location.href.replace(/[?#].*$/, '').replace(/[^\/]*$/, '') + 's/?c=' + l.code;
+      var url = appBase() + 's/?c=' + l.code;
       var qr = h('div', { class: 'qr-box' });
+      var open = h('button', { type: 'button', class: 'btn small primary' }, '바로 연결');
+      open.addEventListener('click', function () { window.open(url, '_blank'); });
       var copy = h('button', { type: 'button', class: 'btn small' }, '링크 복사');
       copy.addEventListener('click', function () {
         if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { toast('복사했습니다.'); }); else prompt('링크를 복사하세요', url);
       });
-      box.appendChild(h('div', { class: 'card qr-big' }, h('p', { class: 'qr-title' }, l.title), qr, h('p', { class: 'muted' }, '내 응답 ' + l.responses + '건'), copy));
+      box.appendChild(h('div', { class: 'card qr-big' }, h('p', { class: 'qr-title' }, l.title), qr, h('p', { class: 'muted' }, '내 응답 ' + l.responses + '건'),
+        h('div', { style: 'display:flex;gap:8px;justify-content:center' }, open, copy)));
       if (window.QRCode) new QRCode(qr, { text: url, width: 200, height: 200 });
     });
   }
@@ -312,6 +323,39 @@
     runBusy($('#btn-mysurvey'), async function () { await loadMySurvey(); show('mysurvey'); });
   });
   $('#btn-mysurvey-back').addEventListener('click', function () { runBusy($('#btn-mysurvey-back'), showHome); });
+
+  // ---------- 부동산설문 (중개업소 조사 화면을 새 창으로) ----------
+  $('#btn-realtor').addEventListener('click', function () {
+    if (!realtorCode) { toast('이 현장의 부동산 조사 링크가 아직 없거나 중지되었습니다. 관리자에게 문의해 주세요.', true); return; }
+    window.open(appBase() + 'r/?c=' + realtorCode, '_blank');
+  });
+
+  // ---------- 출근현황 ----------
+  var maMonth = '';
+  function shiftMonth(m, d) { var y = Number(m.slice(0, 4)), mo = Number(m.slice(5, 7)) - 1 + d; y += Math.floor(mo / 12); mo = ((mo % 12) + 12) % 12; return y + '-' + ('0' + (mo + 1)).slice(-2); }
+  var WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+  async function loadMyAtt() {
+    var res = await Api.call('staff.myAttendance', { month: maMonth });
+    maMonth = res.month;
+    $('#ma-month').textContent = res.month.replace('-', '년 ') + '월';
+    var sm = res.summary;
+    var sbox = $('#ma-summary'); sbox.innerHTML = '';
+    sbox.appendChild(h('div', { class: 'stat' }, h('span', null, '근무일수 (보정 반영)'), h('strong', { style: 'font-size:20px' }, sm.workDays + '일')));
+    sbox.appendChild(h('div', { class: 'stat' }, h('span', null, 'QR 출근'), h('strong', null, sm.checkins + '일')));
+    if (sm.인정 || sm.반일 || sm.불인정) sbox.appendChild(h('div', { class: 'stat' }, h('span', null, '관리자 보정'), h('span', null, ['인정 ' + sm.인정, '반일 ' + sm.반일, '불인정 ' + sm.불인정].join(' · '))));
+    var box = $('#ma-list'); box.innerHTML = '';
+    if (!res.days.length) { box.appendChild(h('p', { class: 'muted' }, '이 달의 출근 기록이 없습니다.')); return; }
+    res.days.forEach(function (d) {
+      var wd = WEEK[new Date(d.date + 'T00:00:00').getDay()];
+      var right = d.adjust ? h('span', { class: 'badge ' + (d.adjust === '불인정' ? 'danger' : d.adjust === '반일' ? 'warn' : 'ok') }, d.adjust + (d.reason ? ' · ' + d.reason : '')) : h('span', { class: 'badge ok' }, '출근');
+      box.appendChild(h('div', { class: 'att-row' },
+        h('div', null, h('strong', null, d.date.slice(5).replace('-', '/') + ' (' + wd + ')'), d.time ? h('span', { class: 'muted' }, '  ' + d.time) : null), right));
+    });
+  }
+  $('#btn-myatt').addEventListener('click', function () { maMonth = ''; runBusy($('#btn-myatt'), async function () { await loadMyAtt(); show('myatt'); }); });
+  $('#ma-prev').addEventListener('click', function () { maMonth = shiftMonth(maMonth, -1); runBusy(null, loadMyAtt); });
+  $('#ma-next').addEventListener('click', function () { maMonth = shiftMonth(maMonth, 1); runBusy(null, loadMyAtt); });
+  $('#btn-myatt-back').addEventListener('click', function () { runBusy($('#btn-myatt-back'), showHome); });
 
   // ---------- 텔레그램 연결 ----------
   $('#btn-telegram').addEventListener('click', function () {

@@ -275,6 +275,35 @@
     return card;
   }
 
+  // 직원 앱 메뉴: 직군별로 방문예약·고객설문·부동산설문을 보이거나 숨긴다 (서버도 숨긴 기능은 막는다)
+  async function staffMenuCard() {
+    var d = await Api.call('admin.staffMenuGet');
+    var boxes = {};
+    var rows = d.jobs.map(function (job) {
+      boxes[job] = {};
+      return h('tr', null, h('td', null, h('strong', null, job)), d.menus.map(function (m) {
+        var cb = h('input', { type: 'checkbox', checked: d.menu[job][m.key], style: 'width:20px;height:20px' });
+        boxes[job][m.key] = cb;
+        return h('td', { style: 'text-align:center' }, cb);
+      }));
+    });
+    var save = h('button', { type: 'button', class: 'btn primary', style: 'max-width:160px' }, '저장');
+    save.addEventListener('click', function () {
+      runBusy(save, async function () {
+        var menu = {};
+        d.jobs.forEach(function (job) { menu[job] = {}; d.menus.forEach(function (m) { menu[job][m.key] = boxes[job][m.key].checked; }); });
+        await Api.call('admin.staffMenuSave', { menu: menu });
+        toast('저장했습니다. 직원 앱을 새로 열면 반영됩니다.');
+      });
+    });
+    return h('div', { class: 'card' }, h('h2', null, '직원 앱 메뉴 (직군별)'),
+      h('p', { class: 'muted' }, '체크한 메뉴만 그 직군 직원의 출근 앱 홈에 보입니다. 출근하기·출근현황·지급내역은 모든 직군에 항상 보입니다. 숨긴 메뉴의 기능은 서버에서도 막습니다.'),
+      d.jobs.length ? h('div', { class: 'table-wrap' }, h('table', null,
+        h('thead', null, h('tr', null, h('th', null, '직군'), d.menus.map(function (m) { return h('th', { style: 'text-align:center' }, m.label); }))),
+        h('tbody', null, rows))) : h('p', { class: 'muted' }, '사용 중인 직군이 없습니다. 위에서 직군을 먼저 추가해 주세요.'),
+      d.jobs.length ? h('div', { class: 'toolbar', style: 'margin-top:10px' }, save) : null);
+  }
+
   function openOrgForm(kind, org) {
     var name = h('input', { type: 'text', value: org ? org.name : '', maxLength: 30 });
     var order = h('input', { type: 'number', value: org ? org.order : orgsOf(kind).length + 1 });
@@ -347,7 +376,7 @@
     await Promise.all([Hub.loadStaff(), Hub.loadOrgs()]);
     box.innerHTML = '';
     if (view === 'staff') renderStaff(box);
-    else if (view === 'orgs') box.appendChild(orgsCard());
+    else if (view === 'orgs') { box.appendChild(orgsCard()); box.appendChild(await staffMenuCard()); }
     else if (view === 'all') box.appendChild(searchAllView());
     else box.appendChild(signupLinkCard());
   }

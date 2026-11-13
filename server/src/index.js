@@ -28,6 +28,7 @@ import { contractPoll, contractSync, contractWipe } from './contract/contract.js
 import { contractSummary } from './contract/summary.js';
 import { feeRuleList, feeRuleSave, feeRuleDelete, feeRunCreate, payStatement } from './pay/fee.js';
 import { feeSettingsGet, feeSettingsSave, feeCancelList, feeCancelDecide } from './pay/feeledger.js';
+import { staffMenuGet, staffMenuSave, staffMyAttendance, requireStaffMenu } from './core/staffmenu.js';
 import { contractStaffList, contractMatchList, contractMatchSave } from './contract/match.js';
 import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook/guestbook.js';
 
@@ -47,7 +48,9 @@ const ACTIONS = {
   'staff.me': { roles: ['staff'], fn: staffMe },
   'staff.telegramLink': { roles: ['staff'], fn: staffTelegramLink },
   'staff.myPay': { roles: ['staff'], fn: staffMyPay },
-  'survey.myLinks': { roles: ['staff'], fn: surveyMyLinks },
+  'staff.myAttendance': { roles: ['staff'], fn: staffMyAttendance },
+  // menu: 직군별 직원 앱 메뉴 설정에서 숨긴 기능이면 직원은 부를 수 없다
+  'survey.myLinks': { roles: ['staff'], menu: 'survey', fn: surveyMyLinks },
 
   // 설문(고객관리): 응답 화면은 로그인 없이(링크 코드로), 관리는 관리자·보조관리자
   'survey.form': { roles: ['public'], fn: surveyForm },
@@ -56,10 +59,10 @@ const ACTIONS = {
   'realtor.form': { roles: ['public'], fn: realtorPublicForm },
   'realtor.ocr': { roles: ['public'], fn: realtorOcr },
   'realtor.submit': { roles: ['public'], fn: realtorSubmit },
-  'reservation.create': { roles: ['staff'], fn: reservationCreate },
-  'reservation.list': { roles: ['staff'], fn: reservationList },
-  'reservation.update': { roles: ['staff'], fn: reservationUpdate },
-  'reservation.cancel': { roles: ['staff'], fn: reservationCancel },
+  'reservation.create': { roles: ['staff'], menu: 'reserve', fn: reservationCreate },
+  'reservation.list': { roles: ['staff'], menu: 'reserve', fn: reservationList },
+  'reservation.update': { roles: ['staff'], menu: 'reserve', fn: reservationUpdate },
+  'reservation.cancel': { roles: ['staff'], menu: 'reserve', fn: reservationCancel },
   'attendance.checkin': { roles: ['staff'], fn: attendanceCheckin },
 
   'leader.staffList': { roles: ['staff'], fn: leaderStaffList },
@@ -194,6 +197,8 @@ const ACTIONS = {
   'admin.settings': { roles: ['admin'], scope: 'global', fn: adminSettings },
   'admin.saveSettings': { roles: ['admin'], scope: 'global', fn: adminSaveSettings },
   'admin.orgs': { roles: MGR, fn: adminOrgs },
+  'admin.staffMenuGet': { roles: MGR, fn: staffMenuGet },
+  'admin.staffMenuSave': { roles: MGR, fn: staffMenuSave },
   'admin.saveOrg': { roles: MGR, fn: adminSaveOrg },
   'admin.accounts': { roles: ['admin'], scope: 'global', fn: adminAccounts },
   'admin.saveAccount': { roles: ['admin'], scope: 'global', fn: adminSaveAccount }
@@ -205,6 +210,7 @@ async function route(env, req) {
   const ctx = await authenticate(env, req, def);
   // 별도 앱(설문 관리·예약/호출 조회)은 보조관리자에게 계정별로 허용된 경우만 (관리자는 항상)
   if (def.need && ctx.role === 'sub' && !ctx.account['allow_' + def.need]) throw new AppError('이 기능을 쓸 권한이 없습니다. 관리자에게 허용을 요청해 주세요.');
+  if (def.menu) await requireStaffMenu(env, ctx, def.menu);
   if (ctx.account && ctx.account.must_change_password && !def.allowMustChange) {
     throw new AppError('비밀번호를 먼저 변경해 주세요.', 'MUST_CHANGE_PW');
   }
