@@ -69,7 +69,7 @@
   // ====================================================================
   // 고객 DB: 같은 전화번호의 설문·방문·외부 자료·계약을 한 고객으로. 등급·진행 상태·담당·상담 기록
   // ====================================================================
-  var EMPTY = { q: '', channel: '', grade: '', status: '', ownerId: '', source: '', consent: '', sort: '최근', callable: false, noNote: false, page: 1 };
+  var EMPTY = { q: '', channel: '', grade: '', status: '', ownerId: '', source: '', consent: '', type: '', sort: '최근', callable: false, noNote: false, page: 1 };
   var filter = Object.assign({}, EMPTY);
   var INTENT = { '1': '1점', '2': '2점', '3': '3점', '4': '4점', '5': '5점' };
   var STATUS_BADGE = { '신규': 'info', '연락중': 'warn', '부재': '', '방문예정': 'warn', '방문완료': 'ok', '계약': 'ok', '보류': '', '거부': 'danger' };
@@ -115,7 +115,8 @@
       h('span', { class: 'sep' }),
       chip('상담 기록 없음', sm.noNote, filter.noNote, { noNote: !filter.noNote }),
       chip('담당 없음', sm.noOwner, filter.ownerId === '-', { ownerId: filter.ownerId === '-' ? '' : '-' }),
-      chip('동의 미확인', sm.unconfirmed, filter.consent === '미확인', { consent: filter.consent === '미확인' ? '' : '미확인' })));
+      chip('동의 미확인', sm.unconfirmed, filter.consent === '미확인', { consent: filter.consent === '미확인' ? '' : '미확인' }),
+      sm.types && sm.types.length ? [h('span', { class: 'sep' })].concat(sm.types.map(function (tg) { return chip('관심 ' + tg.label, tg.n, filter.type === tg.code, { type: filter.type === tg.code ? '' : tg.code }); })) : null));
 
     // 3) 검색·조건
     var q = h('input', { type: 'search', value: filter.q, placeholder: '이름, 전화번호 전체 또는 뒤 4자리' });
@@ -152,9 +153,10 @@
         h('td', null, c.surveys ? '설문 ' + c.surveys + '회' + (c.intent ? ' · 의향 ' + (INTENT[c.intent] || c.intent) : '') : '',
           c.visits ? h('div', null, '방문 ' + c.visits + '회' + (c.people > c.visits ? ' (동반 포함 ' + c.people + '명)' : '')) : null,
           c.contract ? h('div', null, '계약 ' + c.contract.dongho) : null,
+          c.typeGroups && c.typeGroups.length ? h('div', null, '관심 ' + (c.interestLabel || c.typeGroups.map(function (g) { return g + '타입'; }).join(', '))) : null,
           c.rank ? h('div', null, '청약 ' + c.rank + (c.special ? ' (' + c.special + ')' : '')) : null,
           c.realtor ? h('div', null, '중개업소 ' + c.realtor.office + (c.realtor.mgm ? ' · MGM ' + c.realtor.mgm : '') + ' · 소개 ' + c.realtor.referCount + '명') : null,
-          !c.surveys && !c.visits && !c.contract && !c.realtor && !c.rank ? h('span', { class: 'muted' }, c.interest || c.region || '-') : null),
+          !c.surveys && !c.visits && !c.contract && !c.realtor && !c.rank && !(c.typeGroups && c.typeGroups.length) ? h('span', { class: 'muted' }, c.interest || c.region || '-') : null),
         h('td', null, c.notes ? c.notes + '건' : h('span', { class: 'muted' }, '-'), c.lastNote ? h('div', { class: 'cust-sub' }, String(c.lastNote).slice(5, 10)) : null),
         h('td', null, c.owner || h('span', { class: 'muted' }, '-')),
         h('td', null, c.last || '-'));

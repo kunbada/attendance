@@ -1551,6 +1551,29 @@ try {
   check('사무실 전화만 있어도 고객 DB 에 합쳐지고 번호로 찾음', rt_tel.matched === 1 && rt_tel.customers[0].name === '전화만부동산' && rt_tel.customers[0].channels.includes('부동산'), JSON.stringify(rt_tel.customers[0]));
   check('사무실 전화 고객의 연락처 보기는 사무실 번호', (await rt('customer.reveal', { id: rt_tel.customers[0].id })).data.phone === '020007799');
 
+  // ===== 프로젝트 주택형·세대수: 설문은 타입군, 상담 앱은 세부 주택형, 고객 DB 는 타입군으로 묶음 =====
+  expectErr('주택형 코드 검사', await call('project.typesSave', { types: [{ code: '!!', units: 1 }] }, admin), '주택형');
+  expectErr('주택형 중복 검사', await call('project.typesSave', { types: [{ code: '84A' }, { code: '84a' }] }, admin), '두 번');
+  expectErr('세대수 검사', await call('project.typesSave', { types: [{ code: '84A', units: -1 }] }, admin), '세대수');
+  const ty_s = await call('project.typesSave', { types: [{ code: '84a', area: 84.97, units: 100 }, { code: '84B', units: 50 }, { code: '59', units: 80 }] }, admin);
+  check('주택형 저장: 대문자·타입군 자동(84A→84)·세대수 합계', ty_s.ok && ty_s.data.types[0].code === '84A' && ty_s.data.types[0].grp === '84' && ty_s.data.groups.length === 2 && ty_s.data.groups[0].units === 150 && ty_s.data.totalUnits === 230, JSON.stringify(ty_s.data));
+  check('직원은 주택형 저장 불가', (await call('project.typesSave', { types: [] }, tokA3, A.dev)).ok === false);
+  check('다른 현장에는 주택형이 없음', (await call('project.typesGet', {}, admin, '', P2)).data.types.length === 0);
+  const ty_bank = (await call('survey.bank', {}, admin)).data;
+  check('설문 문항 은행에 타입군(84타입·59타입)', ty_bank.typeGroups.map((g) => g.label).join() === '84타입,59타입');
+  const ty_sv = await call('survey.save', { title: '타입 설문', status: '진행', questions: [{ key: 'STD_INTENT', title: '분양 의향', required: true }, { key: 'STD_NAME', title: '성함' }, { key: 'STD_PHONE', title: '연락처' }, { key: 'STD_TYPE', title: '관심 타입', options: [{ label: '아무거나' }] }] }, admin);
+  const ty_get = (await call('survey.get', { surveyId: ty_sv.data.id }, admin)).data.survey;
+  const ty_q = ty_get.questions.find((q) => q.key === 'STD_TYPE');
+  check('설문 관심 타입 보기는 프로젝트 타입군으로 고정 (설문에서 적은 보기 무시)', ty_q.options.map((o) => o.code).join() === '84,59' && ty_q.fromProject === true, JSON.stringify(ty_q));
+  const ty_link = (await call('survey.linkSave', { surveyId: ty_sv.data.id, kind: '기타', label: '타입시험' }, admin)).data.code;
+  const ty_form = (await call('survey.form', { code: ty_link })).data;
+  check('공개 설문 화면에도 타입군 보기', ty_form.questions.find((q) => q.key === 'STD_TYPE').options.map((o) => o.label).join() === '84타입,59타입');
+  const TYP = '010-0000-8701';
+  expectOk('설문 응답: 84타입 (개인정보 동의)', await call('survey.submit', { code: ty_link, nonce: 'ty-nonce-0001', consentPi: true, answers: { STD_INTENT: '4', STD_NAME: '타입설문고객', STD_PHONE: TYP, STD_TYPE: '84' } }));
+  expectErr('설문 응답: 세부 주택형 코드는 받지 않음', await call('survey.submit', { code: ty_link, nonce: 'ty-nonce-0002', consentPi: false, answers: { STD_INTENT: '4', STD_TYPE: '84A' } }), '올바르지 않은');
+  const ty_dash = (await call('admin.dashboard', {}, admin)).data.customerStats.typeInterest;
+  check('홈 통계: 관심 타입군 (설문 응답)', ty_dash.length === 2 && ty_dash[0].survey === 1 && ty_dash[0].units === 150, JSON.stringify(ty_dash));
+
   // ===== 상담고객 앱: PIN + 텔레그램 인증, 나의 고객·중복·담당 넘기기, 나의 부동산업소, 고객 DB 통합 =====
   const C1 = person(71), C2 = person(72);
   for (const p of [C1, C2]) expectOk('상담사 가입 ' + p.name, await call('staff.signup', base(p), '', p.dev));
@@ -1580,17 +1603,18 @@ try {
   const cs = (action, data, tok = t1) => call(action, data || {}, tok);
   expectErr('상담 앱 로그인으로 직원 앱 기능(출근 등)은 불가', await call('staff.me', {}, t1, C1.dev), '권한', 'FORBIDDEN');
   const cs_me = (await cs('counsel.me')).data;
-  check('상담 앱 내 정보·선택지', cs_me.staff.id === c1id && cs_me.options.ranks.includes('특별공급') && cs_me.options.specials.includes('신혼부부') && cs_me.options.types.length > 0);
+  check('상담 앱 내 정보·선택지', cs_me.staff.id === c1id && cs_me.options.ranks.includes('특별공급') && cs_me.options.specials.includes('신혼부부') && cs_me.options.types.length === 3 && cs_me.options.groups.length === 2);
 
   const CP1 = '010-0000-8801';
   expectErr('상담고객: 번호 검사', await cs('counsel.save', { phone: '123' }), '휴대폰');
   expectErr('상담고객: 순위 검사', await cs('counsel.save', { phone: CP1, rank: '3순위' }), '순위');
-  const cs_s1 = await cs('counsel.save', { phone: CP1, name: '상담고객일', interest: ['84㎡', '74㎡'], grade: 'A', rank: '특별공급', special: ['신혼부부', '생애최초'], consent: '동의', method: '방문상담', content: '84 관심, 다음 주 재방문' });
+  expectErr('상담고객: 프로젝트에 없는 주택형은 거부', await cs('counsel.save', { phone: CP1, interest: ['99Z'] }), '없는 주택형');
+  const cs_s1 = await cs('counsel.save', { phone: CP1, name: '상담고객일', interest: ['84A', '59'], grade: 'A', rank: '특별공급', special: ['신혼부부', '생애최초'], consent: '동의', method: '방문상담', content: '84 관심, 다음 주 재방문' });
   check('상담고객 등록 + 첫 상담 기록', cs_s1.ok && !cs_s1.data.duplicate && cs_s1.data.noteAdded, JSON.stringify(cs_s1));
   const cs_l1 = (await cs('counsel.customers')).data;
   const cs_c = cs_l1.customers[0] || {};
   check('나의 고객 목록 (등급·순위·특공·관심평형, 번호는 가림)', cs_l1.customers.length === 1 && cs_c.name === '상담고객일' && cs_c.grade === 'A' && cs_c.rank === '특별공급' && cs_c.special.join() === '신혼부부,생애최초'
-    && cs_c.interest.join() === '84㎡,74㎡' && cs_c.ownerIsMe && !cs_c.duplicate && cs_c.phone.includes('****'), JSON.stringify(cs_c));
+    && cs_c.interest.join() === '84A,59' && cs_c.interestLabel.join() === '84A,59타입' && cs_c.ownerIsMe && !cs_c.duplicate && cs_c.phone.includes('****'), JSON.stringify(cs_c));
   const cs_lk = (await cs('counsel.lookup', { phone: CP1 }, t2)).data;
   check('다른 상담사가 번호를 넣으면 담당 상담사가 보임', cs_lk.exists && cs_lk.customer.owner.startsWith(C1.name) && !cs_lk.customer.canEdit);
   check('없는 번호 조회', (await cs('counsel.lookup', { phone: '010-0000-8899' })).data.exists === false);
@@ -1609,7 +1633,7 @@ try {
   expectOk('다른 상담사가 담당 받기', await cs('counsel.take', { id: cs_c1b.id }, t2));
   const cs_l2b = (await cs('counsel.customers', { filter: '담당' }, t2)).data.customers;
   check('담당이 넘어감', cs_l2b.length === 1 && cs_l2b[0].ownerIsMe);
-  expectOk('새 담당이 정보 수정', await cs('counsel.update', { id: cs_c1b.id, name: '상담고객일', interest: ['84㎡'], grade: 'B', rank: '1순위' }, t2));
+  expectOk('새 담당이 정보 수정', await cs('counsel.update', { id: cs_c1b.id, name: '상담고객일', interest: ['84'], grade: 'B', rank: '1순위' }, t2));
   const cs_n = await cs('counsel.noteAdd', { id: cs_c1b.id, method: '전화상담', content: '2차 상담' }, t2);
   expectErr('남이 남긴 기록은 지울 수 없음', await cs('counsel.noteDelete', { noteId: cs_n.data.id }), '내가 남긴');
   expectOk('내 기록 삭제', await cs('counsel.noteDelete', { noteId: cs_n.data.id }, t2));
@@ -1617,7 +1641,9 @@ try {
   // 고객 DB · 상담고객 탭 통합
   const cs_db = (await call('customer.list', { channel: '상담' }, admin)).data;
   const cs_dbc = cs_db.customers[0] || {};
-  check('고객 DB 에 "상담" 경로로 합쳐짐 (등급·순위·담당)', cs_db.matched === 1 && cs_db.summary.channels.상담 === 1 && cs_dbc.grade === 'B' && cs_dbc.rank === '1순위' && cs_dbc.owner === C2.name && !cs_dbc.channels.includes('외부'), JSON.stringify(cs_dbc));
+  check('고객 DB 에 "상담" 경로로 합쳐짐 (등급·순위·담당)', cs_db.matched === 1 && cs_db.summary.channels.상담 === 1 && cs_dbc.grade === 'B' && cs_dbc.rank === '1순위' && cs_dbc.owner === C2.name && !cs_dbc.channels.includes('외부') && cs_dbc.typeGroups.join() === '84' && cs_dbc.interestLabel === '84타입', JSON.stringify(cs_dbc));
+  const ty_cl = (await call('customer.list', { type: '84' }, admin)).data;
+  check('고객 DB: 관심 타입군 바로가기·필터 (설문 84 + 상담 84)', ty_cl.matched === 2 && ty_cl.summary.types.find((x) => x.code === '84').n === 2 && ty_cl.summary.types.find((x) => x.code === '59').n === 0, JSON.stringify(ty_cl.summary.types));
   const cs_adm = (await call('counsel.adminList', {}, admin)).data;
   check('상담고객 탭: 목록·중복·상담사별 현황', cs_adm.total === 1 && cs_adm.customers[0].duplicate && cs_adm.perStaff.some((p) => p.id === c2id && p.owned === 1) && cs_adm.perStaff.some((p) => p.id === c1id && p.notes >= 1), JSON.stringify(cs_adm.perStaff));
   check('상담고객 탭 필터: 중복만·상담사별', (await call('counsel.adminList', { duplicate: true }, admin)).data.matched === 1 && (await call('counsel.adminList', { ownerId: c1id }, admin)).data.matched === 0);

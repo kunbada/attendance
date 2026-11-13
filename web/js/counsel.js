@@ -14,7 +14,9 @@
     var sel = multi ? (value || []).slice() : value || '';
     var box = h('div', { class: 'chips ' + (cls || '') });
     options.forEach(function (o) {
-      var b = h('button', { type: 'button', 'data-v': o }, o);
+      var label = typeof o === 'object' ? o.l : o;
+      o = typeof o === 'object' ? o.v : o;
+      var b = h('button', { type: 'button', 'data-v': o }, label);
       var on = multi ? sel.indexOf(o) >= 0 : sel === o;
       if (on) b.classList.add('on');
       b.addEventListener('click', function () {
@@ -36,24 +38,31 @@
   function gradeTag(g) { return g ? h('span', { class: 'tag g-' + g }, g) : h('span', { class: 'sub' }, '-'); }
 
   // 고객 정보 입력 묶음 (신규·수정 공용). state 를 직접 고친다
-  function profileForm(state) {
-    var typeOpts = OPT.types.slice();
-    state.interest.forEach(function (t) { if (typeOpts.indexOf(t) < 0) typeOpts.push(t); });
-    var interestBox = h('div');
-    function drawInterest() { interestBox.innerHTML = ''; interestBox.appendChild(chips(typeOpts, state.interest, true, function (v) { state.interest = v; })); }
-    drawInterest();
-    var other = h('input', { type: 'text', maxLength: 20, placeholder: '다른 평형 직접 입력 후 Enter', style: 'max-width:240px;margin-top:8px' });
-    other.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter') return; e.preventDefault();
-      var v = other.value.trim(); if (!v) return;
-      if (typeOpts.indexOf(v) < 0) typeOpts.push(v);
-      if (state.interest.indexOf(v) < 0) state.interest.push(v);
-      other.value = ''; drawInterest();
+  // 관심 타입: 프로젝트 주택형 기준표에서. 타입군 줄마다 "84타입(미정)" + 세부 주택형(84A·84B)
+  function interestPicker(state) {
+    var box = h('div');
+    if (!OPT.groups.length) {
+      box.appendChild(h('div', { class: 'notice warn', style: 'margin-top:0' }, '이 현장의 주택형이 아직 입력되지 않았습니다. 관리자에게 [통합관리 > 프로젝트 > 주택형·세대수] 입력을 요청해 주세요.'));
+      return box;
+    }
+    OPT.groups.forEach(function (g) {
+      var hasSub = OPT.types.some(function (t) { return t.grp === g.code && t.code !== g.code; });
+      var opts = [{ v: g.code, l: g.label + (hasSub ? ' (미정)' : (g.units ? ' · ' + g.units + '세대' : '')) }].concat(OPT.types.filter(function (t) { return t.grp === g.code; })
+        .filter(function (t) { return t.code !== g.code; }).map(function (t) { return { v: t.code, l: t.code + (t.units ? ' · ' + t.units + '세대' : '') }; }));
+      var mine = state.interest.filter(function (v) { return opts.some(function (o) { return o.v === v; }); });
+      box.appendChild(h('div', { style: 'display:flex;gap:10px;align-items:center;margin-bottom:6px' }, h('b', { style: 'min-width:64px;font-size:13px;color:#6b7686' }, g.label),
+        chips(opts, mine, true, function (v) {
+          state.interest = state.interest.filter(function (x) { return !opts.some(function (o) { return o.v === x; }); }).concat(v);
+        })));
     });
+    return box;
+  }
+
+  function profileForm(state) {
     var specialBox = h('div', { class: state.rank === '특별공급' ? '' : 'hidden', style: 'margin-top:10px' }, h('div', { class: 'sub', style: 'margin-bottom:6px' }, '특별공급 종류 (여러 개 선택 가능)'),
       chips(OPT.specials, state.special, true, function (v) { state.special = v; }, 'sub'));
     return h('div', null,
-      sec('관심 평형', h('div', null, interestBox, other), '여러 개 선택'),
+      sec('관심 타입', interestPicker(state), '여러 개 선택 · 세부 타입을 아직 모르면 "미정"'),
       sec('등급', chips(OPT.grades, state.grade, false, function (v) { state.grade = v; }, 'grade'), 'A 계약 유력 · B 관심 높음 · C 보통 · D 낮음'),
       sec('청약 순위', h('div', null, chips(OPT.ranks, state.rank, false, function (v) { state.rank = v; specialBox.classList.toggle('hidden', v !== '특별공급'); }), specialBox)),
       sec('개인정보 수집·이용 동의', chips(['동의', '미확인'], state.consent, false, function (v) { state.consent = v || '미확인'; })));
@@ -191,14 +200,14 @@
         h('td', null, h('b', null, c.name || '(이름 없음)'), h('div', { class: 'sub' }, c.phone)),
         h('td', null, gradeTag(c.grade)),
         h('td', null, c.rank || '-', c.special.length ? h('div', { class: 'sub' }, c.special.join(', ')) : null),
-        h('td', null, c.interest.join(', ') || '-'),
+        h('td', null, (c.interestLabel || c.interest).join(', ') || '-'),
         h('td', null, c.ownerIsMe ? h('span', { class: 'tag me' }, '나') : c.unowned ? h('span', { class: 'sub' }, '담당 없음') : c.owner),
         h('td', null, c.duplicate ? c.others.map(function (o) { return h('span', { class: 'tag dup' }, o); }) : h('span', { class: 'sub' }, '-')),
         h('td', null, c.notes + '회'), h('td', { class: 'sub' }, String(c.last || '').slice(0, 10)));
       tr.addEventListener('click', function () { runBusy(null, function () { return openCustomer(c.id, again); }); });
       return tr;
     });
-    root.appendChild(h('table', { class: 'cs-table' }, h('thead', null, h('tr', null, ['고객', '등급', '청약 순위', '관심 평형', '담당', '다른 상담사(중복)', '상담', '최근'].map(function (x) { return h('th', null, x); }))), h('tbody', null, rows)));
+    root.appendChild(h('table', { class: 'cs-table' }, h('thead', null, h('tr', null, ['고객', '등급', '청약 순위', '관심 타입', '담당', '다른 상담사(중복)', '상담', '최근'].map(function (x) { return h('th', null, x); }))), h('tbody', null, rows)));
   }
 
   function timelineBox(items, onDelete) {
@@ -258,7 +267,7 @@
       sv.addEventListener('click', function () { runBusy(sv, async function () { await Api.call('counsel.update', { id: id, name: st.name, interest: st.interest, grade: st.grade, rank: st.rank, special: st.special, consent: st.consent }); changed = true; toast('저장했습니다.'); }); });
       left.appendChild(h('div', { class: 'cs-actions' }, sv));
     } else {
-      left.appendChild(h('p', { class: 'muted' }, '담당 상담사만 고객 정보를 고칠 수 있습니다. 등급 ' + (c.grade || '-') + ' · ' + (c.rank || '순위 미입력') + ' · 관심 ' + (c.interest.join(', ') || '-')));
+      left.appendChild(h('p', { class: 'muted' }, '담당 상담사만 고객 정보를 고칠 수 있습니다. 등급 ' + (c.grade || '-') + ' · ' + (c.rank || '순위 미입력') + ' · 관심 ' + ((c.interestLabel || c.interest).join(', ') || '-')));
     }
     var right = h('div');
     var ns = { method: '전화상담', content: '' };

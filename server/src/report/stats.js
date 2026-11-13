@@ -1,6 +1,7 @@
 // 관리자 대시보드와 방명록 통계·내보내기. 집계는 DB 에서 하고(GROUP BY), 화면에는 결과만 보낸다.
 import { AppError, s, all, first, todayStr, orgNameMap, writeLog } from '../core/util.js';
 import { visitStatus, formatPhone } from '../visit/visit.js';
+import { loadTypes, typeGroups, toGroup } from '../core/types.js';
 
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v);
 const isMonth = (v) => /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
@@ -108,7 +109,7 @@ async function homeExtra(env, pid, today, groups, names) {
   const days30 = [];
   for (let i = 29; i >= 0; i--) days30.push(daysAgo(i));
   const byDay = (rows) => Object.fromEntries(rows.map((r) => [r.d, r.n]));
-  const [att, sv, gb, rt, rv, staffAgg, svAgg, gbMonth, rvAgg, rtRows, ext, ctMonthly, csAgg, csNotes] = await Promise.all([
+  const [att, sv, gb, rt, rv, staffAgg, svAgg, gbMonth, rvAgg, rtRows, ext, ctMonthly, csAgg, csNotes, types, svTypes, csTypes] = await Promise.all([
     all(env, `SELECT date AS d, COUNT(DISTINCT staff_id) AS n FROM attendance WHERE project_id = ? AND result = '성공' AND date >= ? GROUP BY date`, pid, from30),
     all(env, `SELECT substr(submitted_at, 1, 10) AS d, COUNT(*) AS n FROM responses WHERE project_id = ? AND submitted_at >= ? GROUP BY d`, pid, from30 + ' 00:00:00'),
     all(env, `SELECT visit_date AS d, SUM(1 + companions) AS n FROM guestbook WHERE project_id = ? AND visit_date >= ? GROUP BY visit_date`, pid, from30),
@@ -123,8 +124,17 @@ async function homeExtra(env, pid, today, groups, names) {
     all(env, `SELECT substr(json_extract(json, '$.date'), 1, 7) AS m, COUNT(*) AS n, COALESCE(SUM(CASE WHEN status_g = '해약' THEN 1 ELSE 0 END), 0) AS cancel
               FROM ct_records WHERE project_id = ? AND col = 'contracts' AND deleted = 0 GROUP BY m`, pid),
     first(env, `SELECT COUNT(*) AS n FROM customers WHERE project_id = ? AND counsel_at <> ''`, pid),
-    first(env, `SELECT COUNT(*) AS n FROM customer_notes WHERE project_id = ? AND staff_id <> '' AND at >= ?`, pid, month + '-01')
+    first(env, `SELECT COUNT(*) AS n FROM customer_notes WHERE project_id = ? AND staff_id <> '' AND at >= ?`, pid, month + '-01'),
+    loadTypes(env, pid),
+    all(env, `SELECT value_code AS code, COUNT(*) AS n FROM response_answers WHERE project_id = ? AND q_key = 'STD_TYPE' GROUP BY value_code`, pid),
+    all(env, `SELECT interest FROM customers WHERE project_id = ? AND interest <> ''`, pid)
   ]);
+  // 관심 타입군: 설문 응답(타입군 코드) + 고객 관심 타입(상담 앱 등, 세부 주택형은 타입군으로)
+  const tg = typeGroups(types);
+  const svBy = Object.fromEntries(svTypes.map((r) => [r.code, r.n]));
+  const csBy = {};
+  csTypes.forEach((r) => new Set(s(r.interest).split(',').filter(Boolean).map((v) => toGroup(v, types))).forEach((g) => { csBy[g] = (csBy[g] || 0) + 1; }));
+  const typeInterest = tg.map((g) => ({ code: g.code, label: g.label, units: g.units, survey: svBy[g.code] || 0, customers: csBy[g.code] || 0 }));
   const mAtt = byDay(att), mSv = byDay(sv), mGb = byDay(gb), mRt = byDay(rt), mRv = byDay(rv);
   const trend30 = days30.map((d) => ({ date: d, attendance: mAtt[d] || 0, surveys: mSv[d] || 0, guests: mGb[d] || 0, realtors: mRt[d] || 0, reservations: mRv[d] || 0 }));
   // 이번 달 하루 평균 출근 (출근이 있었던 날 기준)
@@ -157,7 +167,7 @@ async function homeExtra(env, pid, today, groups, names) {
       reservationsNext7: rvAgg ? rvAgg.next7 : 0,
       realtorPeople: people.length, realtorResponses: rtRows.length, realtorMgm: people.filter((r) => r.mgm === '참여').length,
       realtorRefer: people.reduce((a, r) => a + (r.refer_count || 0), 0), external: ext.n,
-      counselCustomers: csAgg.n, counselNotesMonth: csNotes.n
+      counselCustomers: csAgg.n, counselNotesMonth: csNotes.n, typeInterest
     },
     contractMonthly
   };

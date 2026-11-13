@@ -656,3 +656,15 @@ CREATE TABLE IF NOT EXISTS staff_otp (
   tries INTEGER NOT NULL DEFAULT 0,
   sent_at INTEGER NOT NULL
 );
+
+--   code = 세부 주택형 (예: 84A, 84B) — 상담 앱에서 고른다
+--   grp  = 타입군 (예: 84) — 설문(사전판촉)에서는 타입군만 묻고, 통계도 타입군으로 묶는다
+CREATE TABLE IF NOT EXISTS project_types (
+  project_id TEXT NOT NULL,
+  code TEXT NOT NULL,
+  grp TEXT NOT NULL,
+  area REAL NOT NULL DEFAULT 0,               -- 전용면적(㎡), 모르면 0
+  units INTEGER NOT NULL DEFAULT 0,           -- 세대수
+  sort INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (project_id, code)
+);

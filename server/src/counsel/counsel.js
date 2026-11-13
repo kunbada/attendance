@@ -7,13 +7,13 @@ import { normalizePhone, requirePin, checkPin } from '../core/staff.js';
 import { loadStaffMenu, menuFor } from '../core/staffmenu.js';
 import { telegramApi } from '../telegram/telegram.js';
 import { GRADES } from '../customer/grade.js';
+import { loadTypes, typeGroups, cleanInterest, typeLabel } from '../core/types.js';
 import { loadCustomers, resolveHash, fullPhone, customerGet, normalizePhoneLoose } from '../customer/customer.js';
 import { loadOffices, officeView, responseView, SCALE, MGM, fmtTel } from '../realtor/realtor.js';
 
 export const RANKS = ['특별공급', '1순위', '2순위', '무순위', '미정'];
 export const SPECIALS = ['신혼부부', '생애최초', '다자녀', '노부모부양', '신생아', '청년', '기관추천'];
 export const METHODS = ['방문상담', '전화상담', '문자·카톡', '기타'];
-const DEFAULT_TYPES = ['59㎡', '74㎡', '84㎡', '100㎡ 이상'];
 const OTP_MS = 5 * 60 * 1000, OTP_RESEND_MS = 60 * 1000, OTP_TRIES = 5;
 
 const maskPhone = (d) => (d && d.length >= 7 ? d.slice(0, 3) + '-****-' + d.slice(-4) : '');
@@ -75,17 +75,13 @@ export async function counselLoginVerify(env, data) {
 
 // ---------- 내 정보·선택지 ----------
 
-async function typeOptions(env, pid) {
-  const rows = await all(env, `SELECT DISTINCT json_extract(json, '$.type') AS t FROM ct_records WHERE project_id = ? AND col = 'units' AND deleted = 0`, pid);
-  const list = rows.map((r) => s(r.t).trim()).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko'));
-  return list.length ? list : DEFAULT_TYPES;
-}
 
 export async function counselMe(env, data, ctx) {
   const me = ctx.staff;
   return {
     staff: { id: me.id, name: me.name, nickname: me.nickname, job: me.job }, project: projectBrief(ctx.project),
-    options: { types: await typeOptions(env, ctx.projectId), grades: GRADES, ranks: RANKS, specials: SPECIALS, methods: METHODS },
+    // 관심 타입: 프로젝트 주택형 기준표(통합관리 > 프로젝트 > 주택형). 타입군(84) 또는 세부 주택형(84A)을 고른다
+    options: { types: await loadTypes(env, ctx.projectId), groups: typeGroups(await loadTypes(env, ctx.projectId)), grades: GRADES, ranks: RANKS, specials: SPECIALS, methods: METHODS },
     realtorCode: ((await first(env, 'SELECT code FROM realtor_forms WHERE project_id = ? AND active = 1', ctx.projectId)) || {}).code || ''
   };
 }
@@ -93,12 +89,12 @@ export async function counselMe(env, data, ctx) {
 // ---------- 나의 고객 ----------
 
 // 상담고객 앱에서 볼 고객 한 줄. others = 나 말고 이 고객을 담당하거나 상담한 상담사
-function custView(c, me, names) {
+function custView(c, me, names, types = []) {
   const others = new Set([...c.counselors].filter((x) => x !== me));
   if (c.ownerId && c.ownerId !== me) others.add(c.ownerId);
   return {
     id: c.hash.slice(0, 12), name: c.name, phone: c.phone ? maskPhone(c.phone) : maskTail(c.tail), grade: c.grade, gradeSource: c.gradeSource,
-    rank: c.rank, special: c.special ? c.special.split(',') : [], interest: c.interest ? c.interest.split(',') : [], channels: c.channels,
+    rank: c.rank, special: c.special ? c.special.split(',') : [], interest: c.interest ? c.interest.split(',') : [], interestLabel: (c.interest ? c.interest.split(',') : []).map((v) => typeLabel(v, types)), channels: c.channels,
     owner: c.ownerId ? names[c.ownerId] || '(다른 현장 직원)' : '', ownerIsMe: c.ownerId === me, unowned: !c.ownerId,
     others: [...others].map((x) => names[x] || '(알 수 없음)'), duplicate: others.size > 0,
     notes: c.counselNotes, myNotes: c.counselors.has(me), last: c.lastCounsel || c.last, status: c.status, consent: c.consent
@@ -111,8 +107,8 @@ const realtorOnly = (c) => c.realtor && !c.counselAt && !c.surveys && !c.visits 
 
 export async function counselCustomers(env, data, ctx) {
   const pid = ctx.projectId, me = ctx.staff.id;
-  const [{ rows }, names] = await Promise.all([loadCustomers(env, pid), staffNames(env, pid)]);
-  let list = rows.filter((c) => isMine(c, me) && !realtorOnly(c)).map((c) => ({ c, v: custView(c, me, names) }));
+  const [{ rows }, names, types] = await Promise.all([loadCustomers(env, pid), staffNames(env, pid), loadTypes(env, pid)]);
+  let list = rows.filter((c) => isMine(c, me) && !realtorOnly(c)).map((c) => ({ c, v: custView(c, me, names, types) }));
   const counts = { all: list.length, owner: list.filter((x) => x.v.ownerIsMe).length, duplicate: list.filter((x) => x.v.duplicate).length, unowned: list.filter((x) => x.v.unowned).length };
   const f = s(data.filter);
   if (f === '담당') list = list.filter((x) => x.v.ownerIsMe);
@@ -131,16 +127,16 @@ export async function counselLookup(env, data, ctx) {
   const d = normalizePhoneLoose(data.phone);
   if (!d) throw new AppError('휴대폰 번호를 확인해 주세요.');
   const hash = await phoneHash(env, d);
-  const [{ rows }, names] = await Promise.all([loadCustomers(env, ctx.projectId), staffNames(env, ctx.projectId)]);
+  const [{ rows }, names, types] = await Promise.all([loadCustomers(env, ctx.projectId), staffNames(env, ctx.projectId), loadTypes(env, ctx.projectId)]);
   const c = rows.find((x) => x.hash === hash);
   if (!c) return { exists: false };
-  const v = custView(c, ctx.staff.id, names);
+  const v = custView(c, ctx.staff.id, names, types);
   return { exists: true, customer: { ...v, interest: v.interest, canEdit: v.ownerIsMe || v.unowned } };
 }
 
-function cleanProfile(data) {
+function cleanProfile(data, types) {
   const list = (v, max) => (Array.isArray(v) ? v : s(v).split(',')).map((x) => s(x).trim().slice(0, 20)).filter(Boolean).slice(0, max);
-  const interest = [...new Set(list(data.interest, 10))];
+  const interest = cleanInterest(data.interest, types);
   const rank = s(data.rank);
   if (rank && !RANKS.includes(rank)) throw new AppError('청약 순위 값이 올바르지 않습니다.');
   const special = rank === '특별공급' ? [...new Set(list(data.special, 7))] : [];
@@ -176,7 +172,7 @@ export async function counselSave(env, data, ctx) {
   const pid = ctx.projectId, me = ctx.staff;
   const d = normalizePhoneLoose(data.phone);
   if (!d) throw new AppError('휴대폰 번호를 확인해 주세요.');
-  const p = cleanProfile(data);
+  const p = cleanProfile(data, await loadTypes(env, pid));
   const hash = await phoneHash(env, d);
   const cur = await first(env, 'SELECT owner_id FROM customers WHERE project_id = ? AND phone_hash = ?', pid, hash);
   if (cur && cur.owner_id && cur.owner_id !== me.id) {
@@ -212,7 +208,7 @@ export async function counselUpdate(env, data, ctx) {
   const hash = await resolveHash(env, pid, data.id);
   const cur = await first(env, 'SELECT owner_id FROM customers WHERE project_id = ? AND phone_hash = ?', pid, hash);
   if (cur && cur.owner_id && cur.owner_id !== me.id) throw new AppError('다른 상담사가 담당 중인 고객입니다. 담당 상담사가 포기한 뒤 [담당 받기]를 해 주세요.', 'OWNED');
-  const p = cleanProfile(data);
+  const p = cleanProfile(data, await loadTypes(env, pid));
   const now = nowStr();
   await run(env,
     `INSERT INTO customers (project_id, phone_hash, name, source, source_kind, consent, owner_id, interest, subscr_rank, special_kind, counsel_at, created_at, updated_at, updated_by)
@@ -233,10 +229,10 @@ export async function counselUpdate(env, data, ctx) {
 export async function counselGet(env, data, ctx) {
   const pid = ctx.projectId, me = ctx.staff.id;
   const hash = await resolveHash(env, pid, data.id);
-  const [{ rows }, names] = await Promise.all([loadCustomers(env, pid), staffNames(env, pid)]);
+  const [{ rows }, names, types] = await Promise.all([loadCustomers(env, pid), staffNames(env, pid), loadTypes(env, pid)]);
   const c = rows.find((x) => x.hash === hash);
   if (!c) throw new AppError('이 현장에서 고객을 찾을 수 없습니다.');
-  const v = custView(c, me, names);
+  const v = custView(c, me, names, types);
   if (!isMine(c, me) && !v.unowned) {
     return { customer: { id: v.id, name: v.name, phone: v.phone, owner: v.owner, ownerIsMe: false, unowned: false, others: v.others, duplicate: true }, limited: true, timeline: [] };
   }

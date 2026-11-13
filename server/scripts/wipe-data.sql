@@ -11,6 +11,7 @@ DELETE FROM realtor_responses;
 DELETE FROM realtor_forms;
 DELETE FROM ocr_usage;
 DELETE FROM staff_otp;
+DELETE FROM project_types;
 DELETE FROM customer_notes;
 DELETE FROM customers;
 DELETE FROM customer_grades;

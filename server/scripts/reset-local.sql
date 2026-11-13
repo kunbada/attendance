@@ -39,3 +39,4 @@ DROP TABLE IF EXISTS realtor_forms;
 DROP TABLE IF EXISTS realtor_responses;
 DROP TABLE IF EXISTS ocr_usage;
 DROP TABLE IF EXISTS staff_otp;
+DROP TABLE IF EXISTS project_types;

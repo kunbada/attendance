@@ -15,10 +15,67 @@
     }
     root.appendChild(head);
     if (!Hub.state.projects.length) root.appendChild(h('div', { class: 'card' }, h('p', { class: 'muted' }, '아직 프로젝트가 없습니다. [+ 새 프로젝트]로 첫 현장을 만들어 주세요.')));
-    Hub.state.projects.forEach(function (p) { root.appendChild(card(p)); });
+    // 현장마다 주택형 요약 (설문·상담 앱의 관심 타입 기준표)
+    var typeInfo = await Promise.all(Hub.state.projects.map(function (p) { return Api.call('project.typesGet', {}, { projectId: p.id }).catch(function () { return null; }); }));
+    Hub.state.projects.forEach(function (p, i) { root.appendChild(card(p, typeInfo[i])); });
   }
 
-  function card(p) {
+  // 주택형·세대수 편집: 주택형(84A) · 타입군(84, 비우면 자동) · 전용면적 · 세대수. 순서 = 설문·상담 앱에 보이는 순서
+  function openTypes(p, info) {
+    var rows = (info && info.types || []).map(function (t) { return { code: t.code, grp: t.grp, area: t.area || '', units: t.units || '' }; });
+    var used = (info && info.used) || {};
+    var box = h('div'), total = h('strong');
+    var guess = function (code) { var m = String(code || '').match(/^\d+(\.\d+)?/); return m ? m[0] : String(code || ''); };
+    function draw() {
+      box.innerHTML = '';
+      var tbody = h('tbody', null, rows.map(function (r, i) {
+        var code = h('input', { type: 'text', value: r.code, maxLength: 12, placeholder: '84A', style: 'width:100px' });
+        var grp = h('input', { type: 'text', value: r.grp, maxLength: 12, placeholder: guess(r.code) || '84', style: 'width:80px' });
+        var area = h('input', { type: 'number', value: r.area, step: '0.01', min: 0, placeholder: '84.97', style: 'width:100px' });
+        var units = h('input', { type: 'number', value: r.units, min: 0, placeholder: '0', style: 'width:90px' });
+        code.addEventListener('input', function () { r.code = code.value.toUpperCase(); grp.placeholder = guess(r.code); });
+        grp.addEventListener('input', function () { r.grp = grp.value; });
+        area.addEventListener('input', function () { r.area = area.value; });
+        units.addEventListener('input', function () { r.units = units.value; sum(); });
+        var mv = function (label, d) { var b = h('button', { type: 'button', class: 'btn small' }, label); b.addEventListener('click', function () { var j = i + d; if (j < 0 || j >= rows.length) return; var x = rows[i]; rows[i] = rows[j]; rows[j] = x; draw(); }); return b; };
+        var del = h('button', { type: 'button', class: 'btn small danger' }, '✕');
+        del.addEventListener('click', function () {
+          if (used[r.code] && !confirm(r.code + ' 은(는) 고객 ' + used[r.code] + '명의 관심 타입에 쓰였습니다. 지워도 고객 기록은 남지만 통계에서 빠집니다. 지울까요?')) return;
+          rows.splice(i, 1); draw();
+        });
+        return h('tr', null, h('td', null, code), h('td', null, grp), h('td', null, area), h('td', null, units), h('td', { class: 'muted' }, used[r.code] ? '고객 ' + used[r.code] : ''), h('td', null, mv('↑', -1), ' ', mv('↓', 1), ' ', del));
+      }));
+      box.appendChild(h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['주택형', '타입군', '전용면적(㎡)', '세대수', '사용', ''].map(function (x) { return h('th', null, x); }))), tbody)));
+      sum();
+    }
+    function sum() { total.textContent = '합계 ' + rows.reduce(function (a, r) { return a + (Number(r.units) || 0); }, 0).toLocaleString('ko-KR') + '세대 · 주택형 ' + rows.length + '개'; }
+    var add = h('button', { type: 'button', class: 'btn small' }, '+ 주택형 추가');
+    add.addEventListener('click', function () { rows.push({ code: '', grp: '', area: '', units: '' }); draw(); });
+    // 엑셀에서 복사한 "84A 120" 또는 "84A 84.97 120" 줄들을 한꺼번에
+    var paste = h('textarea', { rows: 3, placeholder: '엑셀에서 붙여넣기 (한 줄에 하나: 주택형 [전용면적] 세대수)  예) 84A 84.97 120' });
+    var pasteBtn = h('button', { type: 'button', class: 'btn small' }, '붙여넣은 줄 추가');
+    pasteBtn.addEventListener('click', function () {
+      paste.value.split(/\r?\n/).forEach(function (line) {
+        var c = line.trim().split(/[\t ,]+/).filter(Boolean); if (!c.length) return;
+        var r = { code: c[0].toUpperCase(), grp: '', area: c.length >= 3 ? c[1] : '', units: c.length >= 3 ? c[2] : (c[1] || '') };
+        var ex = rows.filter(function (x) { return x.code === r.code; })[0];
+        if (ex) Object.assign(ex, { area: r.area || ex.area, units: r.units || ex.units }); else rows.push(r);
+      });
+      paste.value = ''; draw();
+    });
+    draw();
+    modal('주택형·세대수 — ' + p.name, h('div', null,
+      h('p', { class: 'muted', style: 'margin-top:0' }, '설문(사전판촉)은 "타입군"만 묻고(예: 84타입), 상담고객 앱은 세부 주택형(84A·84B)까지 고릅니다. 고객 DB·통계는 타입군으로 묶어 셉니다. 계약관리(계약앱 세대표)와는 별개입니다. 타입군을 비워 두면 주택형 앞의 숫자로 정해집니다(84A → 84).'),
+      box, h('div', { class: 'toolbar' }, add, total), h('div', { style: 'margin-top:8px' }, paste, pasteBtn)), [{
+      label: '저장', primary: true, onClick: async function (close) {
+        var list = rows.filter(function (r) { return String(r.code).trim(); }).map(function (r) { return { code: r.code, grp: r.grp, area: Number(r.area) || 0, units: Number(r.units) || 0 }; });
+        await Api.call('project.typesSave', { types: list }, { projectId: p.id });
+        close(); toast('저장했습니다. 설문의 관심 타입 보기와 상담고객 앱에 바로 반영됩니다.'); await render(root);
+      }
+    }], { wide: true });
+  }
+
+  function card(p, info) {
     var cur = p.id === Api.getProject();
     var actions = h('div');
     var open = h('button', { type: 'button', class: 'btn small' + (cur ? '' : ' primary') }, cur ? '선택됨' : '이 현장 선택');
@@ -30,6 +87,10 @@
       document.getElementById('project-select').dispatchEvent(new Event('change'));
     });
     actions.appendChild(open);
+    var tbtn = h('button', { type: 'button', class: 'btn small' }, '주택형·세대수');
+    tbtn.addEventListener('click', function () { runBusy(tbtn, async function () { openTypes(p, await Api.call('project.typesGet', {}, { projectId: p.id })); }); });
+    actions.appendChild(document.createTextNode(' '));
+    actions.appendChild(tbtn);
     if (Hub.isAdmin()) {
       var edit = h('button', { type: 'button', class: 'btn small' }, '수정');
       edit.addEventListener('click', function () { openForm(p); });
@@ -42,7 +103,9 @@
         h('h3', { style: 'margin:0 0 4px' }, p.name + ' ', h('span', { class: 'badge ' + STATUS_BADGE[p.status] }, p.status)),
         h('div', { class: 'meta' }, meta || '(상세 정보 없음)'),
         h('div', { class: 'meta' }, '활동 ' + p.activeStaff + '명 · 승인 대기 ' + p.pendingStaff + '명 · 가입 코드 ' + p.code),
-        h('div', { class: 'meta' }, '출근 허용거리 ' + p.gpsDistance + 'm · 예약 중복 기준 ' + (p.dupRule === '뒤5자리+성별' ? '뒤5자리 + 성별' : '뒤5자리'))),
+        h('div', { class: 'meta' }, '출근 허용거리 ' + p.gpsDistance + 'm · 예약 중복 기준 ' + (p.dupRule === '뒤5자리+성별' ? '뒤5자리 + 성별' : '뒤5자리')),
+        h('div', { class: 'meta' }, info && info.types.length ? '주택형 ' + info.types.map(function (t) { return t.code + (t.units ? '(' + t.units + ')' : ''); }).join(' · ') + ' — 총 ' + info.totalUnits.toLocaleString('ko-KR') + '세대'
+          : '주택형 미입력 — [주택형·세대수]에서 입력하면 설문·상담 앱의 관심 타입에 쓰입니다')),
       actions);
   }
 

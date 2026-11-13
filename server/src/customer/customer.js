@@ -6,6 +6,7 @@ import { AppError, s, all, first, run, stmt, decryptText, phoneHash, nowStr, tod
 import { SCALE as RT_SCALE, backfillRealtorHash } from '../realtor/realtor.js';
 import { GRADES, classify, loadGradeRules, saveGradeRules, DEFAULT_RULES } from './grade.js';
 import { STD } from '../survey/std.js';
+import { loadTypes, typeGroups, toGroup, typeLabel, groupLabel } from '../core/types.js';
 
 export const STATUSES = ['신규', '연락중', '부재', '방문예정', '방문완료', '계약', '보류', '거부'];
 export const NOTE_KINDS = ['TM', '상담', '메모'];
@@ -56,17 +57,19 @@ export async function loadCustomers(env, pid) {
   const map = {};
   const cust = (h) => (map[h] = map[h] || {
     hash: h, name: '', phone: '', tail: '', phoneEnc: '', surveys: 0, lastSurveyAt: '', intent: '', subscr: '', visits: 0, lastVisit: '', people: 0,
-    ext: null, realtor: null, contract: null, rank: '', special: '', counselAt: '', counselors: new Set(), counselNotes: 0, lastCounsel: '', notes: 0, lastNote: '', consent: '', status: '', ownerId: '', memo: '', dnc: false, source: '', region: '', interest: '', createdAt: ''
+    ext: null, realtor: null, contract: null, rank: '', special: '', counselAt: '', surveyTypes: new Set(), counselors: new Set(), counselNotes: 0, lastCounsel: '', notes: 0, lastNote: '', consent: '', status: '', ownerId: '', memo: '', dnc: false, source: '', region: '', interest: '', createdAt: ''
   });
 
   (await all(env,
     `SELECT r.phone_hash, r.submitted_at, p.name, p.phone_enc,
             (SELECT a.value_code FROM response_answers a WHERE a.response_id = r.id AND a.q_key = 'STD_INTENT' LIMIT 1) AS intent,
-            (SELECT a.value_code FROM response_answers a WHERE a.response_id = r.id AND a.q_key = 'STD_SUBSCR' LIMIT 1) AS subscr
+            (SELECT a.value_code FROM response_answers a WHERE a.response_id = r.id AND a.q_key = 'STD_SUBSCR' LIMIT 1) AS subscr,
+            (SELECT group_concat(a.value_code) FROM response_answers a WHERE a.response_id = r.id AND a.q_key = 'STD_TYPE') AS types
      FROM responses r LEFT JOIN response_pii p ON p.response_id = r.id AND p.project_id = r.project_id
      WHERE r.project_id = ? AND r.phone_hash <> '' ORDER BY r.submitted_at`, pid)).forEach((r) => {
     const c = cust(r.phone_hash);
     c.surveys++; c.lastSurveyAt = r.submitted_at; if (r.intent) { c.intent = r.intent; c.subscr = r.subscr || ''; }
+    if (r.types) s(r.types).split(',').forEach((v) => c.surveyTypes.add(v));
     if (r.name && !c.name) c.name = r.name;
     if (r.phone_enc) c.phoneEnc = r.phone_enc;
     c.consent = '동의';
@@ -120,6 +123,8 @@ export async function loadCustomers(env, pid) {
   (await all(env, 'SELECT id, name FROM staff WHERE project_id = ?', pid)).forEach((r) => { staff[r.id] = r.name; });
 
   const rules = await loadGradeRules(env, pid);
+  const types = await loadTypes(env, pid);
+  const groupCodes = new Set(typeGroups(types).map((g) => g.code));
   const rows = Object.values(map);
   rows.forEach((c) => {
     const m = manual[c.hash];
@@ -128,12 +133,18 @@ export async function loadCustomers(env, pid) {
     c.statusAuto = !c.status;
     if (!c.status) c.status = c.contract ? '계약' : c.visits ? '방문완료' : '신규';
     c.owner = staff[c.ownerId] || '';
+    // 관심 타입군: 설문(타입군 코드) + 상담·외부 자료의 관심 타입(세부 주택형이면 타입군으로). 기준표에 있는 타입군만 센다
+    const gs = new Set();
+    c.surveyTypes.forEach((v) => { if (groupCodes.has(v)) gs.add(v); });
+    s(c.interest).split(',').filter(Boolean).forEach((v) => { const g = toGroup(v, types); if (groupCodes.has(g)) gs.add(g); });
+    c.typeGroups = [...gs];
+    c.interestLabel = s(c.interest).split(',').filter(Boolean).map((v) => typeLabel(v, types)).join(', ');
     // 상담 경로: 상담고객 앱에서 등록했거나, 상담사가 기록을 남긴 고객 (중개사만인 사람은 "부동산"으로 둔다)
     c.isCounsel = !!(c.counselAt || (c.counselors.size && !(c.realtor && !c.surveys && !c.visits && !c.ext && !c.contract)));
     c.channels = [c.surveys ? '설문' : '', c.visits ? '방문' : '', c.ext ? '외부' : '', c.realtor ? '부동산' : '', c.isCounsel ? '상담' : '', c.contract ? '계약' : ''].filter(Boolean);
     c.last = [c.lastSurveyAt.slice(0, 10), c.lastVisit, s(c.lastNote).slice(0, 10), c.contract ? c.contract.date : '', c.realtor ? c.realtor.last.slice(0, 10) : '', c.createdAt.slice(0, 10)].sort().pop() || '';
   });
-  return { rows, staff };
+  return { rows, staff, types };
 }
 
 const phoneText = (c) => (c.phone ? maskPhone(c.phone) : maskTail(c.tail));
@@ -142,7 +153,7 @@ const rowView = (c) => ({
   status: c.status, statusAuto: c.statusAuto, channels: c.channels, source: c.ext ? c.ext.source : '', sourceKind: c.ext ? c.ext.kind : '',
   surveys: c.surveys, lastSurveyAt: c.lastSurveyAt, intent: c.intent, visits: c.visits, lastVisit: c.lastVisit, people: c.people,
   stage: c.surveys && c.visits ? '설문+방문' : c.surveys ? '설문만' : c.visits ? '방문만' : '외부',
-  contract: c.contract, realtor: c.realtor, rank: c.rank, special: c.special, counselNotes: c.counselNotes, notes: c.notes, lastNote: c.lastNote, consent: c.consent, dnc: c.dnc, owner: c.owner, ownerId: c.ownerId, memo: c.memo, region: c.region, interest: c.interest, last: c.last
+  contract: c.contract, realtor: c.realtor, rank: c.rank, special: c.special, typeGroups: c.typeGroups, interestLabel: c.interestLabel, counselNotes: c.counselNotes, notes: c.notes, lastNote: c.lastNote, consent: c.consent, dnc: c.dnc, owner: c.owner, ownerId: c.ownerId, memo: c.memo, region: c.region, interest: c.interest, last: c.last
 });
 
 // 조건에 맞는 고객만 남긴다 (목록·내보내기 공용)
@@ -178,6 +189,8 @@ async function applyFilter(env, rows, data) {
   if (source) rows = rows.filter((c) => c.ext && c.ext.source === source);
   if (data.callable === true) rows = rows.filter((c) => !c.dnc && c.status !== '거부' && c.status !== '계약');
   if (data.noNote === true) rows = rows.filter((c) => !c.notes);
+  const type = s(data.type);
+  if (type) rows = rows.filter((c) => c.typeGroups.includes(type));
   const sort = s(data.sort) || '최근';
   const gi = (g) => (g ? GRADES.indexOf(g) : 9);
   if (sort === '이름') rows.sort((a, b) => (a.name || '힣').localeCompare(b.name || '힣', 'ko'));
@@ -188,7 +201,7 @@ async function applyFilter(env, rows, data) {
 
 export async function customerList(env, data, ctx) {
   const pid = ctx.projectId;
-  const { rows: allRows, staff } = await loadCustomers(env, pid);
+  const { rows: allRows, staff, types } = await loadCustomers(env, pid);
   const count = (fn) => allRows.filter(fn).length;
   const high = allRows.filter((c) => Number(c.intent) >= 4);
   const summary = {
@@ -200,6 +213,8 @@ export async function customerList(env, data, ctx) {
     surveyToVisit: count((c) => c.surveys && c.visits), visitToContract: count((c) => c.visits && c.contract),
     highIntent: high.length, highIntentVisited: high.filter((c) => c.visits).length,
     realtorMgm: count((c) => c.realtor && c.realtor.mgm === '참여'), realtorRefer: allRows.reduce((a, c) => a + (c.realtor ? c.realtor.referCount : 0), 0),
+    // 관심 타입군별 고객 수 (프로젝트 주택형 기준표의 타입군 순서)
+    types: typeGroups(types).map((g) => ({ code: g.code, label: g.label, units: g.units, n: count((c) => c.typeGroups.includes(g.code)) })),
     unconfirmed: count((c) => c.consent === '미확인'), dnc: count((c) => c.dnc), noNote: count((c) => !c.notes), noOwner: count((c) => !c.ownerId)
   };
   // 예전 화면·시험이 쓰던 이름도 함께 준다

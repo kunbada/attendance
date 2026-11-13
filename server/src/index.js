@@ -11,6 +11,7 @@ import {
 import { adminOrgs, adminSaveOrg } from './core/orgs.js';
 import { adminAccounts, adminSaveAccount } from './core/accounts.js';
 import { projectList, projectSave, adminSettings, adminSaveSettings } from './core/projects.js';
+import { projectTypesGet, projectTypesSave } from './core/types.js';
 import { leaderStaffList, leaderApprove, leaderReject, leaderRetire } from './core/leader.js';
 import { adminCurrentQr, adminIssueQr, attendanceCheckin, adminAttendance } from './attendance/attendance.js';
 import { adminAdjustSave, adminAdjustDelete } from './attendance/adjust.js';
@@ -102,6 +103,9 @@ const ACTIONS = {
 
   'project.list': { roles: ACCOUNTS, scope: 'global', fn: projectList },
   'project.save': { roles: ['admin'], scope: 'global', fn: projectSave },
+  // 주택형·세대수 (선택한 현장). 보조관리자도 담당 현장은 관리한다
+  'project.typesGet': { roles: MGR, fn: projectTypesGet },
+  'project.typesSave': { roles: MGR, fn: projectTypesSave },
 
   'desk.orgs': { roles: ['desk', 'kiosk'], fn: deskOrgs },
   'desk.lookup': { roles: ['desk'], fn: deskLookup },

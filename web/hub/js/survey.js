@@ -64,7 +64,12 @@
 
   function stdQuestion(b, key) {
     var s = b.bank.filter(function (x) { return x.key === key; })[0];
-    return { key: s.key, std: true, type: s.type, title: s.title, required: !!s.required, options: JSON.parse(JSON.stringify(s.options || [])), editableOptions: !!s.editableOptions, forceRequired: !!s.forceRequired, pii: !!s.pii };
+    var q = { key: s.key, std: true, type: s.type, title: s.title, required: !!s.required, options: JSON.parse(JSON.stringify(s.options || [])), editableOptions: !!s.editableOptions, forceRequired: !!s.forceRequired, pii: !!s.pii };
+    // 관심 타입: 프로젝트 주택형의 타입군이 있으면 그것을 보기로 쓴다 (설문마다 따로 적지 않게 — 데이터 일관성)
+    if (key === 'STD_TYPE' && b.typeGroups && b.typeGroups.length) {
+      q.options = b.typeGroups.map(function (g) { return { code: g.code, label: g.label }; }); q.editableOptions = false; q.fromProject = true;
+    }
+    return q;
   }
 
   // ====================================================================
@@ -149,7 +154,12 @@
       q.pii ? h('span', { class: 'badge warn' }, '개인정보 동의 시에만') : null, mv('↑', -1), mv('↓', 1), del);
     var body = [head, field('제목', title), h('label', { class: 'check' }, req, ' 필수 응답')];
     // 보기: 직접 만든 선택형 문항, 그리고 구간을 조정할 수 있는 공통 문항(관심 타입·예상 자금)
-    if ((!q.std && CHOICE.indexOf(q.type) >= 0) || q.editableOptions) {
+    if (q.fromProject) {
+      body.push(h('p', { class: 'muted' }, '보기(프로젝트 주택형에서 자동): ' + q.options.map(function (o) { return o.label; }).join(' / ') + ' — 바꾸려면 [프로젝트] 메뉴의 [주택형·세대수]에서 수정합니다. 설문에서는 타입군만 묻고, 세부 주택형(84A·84B)은 상담고객 앱에서 고릅니다.'));
+    } else if (q.key === 'STD_TYPE' && !(bank && bank.typeGroups && bank.typeGroups.length)) {
+      body.push(h('p', { class: 'muted', style: 'color:#c2410c' }, '프로젝트 주택형이 아직 없습니다. [프로젝트] 메뉴의 [주택형·세대수]를 먼저 입력하면 보기가 자동으로 맞춰져 상담고객 앱·고객 DB 와 같은 기준으로 저장됩니다.'));
+    }
+    if (!q.fromProject && ((!q.std && CHOICE.indexOf(q.type) >= 0) || q.editableOptions)) {
       var obox = h('div');
       var drawOpts = function () {
         obox.innerHTML = '';
@@ -166,7 +176,7 @@
       };
       drawOpts();
       body.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, '보기 (이미 응답이 있는 보기는 삭제보다 이름 수정을 권장합니다)'), obox));
-    } else if (q.std && q.options && q.options.length) {
+    } else if (!q.fromProject && q.std && q.options && q.options.length) {
       body.push(h('p', { class: 'muted' }, '보기(고정): ' + q.options.map(function (o) { return o.label; }).join(' / ')));
     }
     return h('div', { class: 'card', style: 'background:#fafbfd' }, body);

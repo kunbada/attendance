@@ -2,6 +2,7 @@
 // 개인정보 원칙: 이름·전화번호는 개인정보 수집에 동의한 응답만, 전화번호는 암호화 + 해시(고객 연결용)로 저장한다.
 import { AppError, s, all, first, run, stmt, nowStr, todayStr, newId, randomToken, encryptText, decryptText, phoneHash, orgNameMap, writeLog } from '../core/util.js';
 import { purgeRealtorCards } from '../realtor/realtor.js';
+import { loadTypes, typeGroups } from '../core/types.js';
 import { STD, PII_KEYS, CHOICE_TYPES, CUSTOM_TYPES, DEFAULT_CONSENT_TEXT, DEFAULT_STD, bankList } from './std.js';
 
 const STATUSES = ['작성', '진행', '마감'];
@@ -24,7 +25,16 @@ function buildOptions(raw) {
   return list;
 }
 
-function cleanQuestions(raw) {
+// 관심 타입(STD_TYPE) 보기는 프로젝트 주택형의 타입군에서 자동으로 만든다 (보기 코드 = 타입군, 예: '84').
+// 주택형이 아직 없으면 예전처럼 설문에서 직접 적은 보기를 쓴다
+const typeOptions = (groups) => groups.map((g) => ({ code: g.code, label: g.label }));
+async function projectTypeGroups(env, pid) { return typeGroups(await loadTypes(env, pid)); }
+function withProjectTypes(qs, groups) {
+  if (!groups.length) return qs;
+  return qs.map((q) => (q.key === 'STD_TYPE' ? { ...q, options: typeOptions(groups), fromProject: true } : q));
+}
+
+function cleanQuestions(raw, groups = []) {
   if (!Array.isArray(raw) || !raw.length) throw new AppError('문항을 1개 이상 추가하세요.');
   if (raw.length > 60) throw new AppError('문항은 60개까지 만들 수 있습니다.');
   const keys = new Set();
@@ -37,7 +47,9 @@ function cleanQuestions(raw) {
       if (keys.has(key)) throw new AppError(no + ': 같은 공통 문항을 두 번 넣을 수 없습니다.');
       keys.add(key);
       let options = std.options || [];
-      if (std.editableOptions) {
+      if (key === 'STD_TYPE' && groups.length) {
+        options = typeOptions(groups);
+      } else if (std.editableOptions) {
         options = buildOptions(q.options);
         if (!options.length) throw new AppError(no + ': 보기를 1개 이상 입력해 주세요.');
       }
@@ -68,8 +80,8 @@ async function getSurvey(env, id, projectId) {
 // ---------- 관리: 설문 ----------
 
 // 공통 문항 은행 (빌더에서 끌어다 쓴다) + 새 설문 기본값
-export async function surveyBank() {
-  return { bank: bankList(), defaults: DEFAULT_STD, defaultConsentText: DEFAULT_CONSENT_TEXT };
+export async function surveyBank(env, data, ctx) {
+  return { bank: bankList(), defaults: DEFAULT_STD, defaultConsentText: DEFAULT_CONSENT_TEXT, typeGroups: await projectTypeGroups(env, ctx.projectId) };
 }
 
 export async function surveyList(env, data, ctx) {
@@ -83,14 +95,16 @@ export async function surveyList(env, data, ctx) {
 }
 
 export async function surveyGet(env, data, ctx) {
-  return { survey: surveyView(await getSurvey(env, data.surveyId, ctx.projectId)) };
+  const v = surveyView(await getSurvey(env, data.surveyId, ctx.projectId));
+  v.questions = withProjectTypes(v.questions, await projectTypeGroups(env, ctx.projectId));
+  return { survey: v };
 }
 
 export async function surveySave(env, data, ctx) {
   const pid = ctx.projectId;
   const title = s(data.title).trim();
   if (!title || title.length > 80) throw new AppError('설문 제목을 입력해 주세요. (80자 이내)');
-  const questions = cleanQuestions(data.questions);
+  const questions = cleanQuestions(data.questions, await projectTypeGroups(env, pid));
   const status = s(data.status) || '작성';
   if (!STATUSES.includes(status)) throw new AppError('상태 값이 올바르지 않습니다.');
   const theme = /^#[0-9a-fA-F]{6}$/.test(s(data.theme)) ? s(data.theme).toLowerCase() : '';
@@ -235,7 +249,7 @@ export async function surveyForm(env, data) {
   if (!isOpen(l)) return { closed: true, title: l.title, projectName: l.project_name };
   return {
     title: l.title, description: l.description, theme: l.theme, projectName: l.project_name, consentText: l.consent_text, version: l.version,
-    questions: JSON.parse(l.questions_json).map((q) => ({ key: q.key, type: q.type, title: q.title, required: q.required, options: q.options, pii: PII_KEYS.includes(q.key) }))
+    questions: withProjectTypes(JSON.parse(l.questions_json), await projectTypeGroups(env, l.project_id)).map((q) => ({ key: q.key, type: q.type, title: q.title, required: q.required, options: q.options, pii: PII_KEYS.includes(q.key) }))
   };
 }
 
@@ -248,7 +262,7 @@ export async function surveySubmit(env, data) {
   if (!/^[A-Za-z0-9-]{8,64}$/.test(nonce)) throw new AppError('제출 정보를 확인할 수 없습니다. 페이지를 새로고침해 주세요.');
   const consentPi = data.consentPi === true;
   const input = data.answers && typeof data.answers === 'object' ? data.answers : {};
-  const qs = JSON.parse(l.questions_json);
+  const qs = withProjectTypes(JSON.parse(l.questions_json), await projectTypeGroups(env, l.project_id));
 
   let name = '', phone = '', consentMkt = 0;
   const rows = [], answers = {};
@@ -332,7 +346,7 @@ function display(q, v) {
 async function ledger(env, pid, sv, data, withPhone) {
   const { from, to } = dateRange(data);
   const limit = Math.min(Number(data.limit) || 200, 5000), offset = Math.max(Number(data.offset) || 0, 0);
-  const qs = JSON.parse(sv.questions_json);
+  const qs = withProjectTypes(JSON.parse(sv.questions_json), await projectTypeGroups(env, pid));
   const names = await orgNameMap(env, pid);
   const staff = {};
   (await all(env, 'SELECT id, name FROM staff WHERE project_id = ?', pid)).forEach((r) => { staff[r.id] = r.name; });
@@ -374,7 +388,7 @@ export async function surveyStats(env, data, ctx) {
   const pid = ctx.projectId;
   const sv = await getSurvey(env, data.surveyId, pid);
   const { from, to } = dateRange(data);
-  const qs = JSON.parse(sv.questions_json);
+  const qs = withProjectTypes(JSON.parse(sv.questions_json), await projectTypeGroups(env, pid));
   const base = 'project_id = ? AND survey_id = ? AND submitted_at >= ? AND submitted_at <= ?';
   const total = await first(env, `SELECT COUNT(*) AS n, COALESCE(SUM(consent_pi), 0) AS pi, COALESCE(SUM(consent_mkt), 0) AS mkt FROM responses WHERE ${base}`, pid, sv.id, from, to);
   const byDate = await all(env, `SELECT substr(submitted_at, 1, 10) AS d, COUNT(*) AS n FROM responses WHERE ${base} GROUP BY d ORDER BY d`, pid, sv.id, from, to);
