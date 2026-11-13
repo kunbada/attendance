@@ -1,6 +1,6 @@
 // 고객관리 > 부동산고객: 중개업소 조사. 현장마다 조사 링크 1개(QR), 명함 사진 AI 인식(Google Gemini), 조사 원장·중개업소 묶음.
-// 개인정보 원칙: 개인정보 제공에 동의한 경우만 이름·직함·휴대폰을 저장한다(휴대폰은 암호화 + 해시).
-// 상호·주소·사무실 전화는 간판·명함에 공개된 사업장 정보라 동의와 무관하게 저장한다.
+// 명함을 건네받은 것 자체로 연락처 제공 의사로 보고(사용자 결정 2026-11-13), 동의 여부와 무관하게 명함 정보를 저장한다.
+// 동의 여부는 기록만 한다. 휴대폰은 암호화 + 해시, 고객 DB 와는 cust_hash(휴대폰, 없으면 사무실 전화의 해시)로 묶는다.
 import { AppError, s, all, first, run, nowStr, todayStr, newId, randomToken, encryptText, decryptText, phoneHash, writeLog } from '../core/util.js';
 
 export const SCALE = {
@@ -9,15 +9,16 @@ export const SCALE = {
   refer: ['', '매우 낮음', '낮음', '보통', '높음', '매우 높음']
 };
 const PAGE = 50;
+export const MGM = ['참여', '불참', '고려중'];
 export const DEFAULT_REALTOR_CONSENT = [
   '당사는 현장 분양 업무 협력(분양 정보 안내, 고객 소개 협의)을 위해 아래와 같이 개인정보를 수집·이용합니다.',
   '',
-  '1. 수집 항목: 성명, 직함, 휴대폰 번호 (명함에 적힌 정보)',
-  '2. 이용 목적: 분양 정보 안내, 고객 소개 관련 연락',
+  '1. 수집 항목: 명함에 적힌 정보(상호, 성명, 직함, 휴대폰·사무실 전화, 주소)',
+  '2. 이용 목적: 분양 정보 안내, 고객 소개·부동산 MGM 관련 연락',
   '3. 보유 기간: 현장 분양 종료 후 6개월 (이후 파기)',
   '4. 명함 사진은 글자를 읽기 위해 외부 AI 서비스(Google)로 보내지며, 당사 서버에는 사진을 저장하지 않습니다.',
   '',
-  '동의를 거부할 수 있으며, 거부하시면 상호·주소·사무실 전화와 조사 응답만 기록합니다.'
+  '위 내용에 동의하지 않으실 수 있습니다. 동의 여부는 기록되며, 연락을 원하지 않으시면 담당자에게 말씀해 주세요.'
 ].join('\n');
 
 const maskPhone = (d) => (d && d.length >= 7 ? d.slice(0, 3) + '-****-' + d.slice(-4) : '');
@@ -57,26 +58,26 @@ async function cleanInput(env, d) {
   const officeTel = cleanTel(d.officeTel);
   if (officeTel === null) throw new AppError('사무실 전화번호 형식을 확인해 주세요.');
   const address = s(d.address).trim().slice(0, 150);
-  if (d.consent !== true && d.consent !== false) throw new AppError('개인정보 제공 동의 여부를 선택해 주세요.');
-  const consent = d.consent === true;
-  let name = '', position = '', mobile = '';
-  if (consent) {
-    name = s(d.name).trim().slice(0, 30);
-    position = s(d.position).trim().slice(0, 30);
-    mobile = cleanMobile(d.mobile);
-    if (mobile === null) throw new AppError('휴대폰 번호 형식을 확인해 주세요.');
-  }
+  const name = s(d.name).trim().slice(0, 30);
+  const position = s(d.position).trim().slice(0, 30);
+  const mobile = cleanMobile(d.mobile);
+  if (mobile === null) throw new AppError('휴대폰 번호 형식을 확인해 주세요.');
   if (!mobile && !officeTel) throw new AppError('휴대폰 또는 사무실 전화 중 하나는 입력해 주세요.');
   const market = score(d.market, '시장 동향');
   const intent = score(d.intent, '분양 의향');
   const refer = score(d.refer, '소개 의향');
   const rc = s(d.referCount).trim();
   if (!/^\d{1,4}$/.test(rc)) throw new AppError('소개 가능 고객 수를 숫자로 입력해 주세요. (없으면 0)');
+  const mgm = s(d.mgm);
+  if (!MGM.includes(mgm)) throw new AppError('부동산 MGM 참여 여부를 선택해 주세요.');
   const opinion = s(d.opinion).trim().slice(0, 1000);
   if (!opinion) throw new AppError('기타 의견을 입력해 주세요. (없으면 "없음")');
+  if (d.consent !== true && d.consent !== false) throw new AppError('개인정보 제공 동의 여부를 선택해 주세요.');
+  const hash = mobile ? await phoneHash(env, mobile) : '';
   return {
-    officeName, officeTel, address, consent, name, position, mobile, market, intent, refer, referCount: Number(rc), opinion,
-    phoneEnc: mobile ? await encryptText(env, mobile) : '', phoneHash: mobile ? await phoneHash(env, mobile) : '', phoneTail: mobile ? mobile.slice(-4) : ''
+    officeName, officeTel, address, consent: d.consent === true, name, position, mobile, market, intent, refer, referCount: Number(rc), mgm, opinion,
+    phoneEnc: mobile ? await encryptText(env, mobile) : '', phoneHash: hash, phoneTail: mobile ? mobile.slice(-4) : '',
+    custHash: hash || await phoneHash(env, officeTel)
   };
 }
 
@@ -183,12 +184,11 @@ async function geminiRead(env, b64, mime) {
 export async function realtorOcr(env, data) {
   const f = await loadForm(env, data.code);
   if (!isOpen(f)) throw new AppError('사용이 중지된 조사 링크입니다.');
-  if (data.consent !== true) throw new AppError('개인정보 제공에 동의한 경우에만 명함 인식을 쓸 수 있습니다. 직접 입력해 주세요.');
   if (!env.GEMINI_API_KEY) throw new AppError('명함 인식이 아직 설정되지 않았습니다. 직접 입력해 주세요.', 'OCR_OFF');
   const mime = s(data.mime) || 'image/jpeg';
   if (!/^image\/(jpeg|png|webp)$/.test(mime)) throw new AppError('사진 형식이 올바르지 않습니다.');
   const b64 = s(data.image);
-  if (!b64 || b64.length > 1500000 || !/^[A-Za-z0-9+/=]+$/.test(b64)) throw new AppError('사진이 너무 크거나 올바르지 않습니다. 다시 찍어 주세요.');
+  if (!b64 || b64.length > 2000000 || !/^[A-Za-z0-9+/=]+$/.test(b64)) throw new AppError('사진이 너무 크거나 올바르지 않습니다. 다시 찍어 주세요.');
   const day = todayStr();
   const tot = await first(env, 'SELECT COALESCE(SUM(n), 0) AS n FROM ocr_usage WHERE day = ?', day);
   if (tot.n >= totalLimit(env)) throw new AppError('오늘 명함 인식 한도가 찼습니다. 직접 입력해 주세요.', 'OCR_LIMIT');
@@ -214,10 +214,10 @@ export async function realtorSubmit(env, data) {
   const v = await cleanInput(env, data);
   try {
     await run(env,
-      `INSERT INTO realtor_responses (id, project_id, office_name, office_tel, address, consent, name, position, phone_enc, phone_hash, phone_tail, market, intent, refer, refer_count, opinion, ocr, nonce, submitted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      newId('RT'), f.project_id, v.officeName, v.officeTel, v.address, v.consent ? 1 : 0, v.name, v.position, v.phoneEnc, v.phoneHash, v.phoneTail,
-      v.market, v.intent, v.refer, v.referCount, v.opinion, data.ocr === true ? 1 : 0, nonce, nowStr());
+      `INSERT INTO realtor_responses (id, project_id, office_name, office_tel, address, consent, name, position, phone_enc, phone_hash, phone_tail, cust_hash, market, intent, refer, refer_count, mgm, opinion, ocr, nonce, submitted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      newId('RT'), f.project_id, v.officeName, v.officeTel, v.address, v.consent ? 1 : 0, v.name, v.position, v.phoneEnc, v.phoneHash, v.phoneTail, v.custHash,
+      v.market, v.intent, v.refer, v.referCount, v.mgm, v.opinion, data.ocr === true ? 1 : 0, nonce, nowStr());
   } catch (e) {
     if (/UNIQUE/i.test(String(e.message))) return {}; // 같은 제출이 다시 들어온 것
     throw e;
@@ -253,14 +253,14 @@ function officeView(list) {
   return {
     id: r.id, officeName: r.office_name, address: r.address || (list.find((x) => x.address) || {}).address || '', officeTel: fmtTel(tel.office_tel || ''),
     name: named.name || '', position: named.position || '', phone: withPhone.phone_tail ? '***-****-' + withPhone.phone_tail : '',
-    consent: list.some((x) => x.consent), market: r.market, intent: r.intent, refer: r.refer, referCount: r.refer_count, opinion: r.opinion,
+    consent: list.some((x) => x.consent), market: r.market, intent: r.intent, refer: r.refer, referCount: r.refer_count, mgm: r.mgm, opinion: r.opinion,
     count: list.length, last: r.submitted_at, first: list[list.length - 1].submitted_at, memo: (list.find((x) => x.memo) || {}).memo || ''
   };
 }
 
 const responseView = (r) => ({
   id: r.id, at: r.submitted_at, officeName: r.office_name, officeTel: fmtTel(r.office_tel), address: r.address, consent: !!r.consent, name: r.name, position: r.position,
-  phone: r.phone_tail ? '***-****-' + r.phone_tail : '', hasPhone: !!r.phone_enc, market: r.market, intent: r.intent, refer: r.refer, referCount: r.refer_count, opinion: r.opinion,
+  phone: r.phone_tail ? '***-****-' + r.phone_tail : '', hasPhone: !!r.phone_enc, market: r.market, intent: r.intent, refer: r.refer, referCount: r.refer_count, mgm: r.mgm, opinion: r.opinion,
   ocr: !!r.ocr, memo: r.memo, updatedAt: r.updated_at, updatedBy: r.updated_by
 });
 
@@ -273,11 +273,14 @@ function filterOffices(groups, data) {
   const q = s(data.q).trim().toLowerCase().replace(/\s/g, '');
   const qd = q.replace(/\D/g, '');
   const market = Number(data.market) || 0;
+  const mgm = s(data.mgm);
+  if (mgm && !MGM.includes(mgm)) throw new AppError('MGM 조건 값이 올바르지 않습니다.');
   const consent = s(data.consent);
   if (consent && !['동의', '미동의'].includes(consent)) throw new AppError('동의 조건 값이 올바르지 않습니다.');
   return groups.filter((list) => {
     const r = list[0];
     if (market && r.market !== market) return false;
+    if (mgm && r.mgm !== mgm) return false;
     if (consent === '동의' && !list.some((x) => x.consent)) return false;
     if (consent === '미동의' && list.some((x) => x.consent)) return false;
     if (!q) return true;
@@ -299,7 +302,8 @@ export async function realtorList(env, data, ctx) {
     marketAvg: avg('market'), intentAvg: avg('intent'), referAvg: avg('refer'),
     referTotal: latest.reduce((a, r) => a + r.refer_count, 0),
     intentHigh: latest.filter((r) => r.intent >= 4).length, referHigh: latest.filter((r) => r.refer >= 4).length,
-    market: dist('market'), intent: dist('intent'), refer: dist('refer')
+    market: dist('market'), intent: dist('intent'), refer: dist('refer'),
+    mgm: MGM.map((m) => ({ label: m, count: latest.filter((r) => r.mgm === m).length }))
   };
   let list = filterOffices(groups, data);
   const sort = s(data.sort) || '최근';
@@ -307,7 +311,7 @@ export async function realtorList(env, data, ctx) {
   else if (sort === '상호') list.sort((a, b) => a[0].office_name.localeCompare(b[0].office_name, 'ko'));
   const page = Math.max(1, Number(data.page) || 1);
   return {
-    summary, scale: SCALE, matched: list.length, page, pageSize: PAGE,
+    summary, scale: SCALE, mgmOptions: MGM, matched: list.length, page, pageSize: PAGE,
     offices: list.slice((page - 1) * PAGE, page * PAGE).map(officeView)
   };
 }
@@ -321,7 +325,7 @@ async function officeOf(env, pid, id) {
 
 export async function realtorGet(env, data, ctx) {
   const g = await officeOf(env, ctx.projectId, data.id);
-  return { office: officeView(g), responses: g.map(responseView), scale: SCALE };
+  return { office: officeView(g), responses: g.map(responseView), scale: SCALE, mgmOptions: MGM };
 }
 
 // 조사 한 건 고치기 (명함 인식이 틀렸거나 잘못 입력한 경우). 휴대폰을 비워 보내면 기존 번호를 유지한다
@@ -329,14 +333,14 @@ export async function realtorSave(env, data, ctx) {
   const pid = ctx.projectId;
   const cur = await first(env, 'SELECT * FROM realtor_responses WHERE id = ? AND project_id = ?', s(data.id), pid);
   if (!cur) throw new AppError('조사 기록을 찾을 수 없습니다.');
-  const keepPhone = data.consent === true && !s(data.mobile).trim() && cur.phone_enc;
+  const keepPhone = !s(data.mobile).trim() && cur.phone_enc && data.clearMobile !== true;
   const v = await cleanInput(env, { ...data, mobile: keepPhone ? await decryptText(env, cur.phone_enc) : data.mobile });
   const memo = s(data.memo).trim().slice(0, 500);
   await run(env,
-    `UPDATE realtor_responses SET office_name = ?, office_tel = ?, address = ?, consent = ?, name = ?, position = ?, phone_enc = ?, phone_hash = ?, phone_tail = ?,
-       market = ?, intent = ?, refer = ?, refer_count = ?, opinion = ?, memo = ?, updated_at = ?, updated_by = ? WHERE id = ? AND project_id = ?`,
-    v.officeName, v.officeTel, v.address, v.consent ? 1 : 0, v.name, v.position, v.phoneEnc, v.phoneHash, v.phoneTail,
-    v.market, v.intent, v.refer, v.referCount, v.opinion, memo, nowStr(), ctx.account.login_id, cur.id, pid);
+    `UPDATE realtor_responses SET office_name = ?, office_tel = ?, address = ?, consent = ?, name = ?, position = ?, phone_enc = ?, phone_hash = ?, phone_tail = ?, cust_hash = ?,
+       market = ?, intent = ?, refer = ?, refer_count = ?, mgm = ?, opinion = ?, memo = ?, updated_at = ?, updated_by = ? WHERE id = ? AND project_id = ?`,
+    v.officeName, v.officeTel, v.address, v.consent ? 1 : 0, v.name, v.position, v.phoneEnc, v.phoneHash, v.phoneTail, v.custHash,
+    v.market, v.intent, v.refer, v.referCount, v.mgm, v.opinion, memo, nowStr(), ctx.account.login_id, cur.id, pid);
   await writeLog(env, ctx.account.login_id, '부동산조사수정', cur.id, v.officeName + (cur.consent !== (v.consent ? 1 : 0) ? ' / 동의 ' + (v.consent ? '동의' : '미동의') : ''), pid);
   return {};
 }
@@ -375,4 +379,14 @@ export async function realtorExport(env, data, ctx) {
   }
   await writeLog(env, ctx.account.login_id, '부동산조사내보내기', pid, out.length + '건', pid);
   return { rows: out, scale: SCALE };
+}
+
+// 예전 행(cust_hash 도입 전)과 개인정보 파기 후 행의 고객 DB 연결 키를 채운다. 휴대폰 해시, 없으면 사무실 전화의 해시
+export async function backfillRealtorHash(env, pid) {
+  const miss = await all(env, `SELECT id, phone_hash, office_tel FROM realtor_responses WHERE project_id = ? AND cust_hash = '' LIMIT 300`, pid);
+  for (const r of miss) {
+    const h = r.phone_hash || (r.office_tel ? await phoneHash(env, r.office_tel) : '');
+    if (h) await run(env, 'UPDATE realtor_responses SET cust_hash = ? WHERE id = ? AND project_id = ?', h, r.id, pid);
+  }
+  return miss.length;
 }

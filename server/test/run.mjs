@@ -1392,34 +1392,35 @@ try {
 
   // 명함 인식: 가짜 Gemini (첫 모델은 한도 초과 429 → 다음 모델로 넘어가는지)
   const IMG = Buffer.from('fake-jpeg-bytes').toString('base64');
-  expectErr('명함 인식: 동의 전에는 불가', await call('realtor.ocr', { code: RTC, consent: false, image: IMG }), '동의');
   expectErr('명함 인식: 사진 없으면 거부', await call('realtor.ocr', { code: RTC, consent: true, image: '' }), '사진');
   gem.length = 0;
   const rt_ocr = await call('realtor.ocr', { code: RTC, consent: true, mime: 'image/jpeg', image: IMG });
   check('명함 인식: 칸 채우기 + 전화번호 형식 정리', rt_ocr.ok && rt_ocr.data.officeName === '행복공인중개사사무소' && rt_ocr.data.name === '김중개' && rt_ocr.data.mobile === '010-0000-7701' && rt_ocr.data.officeTel === '031-000-7700', JSON.stringify(rt_ocr));
   check('명함 인식: 첫 모델이 한도 초과면 다음 모델로, 사진은 Gemini 로만 전달', gem.length === 2 && gem[0].model !== gem[1].model && gem[1].key === 'testgemini' && gem[1].hasImage, JSON.stringify(gem.map((g) => g.model)));
   expectOk('명함 인식 2번째', await call('realtor.ocr', { code: RTC, consent: true, image: IMG }));
-  expectOk('명함 인식 3번째', await call('realtor.ocr', { code: RTC, consent: true, image: IMG }));
+  expectOk('명함 인식 3번째 (동의를 고르기 전에도 가능)', await call('realtor.ocr', { code: RTC, image: IMG }));
+  expectErr('명함 인식: 사진 크기 상한', await call('realtor.ocr', { code: RTC, image: 'A'.repeat(2000004) }), '너무 크거나');
   const rt_lim = await call('realtor.ocr', { code: RTC, consent: true, image: IMG });
   check('명함 인식: 현장 하루 한도(시험 3건)를 넘으면 거부', rt_lim.ok === false && rt_lim.code === 'OCR_LIMIT', rt_lim.error);
   check('관리 화면에 오늘 사용량 표시', (await rt('realtor.formGet', {})).data.ocr.today === 3);
 
   // 제출
-  const rt_base = { code: RTC, consent: true, officeName: '행복공인중개사사무소', name: '김중개', position: '대표', mobile: '010-0000-7701', officeTel: '031-000-7700', address: '경기 양주시 옥정동 1', market: 4, intent: 3, refer: 5, referCount: '3', opinion: '문의 많음', ocr: true };
+  const rt_base = { code: RTC, consent: true, officeName: '행복공인중개사사무소', name: '김중개', position: '대표', mobile: '010-0000-7701', officeTel: '031-000-7700', address: '경기 양주시 옥정동 1', market: 4, intent: 3, refer: 5, referCount: '3', mgm: '참여', opinion: '문의 많음', ocr: true };
   expectErr('제출: 상호 없으면 거부', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), officeName: '' }), '상호');
   expectErr('제출: 동의 여부 없으면 거부', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), consent: undefined }), '동의');
   expectErr('제출: 시장 동향 값 검사', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), market: 7 }), '시장 동향');
   expectErr('제출: 소개 가능 고객 수는 숫자', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), referCount: '많음' }), '숫자');
+  expectErr('제출: MGM 참여 여부 필수', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), mgm: '' }), 'MGM');
   expectErr('제출: 기타 의견 필수', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), opinion: ' ' }), '기타 의견');
   expectErr('제출: 전화번호가 하나도 없으면 거부', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), mobile: '', officeTel: '' }), '하나는');
   expectErr('제출: 휴대폰 형식 검사', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1), mobile: '02-123-4567' }), '휴대폰');
   expectOk('제출: 동의 + 명함 정보', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1) }));
   expectOk('같은 제출이 다시 들어와도 한 건', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(1) }));
   expectOk('같은 휴대폰으로 다음 달 재조사', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(2), market: 2, referCount: '5', opinion: '거래 줄어듦', officeTel: '' }));
-  expectOk('미동의 제출 (이름·휴대폰을 보내도 저장 안 함)', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(3), consent: false, officeName: '우리부동산', name: '이비공개', mobile: '010-0000-7702', officeTel: '02-000-7703', address: '서울 강남구', market: 3, refer: 2, referCount: '0', opinion: '없음' }));
+  expectOk('미동의 제출 (명함 정보는 그대로 저장)', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(3), consent: false, mgm: '불참', officeName: '우리부동산', name: '이비공개', mobile: '010-0000-7702', officeTel: '02-000-7703', address: '서울 강남구', market: 3, refer: 2, referCount: '0', opinion: '없음' }));
   expectOk('같은 사무실 전화로 동의 재조사 → 같은 곳으로 묶임', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(4), officeName: '우리부동산', name: '박실장', position: '실장', mobile: '010-0000-7704', officeTel: '02-000-7703', address: '서울 강남구', market: 1, intent: 5, refer: 4, referCount: '10', opinion: '고객 소개 가능' }));
   const rt_db = await query(`SELECT name, phone_enc, phone_hash, consent FROM realtor_responses WHERE project_id = '${PP}' AND nonce = '${rt_nonce(3)}'`);
-  check('미동의 조사는 이름·휴대폰 저장 안 함', rt_db.length === 1 && rt_db[0].name === '' && rt_db[0].phone_enc === '' && rt_db[0].phone_hash === '' && rt_db[0].consent === 0);
+  check('미동의 조사도 이름·휴대폰 저장, 동의 여부는 0 으로 기록', rt_db.length === 1 && rt_db[0].name === '이비공개' && rt_db[0].phone_enc !== '' && rt_db[0].phone_hash !== '' && rt_db[0].consent === 0);
   check('휴대폰은 암호화 저장 (원문 없음)', !(await query(`SELECT phone_enc FROM realtor_responses WHERE project_id = '${PP}'`)).some((r) => r.phone_enc.includes('7701')));
 
   // 목록·요약
@@ -1435,6 +1436,20 @@ try {
   check('정렬: 소개 가능 고객 많은 순', (await rt('realtor.list', { sort: '소개' })).data.offices[0].officeName === '우리부동산');
   check('다른 현장 목록에는 섞이지 않음', (await rt('realtor.list', {}, admin, P2)).data.summary.responses === 0);
 
+  check('MGM 바로가기 건수와 필터', rt_l.summary.mgm.find((m) => m.label === '참여').count === 2 && (await rt('realtor.list', { mgm: '참여' })).data.matched === 2 && (await rt('realtor.list', { mgm: '불참' })).data.matched === 0);
+  expectErr('MGM 필터 값 검사', await rt('realtor.list', { mgm: '몰라' }), 'MGM');
+
+  // 고객 DB 에 "부동산" 고객으로 합쳐짐 (사람 = 휴대폰 기준: 7701, 7702, 7704)
+  const rt_cl = (await rt('customer.list', { channel: '부동산' })).data;
+  check('고객 DB: 부동산 고객 3명, 요약 카드(MGM 참여·소개 가능)', rt_cl.matched === 3 && rt_cl.summary.channels.부동산 === 3 && rt_cl.summary.realtorMgm === 2 && rt_cl.summary.realtorRefer === 5 + 0 + 10, JSON.stringify({ m: rt_cl.matched, s: rt_cl.summary.channels, mg: rt_cl.summary.realtorMgm, r: rt_cl.summary.realtorRefer }));
+  check('고객 DB: 상호로도 검색, 휴대폰은 가려서', (await rt('customer.list', { q: '우리부동산' })).data.matched === 2 && rt_cl.customers.every((c) => c.phone.includes('****') && c.realtor && c.realtor.office));
+  const rt_ck = rt_cl.customers.find((c) => c.name === '김중개');
+  const rt_cg = (await rt('customer.get', { id: rt_ck.id })).data;
+  check('고객 상세: 중개업소 조사 2건이 이력에', rt_cg.timeline.filter((x) => x.type === '부동산').length === 2 && rt_cg.timeline.some((x) => x.text.includes('MGM 참여')), JSON.stringify(rt_cg.timeline.map((x) => x.type)));
+  check('고객 상세에서 연락처 보기', (await rt('customer.reveal', { id: rt_ck.id })).data.phone === '01000007701');
+  expectOk('부동산 고객에게 상태·담당 정하기', await rt('customer.save', { id: rt_ck.id, status: '연락중', memo: 'MGM 안내' }));
+  check('상태가 고객 DB 에 반영', (await rt('customer.list', { channel: '부동산', status: '연락중' })).data.matched === 1);
+
   // 상세·연락처·수정·삭제
   const rt_d = (await rt('realtor.get', { id: rt_ours.id })).data;
   check('상세: 같은 곳의 조사 2건 이력', rt_d.responses.length === 2 && rt_d.office.name === '박실장', JSON.stringify(rt_d.office));
@@ -1446,8 +1461,10 @@ try {
   expectOk('수정: 휴대폰 비우면 기존 번호 유지, 상호 고침', await rt('realtor.save', { ...rt_base, id: rt_old.id, officeName: '우리부동산중개', mobile: '', officeTel: '02-000-7703', memo: '명함 오타 수정' }));
   const rt_d2 = (await rt('realtor.get', { id: rt_ours.id })).data.responses.find((r) => r.id === rt_old.id);
   check('수정 반영 + 휴대폰 유지 + 수정자 기록', rt_d2.officeName === '우리부동산중개' && rt_d2.phone === '***-****-7704' && rt_d2.memo === '명함 오타 수정' && rt_d2.updatedBy === 'admin', JSON.stringify(rt_d2));
-  expectOk('수정: 미동의로 바꾸면 개인정보 지움', await rt('realtor.save', { ...rt_base, id: rt_old.id, consent: false, officeName: '우리부동산중개', officeTel: '02-000-7703' }));
-  check('미동의로 바꾼 뒤 이름·휴대폰 없음', (await query(`SELECT name, phone_enc FROM realtor_responses WHERE id = '${rt_old.id}'`)).every((r) => r.name === '' && r.phone_enc === ''));
+  expectOk('수정: 미동의로 바꿔도 명함 정보 유지', await rt('realtor.save', { ...rt_base, id: rt_old.id, consent: false, officeName: '우리부동산중개', mobile: '', officeTel: '02-000-7703' }));
+  check('미동의로 바꾼 뒤에도 이름·휴대폰 그대로, 동의 0', (await query(`SELECT name, phone_enc, consent FROM realtor_responses WHERE id = '${rt_old.id}'`)).every((r) => r.name === '김중개' && r.phone_enc !== '' && r.consent === 0));
+  expectOk('수정: 휴대폰 지우기', await rt('realtor.save', { ...rt_base, id: rt_old.id, clearMobile: true, mobile: '', officeTel: '02-000-7703' }));
+  check('휴대폰을 지우면 고객 연결 키가 사무실 전화로', (await query(`SELECT phone_enc, cust_hash FROM realtor_responses WHERE id = '${rt_old.id}'`)).every((r) => r.phone_enc === '' && r.cust_hash !== ''));
   expectErr('삭제: 다른 현장에서는 불가', await rt('realtor.delete', { id: rt_old.id }, admin, P2), '찾을 수 없습니다');
   expectOk('삭제', await rt('realtor.delete', { id: rt_old.id }));
   check('삭제 후 조사 3건', (await rt('realtor.list', {})).data.summary.responses === 3);
@@ -1463,6 +1480,10 @@ try {
   check('중지된 링크: 공개 화면 닫힘, 제출·명함 인식 불가', (await call('realtor.form', { code: RTC })).data.closed === true
     && (await call('realtor.submit', { ...rt_base, nonce: rt_nonce(9) })).ok === false && (await call('realtor.ocr', { code: RTC, consent: true, image: IMG })).ok === false);
   expectOk('조사 링크 다시 사용', await rt('realtor.formSave', { active: true }));
+  expectOk('사무실 전화만 있는 중개업소', await call('realtor.submit', { ...rt_base, nonce: rt_nonce(5), officeName: '전화만부동산', name: '', mobile: '', officeTel: '02-000-7799', consent: false }));
+  const rt_tel = (await rt('customer.list', { q: '7799' })).data;
+  check('사무실 전화만 있어도 고객 DB 에 합쳐지고 번호로 찾음', rt_tel.matched === 1 && rt_tel.customers[0].name === '전화만부동산' && rt_tel.customers[0].channels.includes('부동산'), JSON.stringify(rt_tel.customers[0]));
+  check('사무실 전화 고객의 연락처 보기는 사무실 번호', (await rt('customer.reveal', { id: rt_tel.customers[0].id })).data.phone === '020007799');
 
   // --- 보유기간 지난 개인정보 파기 ---
   expectErr('관리자만 개인정보 파기 가능', await call('survey.purgePii', { months: 6 }, subA, '', null), '권한', 'FORBIDDEN');
@@ -1470,7 +1491,7 @@ try {
   check('종료일이 없거나 6개월이 지나지 않은 현장은 파기하지 않음', s3_pg0.ok && (await query(`SELECT COUNT(*) AS n FROM response_pii WHERE project_id = '${PP}'`))[0].n === 1);
   expectOk('정산현장을 8개월 전에 종료한 것으로 설정', await call('project.save', { id: PP, name: '정산현장', code: codePP, status: '종료', endDate: new Date(Date.now() + 9 * 3600e3 - 240 * 86400e3).toISOString().slice(0, 10) }, admin, '', null));
   const s3_pg1 = await call('survey.purgePii', { months: 6 }, admin, '', null);
-  check('부동산고객 이름·휴대폰도 함께 파기 (조사 응답은 남음)', (await query(`SELECT COUNT(*) AS n FROM realtor_responses WHERE project_id = '${PP}' AND (phone_enc <> '' OR name <> '')`))[0].n === 0 && (await query(`SELECT COUNT(*) AS n FROM realtor_responses WHERE project_id = '${PP}'`))[0].n === 3);
+  check('부동산고객 이름·휴대폰도 함께 파기 (조사 응답은 남음)', (await query(`SELECT COUNT(*) AS n FROM realtor_responses WHERE project_id = '${PP}' AND (phone_enc <> '' OR name <> '')`))[0].n === 0 && (await query(`SELECT COUNT(*) AS n FROM realtor_responses WHERE project_id = '${PP}'`))[0].n === 4);
   check('보유기간이 지난 종료 현장의 이름·전화번호 파기 (응답 통계는 남음)', s3_pg1.ok && s3_pg1.data.removed === 1 && (await query(`SELECT COUNT(*) AS n FROM response_pii WHERE project_id = '${PP}'`))[0].n === 0 && (await query(`SELECT COUNT(*) AS n FROM responses WHERE project_id = '${PP}' AND phone_hash <> ''`))[0].n === 0 && (await query(`SELECT COUNT(*) AS n FROM responses WHERE project_id = '${PP}'`))[0].n >= 4);
   expectOk('정산현장 상태 복구', await call('project.save', { id: PP, name: '정산현장', code: codePP, status: '진행', endDate: '' }, admin, '', null));
 

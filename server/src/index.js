@@ -237,8 +237,9 @@ export default {
       const text = await request.text();
       if (text.length > 3000000) throw new AppError('요청이 너무 큽니다.');
       req = JSON.parse(text);
-      // 계약앱 동기화(contract.*)만 큰 요청을 받는다 (한 번에 수백 건의 레코드)
-      if (text.length > 200000 && !s(req && req.action).startsWith('contract.')) throw new AppError('요청이 너무 큽니다.');
+      // 큰 요청은 계약앱 동기화(contract.*, 한 번에 수백 건)와 명함 사진(realtor.ocr)만 받는다
+      const act = s(req && req.action);
+      if (text.length > 200000 && !act.startsWith('contract.') && act !== 'realtor.ocr') throw new AppError('요청이 너무 큽니다.');
     } catch (e) {
       return json({ ok: false, error: e instanceof AppError ? e.message : '요청 형식이 올바르지 않습니다.' }, cors);
     }

@@ -1,7 +1,8 @@
 // 고객관리 > 부동산고객: 중개업소 조사 링크·QR(현장당 1개), 중개업소 목록(같은 곳은 묶음), 조사 이력·수정, 내보내기
 (function () {
   var simpleTable = Hub.simpleTable, downloadCsv = Hub.downloadCsv;
-  var EMPTY = { q: '', market: '', consent: '', sort: '최근', page: 1 };
+  var EMPTY = { q: '', market: '', mgm: '', consent: '', sort: '최근', page: 1 };
+  var MGM_BADGE = { '참여': 'ok', '고려중': 'warn', '불참': '' };
   var filter = Object.assign({}, EMPTY);
   var TONE = { 5: 'ok', 4: 'ok', 3: '', 2: 'warn', 1: 'danger' };
 
@@ -20,15 +21,7 @@
     // 1) 조사 링크·QR (현장당 1개)
     root.appendChild(linkCard(fg, again));
 
-    // 2) 숫자 카드
-    var kpi = function (label, value, sub) { return h('div', { class: 'kpi' }, label, h('b', null, value), sub ? h('small', null, sub) : null); };
-    root.appendChild(h('div', { class: 'kpis' },
-      kpi('중개업소', sm.offices.toLocaleString('ko-KR') + '곳', '조사 ' + sm.responses + '건 · 오늘 ' + sm.today + '건'),
-      kpi('시장 동향 평균', avgLabel(scale, 'market', sm.marketAvg), '5점 = 매우 좋음'),
-      kpi('분양 의향 높음 이상', sm.intentHigh + '곳', '평균 ' + avgLabel(scale, 'intent', sm.intentAvg)),
-      kpi('소개 의향 높음 이상', sm.referHigh + '곳', '평균 ' + avgLabel(scale, 'refer', sm.referAvg)),
-      kpi('소개 가능 고객', sm.referTotal.toLocaleString('ko-KR') + '명', '중개업소별 최근 조사 합계')));
-
+    // 숫자 요약(대시보드)은 고객 DB 한 곳에만 둔다. 여기서는 바로가기(건수)와 목록만
     // 3) 시장 동향 바로가기 + 동의 조건
     var chip = function (label, n, active, patch) {
       var b = h('button', { type: 'button', class: 'chip' + (active ? ' active' : '') }, label, h('i', null, String(n)));
@@ -37,6 +30,8 @@
     };
     root.appendChild(h('div', { class: 'chips' }, h('span', { class: 'muted', style: 'margin-right:4px' }, '시장 동향'),
       sm.market.map(function (m) { return chip(m.label, m.count, String(filter.market) === String(m.n), { market: String(filter.market) === String(m.n) ? '' : m.n }); }),
+      h('span', { class: 'sep' }), h('span', { class: 'muted', style: 'margin-right:4px' }, 'MGM'),
+      sm.mgm.map(function (m) { return chip(m.label, m.count, filter.mgm === m.label, { mgm: filter.mgm === m.label ? '' : m.label }); }),
       h('span', { class: 'sep' }),
       chip('동의', sm.consent, filter.consent === '동의', { consent: filter.consent === '동의' ? '' : '동의' }),
       chip('미동의', sm.offices - sm.consent, filter.consent === '미동의', { consent: filter.consent === '미동의' ? '' : '미동의' })));
@@ -62,17 +57,18 @@
     var rows = res.offices.map(function (o) {
       var tr = h('tr', { class: 'clickable' },
         h('td', null, h('div', { class: 'cust-name' }, o.officeName), h('div', { class: 'cust-sub' }, o.address || '-')),
-        h('td', null, o.name ? o.name + (o.position ? ' ' + o.position : '') : h('span', { class: 'muted' }, o.consent ? '-' : '(미동의)'), o.phone ? h('div', { class: 'cust-sub' }, o.phone) : null),
+        h('td', null, o.name ? o.name + (o.position ? ' ' + o.position : '') : h('span', { class: 'muted' }, '-'), o.phone ? h('div', { class: 'cust-sub' }, o.phone) : null),
         h('td', null, o.officeTel || h('span', { class: 'muted' }, '-')),
         h('td', null, scaleBadge(scale, 'market', o.market)),
         h('td', null, scaleBadge(scale, 'intent', o.intent)),
         h('td', null, scaleBadge(scale, 'refer', o.refer)),
         h('td', null, o.referCount + '명'),
+        h('td', null, o.mgm ? h('span', { class: 'badge ' + (MGM_BADGE[o.mgm] || '') }, o.mgm) : h('span', { class: 'muted' }, '-')),
         h('td', null, o.count + '회', h('div', { class: 'cust-sub' }, o.last.slice(0, 10))));
       tr.addEventListener('click', function () { openDetail(o.id, scale, again); });
       return tr;
     });
-    root.appendChild(simpleTable(['중개업소', '대표·담당', '사무실 전화', '시장 동향', '분양 의향', '소개 의향', '소개 가능', '조사'], rows));
+    root.appendChild(simpleTable(['중개업소', '대표·담당', '사무실 전화', '시장 동향', '분양 의향', '소개 의향', '소개 가능', 'MGM', '조사'], rows));
 
     var from = res.matched ? (res.page - 1) * res.pageSize + 1 : 0, to = Math.min(res.page * res.pageSize, res.matched);
     var prev = h('button', { type: 'button', class: 'btn small', disabled: res.page <= 1 }, '← 이전');
@@ -81,7 +77,7 @@
     next.addEventListener('click', function () { filter.page = res.page + 1; runBusy(next, again); });
     root.appendChild(h('div', { class: 'pager' }, h('span', null, '중개업소 ' + res.matched.toLocaleString('ko-KR') + '곳 중 ' + from + '–' + to + ' · 줄을 누르면 조사 이력이 열립니다'), h('span', null, prev, ' ', next)));
     root.appendChild(h('p', { class: 'muted' }, '같은 휴대폰 번호나 사무실 전화로 여러 번 조사하면 한 중개업소로 묶이고, 표의 값은 가장 최근 조사 기준입니다. ' +
-      '개인정보 제공에 동의하지 않은 조사는 이름·직함·휴대폰을 저장하지 않습니다. 휴대폰은 가려서 보이고 원문은 상세의 [연락처 보기]에서 확인합니다(기록됨).'));
+      '명함 정보는 개인정보 제공 동의 여부와 관계없이 저장되고(동의 여부는 기록), 고객 DB 에도 "부동산" 고객으로 합쳐집니다. 휴대폰은 가려서 보이고 원문은 상세의 [연락처 보기]에서 확인합니다(기록됨). 전체 숫자 요약은 고객 DB 에 있습니다.'));
   }
 
   function linkCard(fg, again) {
@@ -136,9 +132,9 @@
   async function exportCsv() {
     var ex = await Api.call('realtor.export', filter);
     var sc = ex.scale;
-    downloadCsv('부동산고객_' + Hub.todayLocal() + '.csv', [['중개업소 번호', '조사 일시', '상호', '사무실 전화', '주소', '개인정보 동의', '이름', '직함', '휴대폰', '시장 동향', '분양 의향', '소개 의향', '소개 가능 고객 수', '기타 의견', '명함 인식', '메모']].concat(
+    downloadCsv('부동산고객_' + Hub.todayLocal() + '.csv', [['중개업소 번호', '조사 일시', '상호', '사무실 전화', '주소', '개인정보 동의', '이름', '직함', '휴대폰', '시장 동향', '분양 의향', '소개 의향', '소개 가능 고객 수', 'MGM 참여', '기타 의견', '명함 인식', '메모']].concat(
       ex.rows.map(function (r) {
-        return [r.office, r.at, r.officeName, r.officeTel, r.address, r.consent ? '동의' : '미동의', r.name, r.position, r.phone, sc.market[r.market], sc.intent[r.intent], sc.refer[r.refer], r.referCount, r.opinion, r.ocr ? '사용' : '', r.memo];
+        return [r.office, r.at, r.officeName, r.officeTel, r.address, r.consent ? '동의' : '미동의', r.name, r.position, r.phone, sc.market[r.market], sc.intent[r.intent], sc.refer[r.refer], r.referCount, r.mgm, r.opinion, r.ocr ? '사용' : '', r.memo];
       })));
     toast(ex.rows.length + '건을 내려받았습니다. 개인정보가 들어 있으니 안전하게 보관해 주세요.');
   }
@@ -170,7 +166,7 @@
         hist.appendChild(h('div', { class: 'card', style: 'background:#fafbfd;margin:0 0 10px' },
           h('div', { class: 'toolbar', style: 'margin:0 0 6px' }, h('strong', null, r.at.slice(0, 16)), r.ocr ? h('span', { class: 'badge info' }, '명함 인식') : null,
             h('span', { class: 'badge ' + (r.consent ? 'ok' : '') }, r.consent ? '동의' : '미동의'), h('span', { style: 'flex:1' }), ed, del),
-          h('div', { class: 'toolbar', style: 'margin:0 0 6px;gap:6px' }, '시장 동향 ', scaleBadge(scale, 'market', r.market), ' 분양 의향 ', scaleBadge(scale, 'intent', r.intent), ' 소개 의향 ', scaleBadge(scale, 'refer', r.refer), ' 소개 가능 ' + r.referCount + '명'),
+          h('div', { class: 'toolbar', style: 'margin:0 0 6px;gap:6px' }, '시장 동향 ', scaleBadge(scale, 'market', r.market), ' 분양 의향 ', scaleBadge(scale, 'intent', r.intent), ' 소개 의향 ', scaleBadge(scale, 'refer', r.refer), ' 소개 가능 ' + r.referCount + '명', r.mgm ? [' MGM ', h('span', { class: 'badge ' + (MGM_BADGE[r.mgm] || '') }, r.mgm)] : null),
           h('div', { class: 'cust-sub' }, [r.officeName, r.name ? r.name + (r.position ? ' ' + r.position : '') : '', r.phone, r.officeTel, r.address].filter(Boolean).join(' · ')),
           h('p', { style: 'margin:6px 0 0;white-space:pre-wrap' }, r.opinion),
           r.memo ? h('p', { class: 'muted', style: 'margin:4px 0 0' }, '메모: ' + r.memo) : null,
@@ -180,7 +176,7 @@
     drawHist(d.responses);
     var body = h('div', null,
       h('div', { class: 'profile' }, h('div', { class: 'big' }, o.officeName),
-        h('p', { style: 'margin:4px 0' }, o.name ? o.name + (o.position ? ' ' + o.position : '') : (o.consent ? '' : '개인정보 미동의')),
+        h('p', { style: 'margin:4px 0' }, (o.name ? o.name + (o.position ? ' ' + o.position : '') : '') + (o.consent ? '' : ' (개인정보 제공 미동의)')),
         h('p', { style: 'margin:4px 0' }, '휴대폰 ', phoneEl, ' ', o.phone ? reveal : null),
         h('p', { style: 'margin:4px 0' }, '사무실 ' + (o.officeTel || '-')),
         h('p', { class: 'muted', style: 'margin:4px 0' }, o.address || '주소 없음'),
@@ -202,16 +198,18 @@
     var pick = function (k, v) { return h('select', null, [5, 4, 3, 2, 1].map(function (n) { return option(String(n), scale[k][n], n === v); })); };
     var market = pick('market', r.market), intent = pick('intent', r.intent), refer = pick('refer', r.refer);
     var referCount = h('input', { type: 'number', min: 0, max: 9999, value: r.referCount });
+    var mgm = h('select', null, option('', '선택해 주세요', !r.mgm), ['참여', '불참', '고려중'].map(function (x) { return option(x, x, r.mgm === x); }));
+    var clearMobile = h('input', { type: 'checkbox' });
     var opinion = h('textarea', { rows: 3, maxLength: 1000 }, r.opinion);
     var memo = inp(r.memo, 500, '관리자 메모 (조사 화면에는 보이지 않음)');
     modal('조사 기록 수정 — ' + r.at.slice(0, 16), h('div', { class: 'edit-grid' },
-      h('div', null, field('상호', officeName), field('개인정보 제공 동의', consent), field('이름', name), field('직함', position), field('휴대폰', mobile), field('사무실 전화', officeTel), field('주소', address)),
-      h('div', null, field('시장 동향', market), field('분양 의향', intent), field('소개 의향', refer), field('소개 가능 고객 수', referCount), field('기타 의견', opinion), field('메모', memo),
-        h('p', { class: 'muted' }, '동의를 "미동의"로 바꾸면 이름·직함·휴대폰이 지워집니다. 미동의 → 동의로 바꾸는 것은 실제로 동의를 받은 경우에만 해 주세요(기록됨).'))), [{
+      h('div', null, field('상호', officeName), field('개인정보 제공 동의', consent), field('이름', name), field('직함', position), field('휴대폰', mobile), r.hasPhone ? h('label', { class: 'check' }, clearMobile, ' 휴대폰 번호 지우기') : null, field('사무실 전화', officeTel), field('주소', address)),
+      h('div', null, field('시장 동향', market), field('분양 의향', intent), field('소개 의향', refer), field('소개 가능 고객 수', referCount), field('부동산 MGM 참여', mgm), field('기타 의견', opinion), field('메모', memo),
+        h('p', { class: 'muted' }, '동의 여부를 바꾸면 기록이 남습니다. 미동의 → 동의는 실제로 동의를 받은 경우에만 바꿔 주세요.'))), [{
       label: '저장', primary: true, onClick: async function (close) {
         await Api.call('realtor.save', {
-          id: r.id, officeName: officeName.value, consent: consent.value === 'Y', name: name.value, position: position.value, mobile: mobile.value, officeTel: officeTel.value, address: address.value,
-          market: Number(market.value), intent: Number(intent.value), refer: Number(refer.value), referCount: String(referCount.value), opinion: opinion.value, memo: memo.value
+          id: r.id, officeName: officeName.value, consent: consent.value === 'Y', name: name.value, position: position.value, mobile: mobile.value, clearMobile: clearMobile.checked, officeTel: officeTel.value, address: address.value,
+          market: Number(market.value), intent: Number(intent.value), refer: Number(refer.value), referCount: String(referCount.value), mgm: mgm.value, opinion: opinion.value, memo: memo.value
         });
         close(); toast('저장했습니다.'); await done();
       }

@@ -618,6 +618,8 @@ CREATE TABLE IF NOT EXISTS realtor_responses (
   refer_count INTEGER NOT NULL DEFAULT 0,      -- 소개 가능 고객 수
   opinion TEXT NOT NULL DEFAULT '',
   ocr INTEGER NOT NULL DEFAULT 0,              -- 명함 인식을 써서 입력했는지
+  mgm TEXT NOT NULL DEFAULT '',                -- 부동산 MGM 참여 여부: 참여 / 불참 / 고려중
+  cust_hash TEXT NOT NULL DEFAULT '',          -- 고객 DB 연결 키 (휴대폰, 없으면 사무실 전화의 해시)
   memo TEXT NOT NULL DEFAULT '',               -- 관리자 메모
   nonce TEXT NOT NULL DEFAULT '',
   submitted_at TEXT NOT NULL,
@@ -625,6 +627,7 @@ CREATE TABLE IF NOT EXISTS realtor_responses (
   updated_by TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS ix_realtor_resp ON realtor_responses(project_id, submitted_at);
+CREATE INDEX IF NOT EXISTS ix_realtor_cust ON realtor_responses(project_id, cust_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_realtor_nonce ON realtor_responses(project_id, nonce) WHERE nonce <> '';
 
 -- 명함 인식 사용량 (현장·날짜별). 무료 한도를 넘지 않게 서버가 센다

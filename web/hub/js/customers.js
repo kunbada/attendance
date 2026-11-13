@@ -73,8 +73,8 @@
   var filter = Object.assign({}, EMPTY);
   var INTENT = { '1': '1점', '2': '2점', '3': '3점', '4': '4점', '5': '5점' };
   var STATUS_BADGE = { '신규': 'info', '연락중': 'warn', '부재': '', '방문예정': 'warn', '방문완료': 'ok', '계약': 'ok', '보류': '', '거부': 'danger' };
-  var CHANNEL_BADGE = { '설문': 'info', '방문': 'ok', '외부': 'warn', '계약': 'danger' };
-  var TYPE_BADGE = { '설문': 'info', '방문': 'ok', 'TM': 'warn', '상담': 'warn', '메모': '', '계약': 'danger', '등록': 'line' };
+  var CHANNEL_BADGE = { '설문': 'info', '방문': 'ok', '외부': 'warn', '부동산': 'line', '계약': 'danger' };
+  var TYPE_BADGE = { '설문': 'info', '방문': 'ok', 'TM': 'warn', '상담': 'warn', '메모': '', '계약': 'danger', '등록': 'line', '부동산': 'line' };
   var QUICK = ['통화', '부재', '재통화', '방문약속', '관심없음', '결번'];
 
   function gradeBadge(g) { return g ? h('span', { class: 'badge ' + GRADE_BADGE[g] }, g) : h('span', { class: 'muted' }, '-'); }
@@ -99,6 +99,7 @@
       kpi('설문 고객', sm.channels.설문, '의향 높음 ' + sm.highIntent + '명', '설문'),
       kpi('방문 고객', sm.channels.방문, '설문 → 방문 ' + sm.surveyToVisit + '명 (' + rate(sm.surveyToVisit, sm.channels.설문) + ')', '방문'),
       kpi('외부 자료 고객', sm.channels.외부, '동의 미확인 ' + sm.unconfirmed + '명', '외부'),
+      kpi('부동산 고객', sm.channels.부동산 || 0, 'MGM 참여 ' + (sm.realtorMgm || 0) + '곳 · 소개 가능 ' + (sm.realtorRefer || 0) + '명', '부동산'),
       kpi('계약 고객', sm.channels.계약, '방문 → 계약 ' + sm.visitToContract + '명 (' + rate(sm.visitToContract, sm.channels.방문) + ')', '계약')));
 
     // 2) 등급·관리 필요 바로가기
@@ -149,7 +150,9 @@
         h('td', null, c.channels.map(function (x) { return [h('span', { class: 'badge ' + CHANNEL_BADGE[x] }, x), ' ']; }), c.source ? h('div', { class: 'cust-sub' }, c.source) : null),
         h('td', null, c.surveys ? '설문 ' + c.surveys + '회' + (c.intent ? ' · 의향 ' + (INTENT[c.intent] || c.intent) : '') : '',
           c.visits ? h('div', null, '방문 ' + c.visits + '회' + (c.people > c.visits ? ' (동반 포함 ' + c.people + '명)' : '')) : null,
-          c.contract ? h('div', null, '계약 ' + c.contract.dongho) : null, !c.surveys && !c.visits && !c.contract ? h('span', { class: 'muted' }, c.interest || c.region || '-') : null),
+          c.contract ? h('div', null, '계약 ' + c.contract.dongho) : null,
+          c.realtor ? h('div', null, '중개업소 ' + c.realtor.office + (c.realtor.mgm ? ' · MGM ' + c.realtor.mgm : '') + ' · 소개 ' + c.realtor.referCount + '명') : null,
+          !c.surveys && !c.visits && !c.contract && !c.realtor ? h('span', { class: 'muted' }, c.interest || c.region || '-') : null),
         h('td', null, c.notes ? c.notes + '건' : h('span', { class: 'muted' }, '-'), c.lastNote ? h('div', { class: 'cust-sub' }, String(c.lastNote).slice(5, 10)) : null),
         h('td', null, c.owner || h('span', { class: 'muted' }, '-')),
         h('td', null, c.last || '-'));
@@ -170,9 +173,9 @@
 
   async function exportCsv() {
     var ex = await Api.call('customer.export', filter);
-    downloadCsv('고객DB_' + Hub.todayLocal() + '.csv', [['이름', '전화번호', '등급', '진행 상태', '유입 경로', '출처', '동의', '연락 거부', '설문 횟수', '분양 의향', '방문 횟수', '최근 방문', '계약 동호', '상담 기록 수', '담당', '지역', '관심', '메모', '최근 활동']].concat(
+    downloadCsv('고객DB_' + Hub.todayLocal() + '.csv', [['이름', '전화번호', '등급', '진행 상태', '유입 경로', '출처', '동의', '연락 거부', '설문 횟수', '분양 의향', '방문 횟수', '최근 방문', '계약 동호', '중개업소', 'MGM', '상담 기록 수', '담당', '지역', '관심', '메모', '최근 활동']].concat(
       ex.rows.map(function (c) {
-        return [c.name, c.phone, c.grade, c.status, c.channels.join('+'), c.source, c.consent, c.dnc ? '거부' : '', c.surveys, c.intent, c.visits, c.lastVisit, c.contract ? c.contract.dongho : '', c.notes, c.owner, c.region, c.interest, c.memo, c.last];
+        return [c.name, c.phone, c.grade, c.status, c.channels.join('+'), c.source, c.consent, c.dnc ? '거부' : '', c.surveys, c.intent, c.visits, c.lastVisit, c.contract ? c.contract.dongho : '', c.realtor ? c.realtor.office : '', c.realtor ? c.realtor.mgm : '', c.notes, c.owner, c.region, c.interest, c.memo, c.last];
       })));
     toast(ex.rows.length + '명을 내려받았습니다.' + (ex.rows.length >= ex.max ? ' (한 번에 ' + ex.max + '명까지 — 조건을 나눠 받아 주세요)' : '') + ' 개인정보가 들어 있으니 안전하게 보관해 주세요.');
   }

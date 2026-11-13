@@ -3,11 +3,12 @@
 //  - 전화번호 원문은 화면에 보내지 않는다(마스킹). 원문은 [연락처 보기]·내보내기에서만 주고 기록을 남긴다.
 //  - 고객별 관리 정보(진행 상태·담당·메모·연락 거부)와 상담 기록은 customers / customer_notes 에 둔다.
 import { AppError, s, all, first, run, stmt, decryptText, phoneHash, nowStr, todayStr, newId, writeLog } from '../core/util.js';
+import { SCALE as RT_SCALE, backfillRealtorHash } from '../realtor/realtor.js';
 import { GRADES, classify } from './grade.js';
 
 export const STATUSES = ['신규', '연락중', '부재', '방문예정', '방문완료', '계약', '보류', '거부'];
 export const NOTE_KINDS = ['TM', '상담', '메모'];
-const CHANNELS = ['설문', '방문', '외부', '계약'];
+const CHANNELS = ['설문', '방문', '외부', '부동산', '계약'];
 const PAGE = 50;
 
 const maskPhone = (d) => (d && d.length >= 7 ? d.slice(0, 3) + '-****-' + d.slice(-4) : '');
@@ -54,7 +55,7 @@ async function loadCustomers(env, pid) {
   const map = {};
   const cust = (h) => (map[h] = map[h] || {
     hash: h, name: '', phone: '', tail: '', phoneEnc: '', surveys: 0, lastSurveyAt: '', intent: '', subscr: '', visits: 0, lastVisit: '', people: 0,
-    ext: null, contract: null, notes: 0, lastNote: '', consent: '', status: '', ownerId: '', memo: '', dnc: false, source: '', region: '', interest: '', createdAt: ''
+    ext: null, realtor: null, contract: null, notes: 0, lastNote: '', consent: '', status: '', ownerId: '', memo: '', dnc: false, source: '', region: '', interest: '', createdAt: ''
   });
 
   (await all(env,
@@ -75,6 +76,18 @@ async function loadCustomers(env, pid) {
     if (g.name) c.name = g.name; // 방문 때 직접 쓴 이름이 더 정확하다
     c.phone = g.phone;
     c.consent = '동의';
+  });
+  // 부동산고객(중개업소 조사): 휴대폰, 없으면 사무실 전화로 묶는다
+  await backfillRealtorHash(env, pid);
+  (await all(env,
+    `SELECT cust_hash, office_name, office_tel, name, phone_enc, phone_tail, consent, mgm, refer_count, market, intent, submitted_at
+     FROM realtor_responses WHERE project_id = ? AND cust_hash <> '' ORDER BY submitted_at, rowid`, pid)).forEach((r) => {
+    const c = cust(r.cust_hash);
+    c.realtor = { office: r.office_name, mgm: r.mgm, referCount: r.refer_count, market: r.market, intent: r.intent, count: (c.realtor ? c.realtor.count : 0) + 1, last: r.submitted_at };
+    if (!c.name) c.name = r.name || r.office_name;
+    if (r.phone_enc) { if (!c.phoneEnc) c.phoneEnc = r.phone_enc; if (!c.tail && !c.phone) c.tail = r.phone_tail; }
+    else if (!c.phone && !c.tail && !c.phoneEnc && r.office_tel) c.phone = r.office_tel;
+    if (r.consent) c.consent = '동의'; else if (!c.consent) c.consent = '미확인';
   });
   (await all(env, 'SELECT * FROM customers WHERE project_id = ?', pid)).forEach((r) => {
     // 설문·방명록에 없는 고객은 외부 자료(source_kind 있음)일 때만 고객으로 센다. 덧붙인 행만 남은 경우는 건너뛴다
@@ -106,8 +119,8 @@ async function loadCustomers(env, pid) {
     c.statusAuto = !c.status;
     if (!c.status) c.status = c.contract ? '계약' : c.visits ? '방문완료' : '신규';
     c.owner = staff[c.ownerId] || '';
-    c.channels = [c.surveys ? '설문' : '', c.visits ? '방문' : '', c.ext ? '외부' : '', c.contract ? '계약' : ''].filter(Boolean);
-    c.last = [c.lastSurveyAt.slice(0, 10), c.lastVisit, s(c.lastNote).slice(0, 10), c.contract ? c.contract.date : '', c.createdAt.slice(0, 10)].sort().pop() || '';
+    c.channels = [c.surveys ? '설문' : '', c.visits ? '방문' : '', c.ext ? '외부' : '', c.realtor ? '부동산' : '', c.contract ? '계약' : ''].filter(Boolean);
+    c.last = [c.lastSurveyAt.slice(0, 10), c.lastVisit, s(c.lastNote).slice(0, 10), c.contract ? c.contract.date : '', c.realtor ? c.realtor.last.slice(0, 10) : '', c.createdAt.slice(0, 10)].sort().pop() || '';
   });
   return { rows, staff };
 }
@@ -118,7 +131,7 @@ const rowView = (c) => ({
   status: c.status, statusAuto: c.statusAuto, channels: c.channels, source: c.ext ? c.ext.source : '', sourceKind: c.ext ? c.ext.kind : '',
   surveys: c.surveys, lastSurveyAt: c.lastSurveyAt, intent: c.intent, visits: c.visits, lastVisit: c.lastVisit, people: c.people,
   stage: c.surveys && c.visits ? '설문+방문' : c.surveys ? '설문만' : c.visits ? '방문만' : '외부',
-  contract: c.contract, notes: c.notes, lastNote: c.lastNote, consent: c.consent, dnc: c.dnc, owner: c.owner, ownerId: c.ownerId, memo: c.memo, region: c.region, interest: c.interest, last: c.last
+  contract: c.contract, realtor: c.realtor, notes: c.notes, lastNote: c.lastNote, consent: c.consent, dnc: c.dnc, owner: c.owner, ownerId: c.ownerId, memo: c.memo, region: c.region, interest: c.interest, last: c.last
 });
 
 // 조건에 맞는 고객만 남긴다 (목록·내보내기 공용)
@@ -131,7 +144,7 @@ async function applyFilter(env, rows, data) {
       // 설문만 있는 고객은 번호가 암호화되어 있어, 번호로 찾을 때만 풀어 본다
       for (const c of rows) if (!c.phone && !c.tail && c.phoneEnc) { try { c.phone = await decryptText(env, c.phoneEnc); } catch (e) { /* 풀 수 없는 값은 건너뜀 */ } }
     }
-    rows = rows.filter((c) => (c.name || '').toLowerCase().includes(q) || (fullHash && c.hash === fullHash)
+    rows = rows.filter((c) => ((c.name || '') + (c.realtor ? ' ' + c.realtor.office : '')).toLowerCase().includes(q) || (fullHash && c.hash === fullHash)
       || (!fullHash && qd.length >= 3 && ((c.phone && c.phone.includes(qd)) || (c.tail && qd.length <= 4 && c.tail.endsWith(qd)))));
   }
   const channel = s(data.channel);
@@ -169,12 +182,13 @@ export async function customerList(env, data, ctx) {
   const high = allRows.filter((c) => Number(c.intent) >= 4);
   const summary = {
     total: allRows.length,
-    channels: { 설문: count((c) => c.surveys), 방문: count((c) => c.visits), 외부: count((c) => c.ext), 계약: count((c) => c.contract) },
+    channels: { 설문: count((c) => c.surveys), 방문: count((c) => c.visits), 외부: count((c) => c.ext), 부동산: count((c) => c.realtor), 계약: count((c) => c.contract) },
     grades: Object.fromEntries(GRADES.map((g) => [g, count((c) => c.grade === g)])), noGrade: count((c) => !c.grade),
     statuses: Object.fromEntries(STATUSES.map((x) => [x, count((c) => c.status === x)])),
     // 퍼널: 설문 → 방문 → 계약
     surveyToVisit: count((c) => c.surveys && c.visits), visitToContract: count((c) => c.visits && c.contract),
     highIntent: high.length, highIntentVisited: high.filter((c) => c.visits).length,
+    realtorMgm: count((c) => c.realtor && c.realtor.mgm === '참여'), realtorRefer: allRows.reduce((a, c) => a + (c.realtor ? c.realtor.referCount : 0), 0),
     unconfirmed: count((c) => c.consent === '미확인'), dnc: count((c) => c.dnc), noNote: count((c) => !c.notes), noOwner: count((c) => !c.ownerId)
   };
   // 예전 화면·시험이 쓰던 이름도 함께 준다
@@ -200,7 +214,8 @@ async function resolveHash(env, pid, id) {
   const hit = await first(env,
     `SELECT phone_hash FROM customers WHERE project_id = ? AND phone_hash >= ? AND phone_hash < ? AND source_kind <> ''
      UNION SELECT phone_hash FROM responses WHERE project_id = ? AND phone_hash >= ? AND phone_hash < ?
-     UNION SELECT phone_hash FROM guestbook WHERE project_id = ? AND phone_hash >= ? AND phone_hash < ? LIMIT 1`, pid, id, hi, pid, id, hi, pid, id, hi);
+     UNION SELECT phone_hash FROM guestbook WHERE project_id = ? AND phone_hash >= ? AND phone_hash < ?
+     UNION SELECT cust_hash FROM realtor_responses WHERE project_id = ? AND cust_hash >= ? AND cust_hash < ? LIMIT 1`, pid, id, hi, pid, id, hi, pid, id, hi, pid, id, hi);
   if (!hit) throw new AppError('이 현장에서 고객을 찾을 수 없습니다.');
   return hit.phone_hash;
 }
@@ -230,6 +245,10 @@ export async function customerGet(env, data, ctx) {
   }));
   (await all(env, 'SELECT id, at, kind, result, content, import_id, created_by FROM customer_notes WHERE project_id = ? AND phone_hash = ?', pid, hash)).forEach((n) => timeline.push({
     at: n.at, type: n.kind, title: n.result || n.kind, text: n.content, noteId: n.id, by: n.created_by, imported: !!n.import_id
+  }));
+  (await all(env, 'SELECT submitted_at, office_name, market, intent, refer, refer_count, mgm, opinion FROM realtor_responses WHERE project_id = ? AND cust_hash = ?', pid, hash)).forEach((r) => timeline.push({
+    at: r.submitted_at, type: '부동산', title: '중개업소 조사 · ' + r.office_name,
+    text: ['시장 동향 ' + RT_SCALE.market[r.market], '분양 의향 ' + RT_SCALE.intent[r.intent], '소개 의향 ' + RT_SCALE.refer[r.refer], '소개 가능 ' + r.refer_count + '명', r.mgm ? 'MGM ' + r.mgm : '', r.opinion].filter(Boolean).join(' · ')
   }));
   if (c.contract) timeline.push({ at: c.contract.date, type: '계약', title: '계약 ' + c.contract.dongho, text: '' });
   if (c.ext && c.createdAt) timeline.push({ at: c.createdAt, type: '등록', title: '외부 자료 등록', text: c.ext.kind + ' · 출처 ' + c.ext.source });
@@ -289,7 +308,9 @@ async function fullPhone(env, pid, hash) {
   if (c) return decryptText(env, c.phone_enc);
   const p = await first(env,
     `SELECT p.phone_enc FROM responses r JOIN response_pii p ON p.response_id = r.id AND p.project_id = r.project_id WHERE r.project_id = ? AND r.phone_hash = ? AND p.phone_enc <> '' LIMIT 1`, pid, hash);
-  return p ? decryptText(env, p.phone_enc) : '';
+  if (p) return decryptText(env, p.phone_enc);
+  const rt = await first(env, `SELECT phone_enc, office_tel FROM realtor_responses WHERE project_id = ? AND cust_hash = ? ORDER BY phone_enc = '' LIMIT 1`, pid, hash);
+  return rt ? (rt.phone_enc ? decryptText(env, rt.phone_enc) : rt.office_tel) : '';
 }
 
 // 전화번호 원문 보기 (전화를 걸 때). 볼 때마다 기록한다
