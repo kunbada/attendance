@@ -1462,6 +1462,28 @@ try {
   expectOk('부동산 고객에게 상태·담당 정하기', await rt('customer.save', { id: rt_ck.id, status: '연락중', memo: 'MGM 안내' }));
   check('상태가 고객 DB 에 반영', (await rt('customer.list', { channel: '부동산', status: '연락중' })).data.matched === 1);
 
+  // 등급관리: 부동산 고객 자동 등급 (기본: 분양 의향 50% + 소개 의향 50%, A≥4.5 B≥3.5 C≥2.5)
+  const gr_g = async () => Object.fromEntries((await rt('customer.list', { channel: '부동산' })).data.customers.map((c) => [c.name, c.grade + '/' + c.gradeSource]));
+  const gr_0 = await gr_g();
+  check('부동산 자동 등급(기본 기준): 3+5=4.0→B, 3+2=2.5→C, 5+4=4.5→A', gr_0['김중개'] === 'B/부동산' && gr_0['이비공개'] === 'C/부동산' && gr_0['박실장'] === 'A/부동산', JSON.stringify(gr_0));
+  const gr_r = (await rt('customer.gradeRules', {})).data;
+  check('등급관리: 기본 기준과 분포', gr_r.rules.realtor.wIntent === 50 && gr_r.rules.survey.map['5'] === 'A' && gr_r.rules.visit.grade === 'C' && gr_r.stats.channels.부동산.A === 1 && gr_r.stats.channels.부동산.B === 1 && gr_r.stats.channels.부동산.C === 1 && gr_r.surveyLabels['5'] === '적극 있음', JSON.stringify(gr_r.stats.channels.부동산));
+  const gr_base = JSON.parse(JSON.stringify(gr_r.rules));
+  const gr_save = (patch) => rt('customer.gradeRulesSave', { rules: { ...gr_base, ...patch } });
+  expectErr('기준 검사: A ≥ B ≥ C', await gr_save({ realtor: { ...gr_base.realtor, cutA: 3, cutB: 4 } }), '순서');
+  expectErr('기준 검사: 비중 0~100', await gr_save({ realtor: { ...gr_base.realtor, wIntent: 150 } }), '비중');
+  expectErr('기준 검사: 등급 값', await gr_save({ survey: { ...gr_base.survey, map: { ...gr_base.survey.map, 5: 'E' } } }), '등급');
+  expectErr('다른 현장 보조관리자는 등급 기준 변경 불가', await rt('customer.gradeRulesSave', { rules: gr_base }, subA), '접근할 수 없습니다', 'FORBIDDEN');
+  const gr_s1 = await gr_save({ realtor: { wIntent: 100, cutA: 4.5, cutB: 3.5, cutC: 2.5, mgmUp: true } });
+  check('기준 저장 → 분포 다시 계산해서 돌려줌', gr_s1.ok && gr_s1.data.rules.realtor.wIntent === 100 && gr_s1.data.stats.channels.부동산.A === 1, JSON.stringify(gr_s1.data && gr_s1.data.stats.channels.부동산));
+  const gr_1 = await gr_g();
+  check('분양 의향만(100%) + MGM 참여 한 단계 위: 김중개 3점 C→B(참여), 이비공개 3점 C(불참), 박실장 5점 A', gr_1['김중개'] === 'B/부동산' && gr_1['이비공개'] === 'C/부동산' && gr_1['박실장'] === 'A/부동산', JSON.stringify(gr_1));
+  expectOk('MGM 가산 끄기', await gr_save({ realtor: { wIntent: 100, cutA: 4.5, cutB: 3.5, cutC: 2.5, mgmUp: false } }));
+  check('MGM 가산을 끄면 김중개 C', (await gr_g())['김중개'] === 'C/부동산');
+  check('등급 기준 변경 기록', (await query(`SELECT COUNT(*) AS n FROM logs WHERE action = '고객등급기준'`))[0].n === 2);
+  check('다른 현장의 기준은 그대로(기본값)', (await rt('customer.gradeRules', {}, admin, P2)).data.rules.realtor.wIntent === 50);
+  expectOk('기본값으로 되돌리기', await rt('customer.gradeRulesSave', { rules: gr_r.defaults }));
+
   // 상세·연락처·수정·삭제
   const rt_d = (await rt('realtor.get', { id: rt_ours.id })).data;
   check('상세: 같은 곳의 조사 2건 이력', rt_d.responses.length === 2 && rt_d.office.name === '박실장', JSON.stringify(rt_d.office));

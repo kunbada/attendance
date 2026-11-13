@@ -21,7 +21,7 @@ import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, de
 import { staffTelegramLink, handleTelegram } from './telegram/telegram.js';
 import { adminDashboard, adminGuestStats, adminGuestbook } from './report/stats.js';
 import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyDelete, surveyLinkList, surveyLinkSave, surveyLinkGenerate, surveyLinkToggle, surveyForm, surveySubmit, surveyResponses, surveyExport, surveyStats, surveyCompare, surveyPurgePii, surveyMyLinks, surveyRespondents } from './survey/survey.js';
-import { customerList, customerGradeSave, customerGet, customerSave, customerNoteAdd, customerNoteDelete, customerReveal, customerExport } from './customer/customer.js';
+import { customerList, customerGradeSave, customerGet, customerSave, customerNoteAdd, customerNoteDelete, customerReveal, customerExport, customerGradeRules, customerGradeRulesSave } from './customer/customer.js';
 import { customerImport, customerImportList, customerImportDelete } from './customer/import.js';
 import { realtorFormGet, realtorFormSave, realtorPublicForm, realtorOcr, realtorSubmit, realtorList, realtorGet, realtorSave, realtorDelete, realtorReveal, realtorExport, realtorCard } from './realtor/realtor.js';
 import { contractPoll, contractSync, contractWipe } from './contract/contract.js';
@@ -129,6 +129,8 @@ const ACTIONS = {
   'survey.respondents': { roles: MGR, fn: surveyRespondents },
   'customer.list': { roles: MGR, fn: customerList },
   'customer.gradeSave': { roles: MGR, fn: customerGradeSave },
+  'customer.gradeRules': { roles: MGR, fn: customerGradeRules },
+  'customer.gradeRulesSave': { roles: MGR, fn: customerGradeRulesSave },
   'customer.get': { roles: MGR, fn: customerGet },
   'customer.save': { roles: MGR, fn: customerSave },
   'customer.noteAdd': { roles: MGR, fn: customerNoteAdd },

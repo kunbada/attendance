@@ -168,7 +168,7 @@
     next.addEventListener('click', function () { filter.page = res.page + 1; runBusy(next, again); });
     root.appendChild(h('div', { class: 'pager' }, h('span', null, '조건에 맞는 고객 ' + res.matched.toLocaleString('ko-KR') + '명 중 ' + from + '–' + to + ' · 줄을 누르면 고객 상세가 열립니다'), h('span', null, prev, ' ', next)));
     root.appendChild(h('p', { class: 'muted' }, '설문·방명록은 개인정보에 동의한 건만 묶습니다. 외부 자료는 올릴 때 고른 출처와 동의 여부가 고객마다 기록됩니다. 전화번호는 가려서 보이고, 원문은 고객 상세의 [연락처 보기]에서 확인합니다(기록됨). ' +
-      '등급 자동 기준 — 설문: 분양 의향 적극 있음 A · 있음 B · 고민 중 C · 낮음/없음 D (청약통장이 있으면 한 단계 위) / 방문 고객: C / 직접 정한 등급이 우선. 진행 상태를 직접 정하지 않으면 계약 > 방문완료 > 신규 순으로 자동 표시됩니다.'));
+      '등급은 고객관리 > 등급관리에서 정한 기준(설문·방문·부동산)으로 자동으로 매겨지고, 고객 상세에서 직접 정한 등급이 우선입니다. 진행 상태를 직접 정하지 않으면 계약 > 방문완료 > 신규 순으로 자동 표시됩니다.'));
   }
 
   async function exportCsv() {

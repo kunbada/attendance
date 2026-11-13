@@ -4,7 +4,8 @@
 //  - 고객별 관리 정보(진행 상태·담당·메모·연락 거부)와 상담 기록은 customers / customer_notes 에 둔다.
 import { AppError, s, all, first, run, stmt, decryptText, phoneHash, nowStr, todayStr, newId, writeLog } from '../core/util.js';
 import { SCALE as RT_SCALE, backfillRealtorHash } from '../realtor/realtor.js';
-import { GRADES, classify } from './grade.js';
+import { GRADES, classify, loadGradeRules, saveGradeRules, DEFAULT_RULES } from './grade.js';
+import { STD } from '../survey/std.js';
 
 export const STATUSES = ['신규', '연락중', '부재', '방문예정', '방문완료', '계약', '보류', '거부'];
 export const NOTE_KINDS = ['TM', '상담', '메모'];
@@ -80,10 +81,10 @@ async function loadCustomers(env, pid) {
   // 부동산고객(중개업소 조사): 휴대폰, 없으면 사무실 전화로 묶는다
   await backfillRealtorHash(env, pid);
   (await all(env,
-    `SELECT cust_hash, office_name, office_tel, name, phone_enc, phone_tail, consent, mgm, refer_count, market, intent, submitted_at
+    `SELECT cust_hash, office_name, office_tel, name, phone_enc, phone_tail, consent, mgm, refer_count, refer, market, intent, submitted_at
      FROM realtor_responses WHERE project_id = ? AND cust_hash <> '' ORDER BY submitted_at, rowid`, pid)).forEach((r) => {
     const c = cust(r.cust_hash);
-    c.realtor = { office: r.office_name, mgm: r.mgm, referCount: r.refer_count, market: r.market, intent: r.intent, count: (c.realtor ? c.realtor.count : 0) + 1, last: r.submitted_at };
+    c.realtor = { office: r.office_name, mgm: r.mgm, referCount: r.refer_count, market: r.market, intent: r.intent, refer: r.refer, count: (c.realtor ? c.realtor.count : 0) + 1, last: r.submitted_at };
     if (!c.name) c.name = r.name || r.office_name;
     if (r.phone_enc) { if (!c.phoneEnc) c.phoneEnc = r.phone_enc; if (!c.tail && !c.phone) c.tail = r.phone_tail; }
     else if (!c.phone && !c.tail && !c.phoneEnc && r.office_tel) c.phone = r.office_tel;
@@ -111,10 +112,11 @@ async function loadCustomers(env, pid) {
   const staff = {};
   (await all(env, 'SELECT id, name FROM staff WHERE project_id = ?', pid)).forEach((r) => { staff[r.id] = r.name; });
 
+  const rules = await loadGradeRules(env, pid);
   const rows = Object.values(map);
   rows.forEach((c) => {
     const m = manual[c.hash];
-    const g = classify(c, m ? m.grade : '');
+    const g = classify(c, m ? m.grade : '', rules);
     c.grade = g.grade; c.gradeSource = g.source; c.gradeMemo = m ? m.memo : '';
     c.statusAuto = !c.status;
     if (!c.status) c.status = c.contract ? '계약' : c.visits ? '방문완료' : '신규';
@@ -355,4 +357,27 @@ export async function customerGradeSave(env, data, ctx) {
   }
   await writeLog(env, ctx.account.login_id, '고객등급', hash.slice(0, 12), grade || '수동 해제', pid);
   return { ok: true };
+}
+
+// ---------- 등급관리: 자동 등급 기준 (현장별) ----------
+
+function gradeStats(rows) {
+  const by = (fn) => Object.fromEntries(GRADES.map((g) => [g, rows.filter((c) => fn(c) && c.grade === g).length]).concat([['없음', rows.filter((c) => fn(c) && !c.grade).length]]));
+  return {
+    total: by(() => true), manual: rows.filter((c) => c.gradeSource === '수동').length,
+    channels: { 설문: by((c) => c.surveys), 방문: by((c) => c.visits), 부동산: by((c) => c.realtor) }
+  };
+}
+
+const INTENT_LABELS = Object.fromEntries(STD.STD_INTENT.options.map((o) => [o.code, o.label]));
+
+export async function customerGradeRules(env, data, ctx) {
+  const { rows } = await loadCustomers(env, ctx.projectId);
+  return { rules: await loadGradeRules(env, ctx.projectId), defaults: DEFAULT_RULES, surveyLabels: INTENT_LABELS, stats: gradeStats(rows) };
+}
+
+export async function customerGradeRulesSave(env, data, ctx) {
+  const rules = await saveGradeRules(env, ctx.projectId, data.rules, ctx);
+  const { rows } = await loadCustomers(env, ctx.projectId);
+  return { rules, stats: gradeStats(rows) };
 }
