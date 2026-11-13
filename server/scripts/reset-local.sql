@@ -35,3 +35,6 @@ DROP TABLE IF EXISTS fee_ledger;
 DROP TABLE IF EXISTS customers;
 DROP TABLE IF EXISTS customer_notes;
 DROP TABLE IF EXISTS customer_imports;
+DROP TABLE IF EXISTS realtor_forms;
+DROP TABLE IF EXISTS realtor_responses;
+DROP TABLE IF EXISTS ocr_usage;

@@ -187,3 +187,7 @@ body.hub .progress span { display: block; height: 100%; background: var(--primar
 body.hub main:not(.wide) { padding: 0 16px; }
 body.hub main:not(.wide) .screen:not(.hidden) { padding-top: 56px; }
 body.hub .toolbar .btn + .btn, body.hub .pager .btn + .btn, body.hub .modal-actions .btn + .btn, body.hub .btn.small + .btn.small { margin-top: 0; }
+
+/* 부동산고객: 조사 기록 수정 창 (두 칸) */
+body.hub .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+@media (max-width: 760px) { body.hub .edit-grid { grid-template-columns: 1fr; } }

@@ -435,6 +435,8 @@ export async function surveyPurgePii(env, data, ctx) {
   for (const p of projects) {
     const res = await run(env, 'DELETE FROM response_pii WHERE project_id = ?', p.id);
     await run(env, `UPDATE responses SET phone_hash = '' WHERE project_id = ? AND phone_hash <> ''`, p.id);
+    // 부동산고객(중개업소 조사)의 이름·직함·휴대폰도 같은 기준으로 파기한다
+    await run(env, `UPDATE realtor_responses SET name = '', position = '', phone_enc = '', phone_hash = '', phone_tail = '' WHERE project_id = ? AND (phone_enc <> '' OR name <> '')`, p.id);
     removed += res.meta.changes || 0;
   }
   await writeLog(env, ctx.account.login_id, '설문개인정보파기', '', months + '개월 경과 현장 ' + projects.length + '곳 / 이름·전화번호 ' + removed + '건');

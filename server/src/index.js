@@ -23,6 +23,7 @@ import { adminDashboard, adminGuestStats, adminGuestbook } from './report/stats.
 import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyDelete, surveyLinkList, surveyLinkSave, surveyLinkGenerate, surveyLinkToggle, surveyForm, surveySubmit, surveyResponses, surveyExport, surveyStats, surveyCompare, surveyPurgePii, surveyMyLinks, surveyRespondents } from './survey/survey.js';
 import { customerList, customerGradeSave, customerGet, customerSave, customerNoteAdd, customerNoteDelete, customerReveal, customerExport } from './customer/customer.js';
 import { customerImport, customerImportList, customerImportDelete } from './customer/import.js';
+import { realtorFormGet, realtorFormSave, realtorPublicForm, realtorOcr, realtorSubmit, realtorList, realtorGet, realtorSave, realtorDelete, realtorReveal, realtorExport } from './realtor/realtor.js';
 import { contractPoll, contractSync, contractWipe } from './contract/contract.js';
 import { contractSummary } from './contract/summary.js';
 import { feeRuleList, feeRuleSave, feeRuleDelete, feeRunCreate, payStatement } from './pay/fee.js';
@@ -51,6 +52,10 @@ const ACTIONS = {
   // 설문(고객관리): 응답 화면은 로그인 없이(링크 코드로), 관리는 관리자·보조관리자
   'survey.form': { roles: ['public'], fn: surveyForm },
   'survey.submit': { roles: ['public'], fn: surveySubmit },
+  // 부동산고객(중개업소 조사): 조사 화면은 로그인 없이(링크 코드로)
+  'realtor.form': { roles: ['public'], fn: realtorPublicForm },
+  'realtor.ocr': { roles: ['public'], fn: realtorOcr },
+  'realtor.submit': { roles: ['public'], fn: realtorSubmit },
   'reservation.create': { roles: ['staff'], fn: reservationCreate },
   'reservation.list': { roles: ['staff'], fn: reservationList },
   'reservation.update': { roles: ['staff'], fn: reservationUpdate },
@@ -133,6 +138,14 @@ const ACTIONS = {
   'customer.import': { roles: MGR, fn: customerImport },
   'customer.importList': { roles: MGR, fn: customerImportList },
   'customer.importDelete': { roles: MGR, fn: customerImportDelete },
+  'realtor.formGet': { roles: MGR, fn: realtorFormGet },
+  'realtor.formSave': { roles: MGR, fn: realtorFormSave },
+  'realtor.list': { roles: MGR, fn: realtorList },
+  'realtor.get': { roles: MGR, fn: realtorGet },
+  'realtor.save': { roles: MGR, fn: realtorSave },
+  'realtor.delete': { roles: MGR, fn: realtorDelete },
+  'realtor.reveal': { roles: MGR, fn: realtorReveal },
+  'realtor.export': { roles: MGR, fn: realtorExport }, // 관리자 또는 설문 관리가 허용된 계정만 (함수 안에서 확인)
 
   'pay.settingList': { roles: MGR, fn: paySettingList },
   'pay.settingSave': { roles: MGR, fn: paySettingSave },

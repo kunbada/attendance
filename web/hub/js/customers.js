@@ -11,7 +11,7 @@
     var res = await Api.call('survey.respondents', { q: sq });
     var me = Hub.state.me || {};
     root.innerHTML = '';
-    var openApp = h('button', { type: 'button', class: 'btn small primary' }, '+ 새 설문 (새 창)');
+    var openApp = h('button', { type: 'button', class: 'btn small primary' }, '설문관리(새창)');
     openApp.addEventListener('click', function () {
       if (!me.allowSurvey) { toast('이 계정에는 설문 관리 권한이 없습니다. 관리자에게 허용을 요청해 주세요.', true); return; }
       window.open('?app=survey', '_blank');
