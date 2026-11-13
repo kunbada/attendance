@@ -141,7 +141,10 @@ const isOpen = (f) => f.active && f.project_status !== '종료';
 export async function realtorPublicForm(env, data) {
   const f = await loadForm(env, data.code);
   if (!isOpen(f)) return { closed: true, projectName: f.project_name };
-  return { projectName: f.project_name, consentText: f.consent_text, ocr: !!env.GEMINI_API_KEY };
+  // 이 브라우저에 로그인해 둔 직원(근태 앱·상담 앱)을 알아내면 화면에 "조사자: 이름" 을 보여 준다 (제출 때 서버가 다시 확인)
+  const by = await submitterStaff(env, data.auth, f.project_id);
+  const st = by ? await first(env, 'SELECT name, nickname FROM staff WHERE id = ? AND project_id = ?', by, f.project_id) : null;
+  return { projectName: f.project_name, consentText: f.consent_text, ocr: !!env.GEMINI_API_KEY, by: st ? st.name + (st.nickname ? ' (' + st.nickname + ')' : '') : '' };
 }
 
 const OCR_PROMPT = '이 사진은 한국 부동산 중개사무소(공인중개사)의 명함입니다. 명함에 적힌 글자만 읽어서 JSON 으로 답하세요. ' +
@@ -356,9 +359,22 @@ function filterOffices(groups, data) {
   });
 }
 
+// 중개업소 묶음의 담당(고객 DB 의 담당 = customers.owner_id)과 조사한 직원 이름
+async function staffInfo(env, pid) {
+  const names = {}, owners = {};
+  (await all(env, 'SELECT id, name FROM staff WHERE project_id = ?', pid)).forEach((r) => { names[r.id] = r.name; });
+  (await all(env, `SELECT phone_hash, owner_id FROM customers WHERE project_id = ? AND owner_id <> ''`, pid)).forEach((r) => { owners[r.phone_hash] = r.owner_id; });
+  return { names, owners };
+}
+function withPeople(view, g, info) {
+  const ownerId = info.owners[g[0].cust_hash] || g.map((r) => info.owners[r.cust_hash]).find(Boolean) || '';
+  const by = [...new Set(g.map((r) => r.staff_id).filter(Boolean))];
+  return { ...view, ownerId, owner: ownerId ? info.names[ownerId] || '(다른 현장 직원)' : '', surveyors: by.map((x) => info.names[x] || '(알 수 없음)') };
+}
+
 export async function realtorList(env, data, ctx) {
   const pid = ctx.projectId;
-  const { rows, groups } = await loadOffices(env, pid);
+  const [{ rows, groups }, info] = await Promise.all([loadOffices(env, pid), staffInfo(env, pid)]);
   const latest = groups.map((g) => g[0]);
   const today = todayStr();
   const avg = (k) => (latest.length ? Math.round(latest.reduce((a, r) => a + r[k], 0) / latest.length * 10) / 10 : null);
@@ -373,13 +389,19 @@ export async function realtorList(env, data, ctx) {
     mgm: MGM.map((m) => ({ label: m, count: latest.filter((r) => r.mgm === m).length }))
   };
   let list = filterOffices(groups, data);
+  const ownerOf = (g) => withPeople({}, g, info).ownerId;
+  const oid = s(data.ownerId);
+  if (oid === '-') list = list.filter((g) => !ownerOf(g)); else if (oid) list = list.filter((g) => ownerOf(g) === oid);
+  // 담당자 고르기용: 이 현장에서 담당·조사한 직원
+  const people = new Set(); groups.forEach((g) => { const o = ownerOf(g); if (o) people.add(o); g.forEach((r) => { if (r.staff_id) people.add(r.staff_id); }); });
   const sort = s(data.sort) || '최근';
   if (sort === '소개') list.sort((a, b) => b[0].refer_count - a[0].refer_count || b[0].refer - a[0].refer);
   else if (sort === '상호') list.sort((a, b) => a[0].office_name.localeCompare(b[0].office_name, 'ko'));
   const page = Math.max(1, Number(data.page) || 1);
   return {
     summary, scale: SCALE, mgmOptions: MGM, matched: list.length, page, pageSize: PAGE,
-    offices: list.slice((page - 1) * PAGE, page * PAGE).map(officeView)
+    offices: list.slice((page - 1) * PAGE, page * PAGE).map((g) => withPeople(officeView(g), g, info)),
+    staff: [...people].map((id) => ({ id, name: info.names[id] || '(알 수 없음)' })).sort((a, b) => a.name.localeCompare(b.name, 'ko'))
   };
 }
 
@@ -391,8 +413,8 @@ export async function officeOf(env, pid, id) {
 }
 
 export async function realtorGet(env, data, ctx) {
-  const g = await officeOf(env, ctx.projectId, data.id);
-  return { office: officeView(g), responses: g.map(responseView), scale: SCALE, mgmOptions: MGM };
+  const [g, info] = await Promise.all([officeOf(env, ctx.projectId, data.id), staffInfo(env, ctx.projectId)]);
+  return { office: withPeople(officeView(g), g, info), responses: g.map((r) => ({ ...responseView(r), by: r.staff_id ? info.names[r.staff_id] || '' : '' })), scale: SCALE, mgmOptions: MGM };
 }
 
 // 조사 한 건 고치기 (명함 인식이 틀렸거나 잘못 입력한 경우). 휴대폰을 비워 보내면 기존 번호를 유지한다
@@ -436,13 +458,13 @@ export async function realtorReveal(env, data, ctx) {
 export async function realtorExport(env, data, ctx) {
   if (ctx.role !== 'admin' && !ctx.account.allow_survey) throw new AppError('내보내기는 관리자 또는 설문 관리가 허용된 계정만 할 수 있습니다.', 'FORBIDDEN');
   const pid = ctx.projectId;
-  const { groups } = await loadOffices(env, pid);
+  const [{ groups }, info] = await Promise.all([loadOffices(env, pid), staffInfo(env, pid)]);
   const out = [];
   let no = 0;
   for (const g of filterOffices(groups, data)) {
     no++;
     for (const r of g) {
-      out.push({ ...responseView(r), office: no, phone: r.phone_enc ? fmtTel(await decryptText(env, r.phone_enc)) : '' });
+      out.push({ ...responseView(r), office: no, phone: r.phone_enc ? fmtTel(await decryptText(env, r.phone_enc)) : '', owner: withPeople({}, g, info).owner, by: r.staff_id ? info.names[r.staff_id] || '' : '' });
     }
   }
   await writeLog(env, ctx.account.login_id, '부동산조사내보내기', pid, out.length + '건', pid);

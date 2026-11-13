@@ -1659,6 +1659,14 @@ try {
   expectOk('직원 앱 토큰은 기기키가 맞아야 인정', await call('realtor.submit', { ...cs_rb, officeName: '기기다름부동산', mobile: '010-0000-8814', nonce: 'cs-rt-0005', auth: { token: tokA3, deviceKey: 'wrong-device' } }));
   const cs_rq = await query(`SELECT office_name, staff_id FROM realtor_responses WHERE project_id = 'P01' AND nonce LIKE 'cs-rt-%' ORDER BY nonce`);
   check('조사한 상담사가 기록됨 (토큰 없거나 틀리면 빈 값)', cs_rq[0].staff_id === c1id && cs_rq.slice(1).every((r) => r.staff_id === ''), JSON.stringify(cs_rq));
+  const cs_pf1 = (await call('realtor.form', { code: cs_rc, auth: { token: t1 } })).data;
+  check('조사 화면: 로그인해 둔 상담사 이름을 미리 보여 줌', cs_pf1.by.startsWith(C1.name), JSON.stringify(cs_pf1.by));
+  check('조사 화면: 로그인 없으면 조사자 없음', (await call('realtor.form', { code: cs_rc })).data.by === '');
+  const cs_rl = (await call('realtor.list', {}, admin)).data;
+  const cs_ro = cs_rl.offices.find((o) => o.officeName === '상담사부동산');
+  check('부동산고객 리스트: 담당·조사자 표시', cs_ro && cs_ro.owner === C1.name && cs_ro.surveyors.join() === C1.name && cs_rl.offices.find((o) => o.officeName === '익명부동산').owner === '', JSON.stringify(cs_ro));
+  check('부동산고객 리스트: 담당 필터', (await call('realtor.list', { ownerId: c1id }, admin)).data.matched === 1 && (await call('realtor.list', { ownerId: '-' }, admin)).data.offices.some((o) => o.officeName === '익명부동산') && cs_rl.staff.some((x) => x.id === c1id));
+  check('부동산고객 상세: 조사 건마다 조사자', (await call('realtor.get', { id: cs_ro.id }, admin)).data.responses.some((r) => r.by === C1.name));
   const cs_mr = (await cs('counsel.realtors')).data;
   check('나의 부동산업소: 내가 조사한 곳 + 담당', cs_mr.offices.length === 1 && cs_mr.offices[0].officeName === '상담사부동산' && cs_mr.offices[0].ownerIsMe && cs_mr.offices[0].myCount === 1, JSON.stringify(cs_mr.offices));
   expectOk('다른 상담사도 같은 업소를 조사', await call('realtor.submit', { ...cs_rb, nonce: 'cs-rt-0004', market: 2, auth: { token: t2 } }));

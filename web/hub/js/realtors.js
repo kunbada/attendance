@@ -1,7 +1,7 @@
 // 고객관리 > 부동산고객: 중개업소 조사 링크·QR(현장당 1개), 중개업소 목록(같은 곳은 묶음), 조사 이력·수정, 내보내기
 (function () {
   var simpleTable = Hub.simpleTable, downloadCsv = Hub.downloadCsv;
-  var EMPTY = { q: '', market: '', mgm: '', consent: '', sort: '최근', page: 1 };
+  var EMPTY = { q: '', market: '', mgm: '', consent: '', ownerId: '', sort: '최근', page: 1 };
   var MGM_BADGE = { '참여': 'ok', '고려중': 'warn', '불참': '' };
   var filter = Object.assign({}, EMPTY);
   var TONE = { 5: 'ok', 4: 'ok', 3: '', 2: 'warn', 1: 'danger' };
@@ -38,6 +38,8 @@
 
     // 4) 검색
     var q = h('input', { type: 'search', value: filter.q, placeholder: '상호, 이름, 주소, 전화번호' });
+    var owner = h('select', null, option('', '담당 전체'), option('-', '담당 없음', filter.ownerId === '-'), (res.staff || []).map(function (x) { return option(x.id, x.name, filter.ownerId === x.id); }));
+    owner.addEventListener('change', function () { go({ ownerId: owner.value }); });
     var sort = h('select', null, [['최근', '최근 조사순'], ['소개', '소개 가능 고객 많은 순'], ['상호', '상호순']].map(function (x) { return option(x[0], x[1], filter.sort === x[0]); }));
     var find = h('button', { type: 'button', class: 'btn small primary' }, '조회');
     var reset = h('button', { type: 'button', class: 'btn small' }, '조건 지우기');
@@ -51,7 +53,7 @@
       if (!confirm('지금 조건에 맞는 중개업소 ' + res.matched + '곳의 조사 기록을 휴대폰 원문과 함께 내려받습니다. 내려받은 기록이 남습니다. 계속할까요?')) return;
       runBusy(exp, exportCsv);
     });
-    root.appendChild(h('div', { class: 'toolbar filterbar' }, q, sort, find, reset, h('span', { style: 'flex:1' }), exp));
+    root.appendChild(h('div', { class: 'toolbar filterbar' }, q, owner, sort, find, reset, h('span', { style: 'flex:1' }), exp));
 
     // 5) 목록
     var rows = res.offices.map(function (o) {
@@ -64,11 +66,12 @@
         h('td', null, scaleBadge(scale, 'refer', o.refer)),
         h('td', null, o.referCount + '명'),
         h('td', null, o.mgm ? h('span', { class: 'badge ' + (MGM_BADGE[o.mgm] || '') }, o.mgm) : h('span', { class: 'muted' }, '-')),
+        h('td', null, o.owner ? h('strong', null, o.owner) : h('span', { class: 'muted' }, '담당 없음'), o.surveyors.length ? h('div', { class: 'cust-sub' }, '조사 ' + o.surveyors.join(', ')) : null),
         h('td', null, o.count + '회', h('div', { class: 'cust-sub' }, o.last.slice(0, 10))));
       tr.addEventListener('click', function () { openDetail(o.id, scale, again); });
       return tr;
     });
-    root.appendChild(simpleTable(['중개업소', '대표·담당', '사무실 전화', '시장 동향', '분양 의향', '소개 의향', '소개 가능', 'MGM', '조사'], rows));
+    root.appendChild(simpleTable(['중개업소', '대표·담당', '사무실 전화', '시장 동향', '분양 의향', '소개 의향', '소개 가능', 'MGM', '담당 · 조사자', '조사'], rows));
 
     var from = res.matched ? (res.page - 1) * res.pageSize + 1 : 0, to = Math.min(res.page * res.pageSize, res.matched);
     var prev = h('button', { type: 'button', class: 'btn small', disabled: res.page <= 1 }, '← 이전');
@@ -132,9 +135,9 @@
   async function exportCsv() {
     var ex = await Api.call('realtor.export', filter);
     var sc = ex.scale;
-    downloadCsv('부동산고객_' + Hub.todayLocal() + '.csv', [['중개업소 번호', '조사 일시', '상호', '사무실 전화', '주소', '개인정보 동의', '이름', '직함', '휴대폰', '시장 동향', '분양 의향', '소개 의향', '소개 가능 고객 수', 'MGM 참여', '기타 의견', '명함 인식', '명함 사진', '메모']].concat(
+    downloadCsv('부동산고객_' + Hub.todayLocal() + '.csv', [['중개업소 번호', '조사 일시', '상호', '사무실 전화', '주소', '개인정보 동의', '이름', '직함', '휴대폰', '시장 동향', '분양 의향', '소개 의향', '소개 가능 고객 수', 'MGM 참여', '기타 의견', '명함 인식', '명함 사진', '담당', '조사자', '메모']].concat(
       ex.rows.map(function (r) {
-        return [r.office, r.at, r.officeName, r.officeTel, r.address, r.consent ? '동의' : '미동의', r.name, r.position, r.phone, sc.market[r.market], sc.intent[r.intent], sc.refer[r.refer], r.referCount, r.mgm, r.opinion, r.ocr ? '사용' : '', r.hasCard ? '있음' : '', r.memo];
+        return [r.office, r.at, r.officeName, r.officeTel, r.address, r.consent ? '동의' : '미동의', r.name, r.position, r.phone, sc.market[r.market], sc.intent[r.intent], sc.refer[r.refer], r.referCount, r.mgm, r.opinion, r.ocr ? '사용' : '', r.hasCard ? '있음' : '', r.owner, r.by, r.memo];
       })));
     toast(ex.rows.length + '건을 내려받았습니다. 개인정보가 들어 있으니 안전하게 보관해 주세요.');
   }
@@ -169,7 +172,7 @@
           });
         });
         hist.appendChild(h('div', { class: 'card', style: 'background:#fafbfd;margin:0 0 10px' },
-          h('div', { class: 'toolbar', style: 'margin:0 0 6px' }, h('strong', null, r.at.slice(0, 16)), r.ocr ? h('span', { class: 'badge info' }, '명함 인식') : null,
+          h('div', { class: 'toolbar', style: 'margin:0 0 6px' }, h('strong', null, r.at.slice(0, 16)), h('span', { class: 'muted' }, r.by ? '조사 ' + r.by : '조사자 기록 없음'), r.ocr ? h('span', { class: 'badge info' }, '명함 인식') : null,
             h('span', { class: 'badge ' + (r.consent ? 'ok' : '') }, r.consent ? '동의' : '미동의'), h('span', { style: 'flex:1' }), cardBtn, ed, del),
           h('div', { class: 'toolbar', style: 'margin:0 0 6px;gap:6px' }, '시장 동향 ', scaleBadge(scale, 'market', r.market), ' 분양 의향 ', scaleBadge(scale, 'intent', r.intent), ' 소개 의향 ', scaleBadge(scale, 'refer', r.refer), ' 소개 가능 ' + r.referCount + '명', r.mgm ? [' MGM ', h('span', { class: 'badge ' + (MGM_BADGE[r.mgm] || '') }, r.mgm)] : null),
           h('div', { class: 'cust-sub' }, [r.officeName, r.name ? r.name + (r.position ? ' ' + r.position : '') : '', r.phone, r.officeTel, r.address].filter(Boolean).join(' · ')),
@@ -185,6 +188,7 @@
         h('p', { style: 'margin:4px 0' }, '휴대폰 ', phoneEl, ' ', o.phone ? reveal : null),
         h('p', { style: 'margin:4px 0' }, '사무실 ' + (o.officeTel || '-')),
         h('p', { class: 'muted', style: 'margin:4px 0' }, o.address || '주소 없음'),
+        h('p', { style: 'margin:4px 0' }, '담당 ' + (o.owner || '없음') + (o.surveyors.length ? ' · 조사 ' + o.surveyors.join(', ') : '')),
         h('p', { class: 'muted', style: 'margin:4px 0' }, '조사 ' + o.count + '회 · 처음 ' + o.first.slice(0, 10) + ' · 최근 ' + o.last.slice(0, 10))),
       h('h3', null, '조사 이력'), hist);
     var m = modal('중개업소 상세', body, [], { wide: true });

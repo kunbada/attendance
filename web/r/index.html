@@ -67,13 +67,16 @@
   .done p{color:var(--sub);margin:0 0 24px}
   .done button{width:100%;max-width:280px}
   .note{font-size:12.5px;color:var(--sub);margin:8px 0 0}
+  .who{border-radius:12px;padding:10px 14px;font-size:14px;margin:0 0 14px;line-height:1.5}
+  .who.ok{background:var(--ok-t);color:var(--ok)}
+  .who.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}
 </style>
 </head>
 <body>
 <div class="app" id="app"><div class="done"><p>불러오는 중입니다…</p></div></div>
 <div class="bar hide" id="bar"><div class="in"><p class="msg" id="msg"></p><button class="pri" id="submit" type="button">제출하기</button></div></div>
 
-<script src="../js/config.js?v=20261113k"></script>
+<script src="../js/config.js?v=20261113l"></script>
 <script>
 // 중개업소 조사 화면 (로그인 없음). 주소: /r/?c=링크코드  — 현장마다 링크 1개
 // 순서: ① 명함(사진 → AI 가 칸을 채움) ② 조사 내용 ③ 개인정보 제공 동의(기록만 하고, 명함 정보는 동의와 무관하게 저장).
@@ -106,7 +109,7 @@ function showMsg(title, text, again, icon){
 
 (async function(){
   if (!CODE) return showMsg('조사 링크가 필요합니다', '받으신 링크(QR)로 접속해 주세요.');
-  try { FORM = await api('realtor.form', { code: CODE }); }
+  try { FORM = await api('realtor.form', { code: CODE, auth: whoAmI() }); }
   catch (e) { return showMsg('조사 화면을 열 수 없습니다', e.message); }
   if (FORM.closed) return showMsg('사용이 중지된 링크입니다', '관리자에게 문의해 주세요.', false, '🔒');
   draw();
@@ -121,6 +124,8 @@ function draw(){
   NONCE = newNonce(); USED_OCR = false; BUSY = false; CARD = '';
   $('app').innerHTML =
     '<div class="hero"><span class="pj">'+esc(FORM.projectName)+'</span><h1>중개업소 조사</h1><p>명함을 찍으면 상호·이름·전화·주소가 자동으로 채워집니다.</p></div>'+
+    (FORM.by ? '<div class="who ok">✔ 조사자: <b>'+esc(FORM.by)+'</b> (자동 기록)</div>'
+             : '<div class="who warn">⚠ 조사자가 기록되지 않습니다. 근태 앱의 <b>[부동산설문]</b> 버튼(또는 상담고객 앱의 [부동산 조사하기])으로 열면 내 이름으로 기록됩니다.</div>')+
     '<div class="sec"><h2><span class="no">1</span>명함 · 중개업소 정보</h2>'+
       '<p class="desc" id="ocrDesc">명함을 찍거나 사진에서 고르면 자동으로 입력됩니다. 틀린 글자는 직접 고쳐 주세요.</p>'+
       '<div class="cam"><button type="button" class="pri" id="btnCam">📷 명함 촬영</button><button type="button" class="ghost" id="btnPick">사진에서 선택</button></div>'+
