@@ -196,3 +196,28 @@ body.hub .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px
 body.hub .refreshing { opacity: .55; pointer-events: none; transition: opacity .15s; }
 body.hub.bg-loading::after { content: ''; position: fixed; top: 0; left: 0; height: 3px; width: 35%; background: var(--primary, #2563eb); z-index: 95; animation: bgload 1s ease-in-out infinite; }
 @keyframes bgload { 0% { left: -35%; } 100% { left: 100%; } }
+
+/* 홈 대시보드: 묶음(인력·고객·계약)마다 왼쪽 숫자 카드 + 오른쪽 작은 그래프. 그래프는 높이 고정(화면을 채우지 않게) */
+body.hub .dash-sec { margin: 4px 0 22px; }
+body.hub .dash-head { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+body.hub .dash-head h2 { margin: 0; font-size: 18px; }
+body.hub .dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 1050px) { body.hub .dash-grid { grid-template-columns: 1fr; } }
+body.hub .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { body.hub .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+body.hub .tile { background: #fff; border: 1px solid var(--line, #e3e7ee); border-radius: 12px; padding: 11px 13px; min-width: 0; }
+body.hub .tile .lbl { font-size: 12.5px; color: var(--muted, #6b7686); }
+body.hub .tile .val { font-size: 21px; font-weight: 800; margin: 2px 0 1px; letter-spacing: -.3px; white-space: nowrap; }
+body.hub .tile .sub { font-size: 11.5px; color: var(--muted, #6b7686); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.hub .tile.warn { border-color: #f3d19e; background: #fffaf2; }
+body.hub .tile.warn .val { color: #c2410c; }
+body.hub .chart-card { background: #fff; border: 1px solid var(--line, #e3e7ee); border-radius: 12px; padding: 12px 14px 8px; }
+body.hub .chart-card h4 { margin: 0 0 6px; font-size: 13.5px; color: var(--text, #18212f); }
+body.hub .chart-box { position: relative; height: 210px; }
+body.hub .mini { background: #fff; border: 1px solid var(--line, #e3e7ee); border-radius: 12px; padding: 10px 13px; margin-top: 10px; }
+body.hub .mini-title { font-size: 12.5px; color: var(--muted, #6b7686); margin-bottom: 4px; }
+body.hub .mini-row { display: grid; grid-template-columns: 90px 1fr auto; align-items: center; gap: 10px; padding: 3px 0; font-size: 13px; }
+body.hub .mini-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.hub .mini-bar { height: 8px; background: #eef1f6; border-radius: 6px; overflow: hidden; }
+body.hub .mini-bar i { display: block; height: 100%; background: var(--primary, #2457d6); border-radius: 6px; }
+body.hub .mini-val { color: var(--muted, #6b7686); font-size: 12px; white-space: nowrap; }

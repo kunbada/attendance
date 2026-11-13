@@ -97,7 +97,66 @@ export async function adminDashboard(env, data, ctx) {
         reservations: t.reservations, visited: t.visited
       };
     }),
-    visitRate: { reservations: due.total, visited: due.visited, rate: pct(due.visited, due.total) }
+    visitRate: { reservations: due.total, visited: due.visited, rate: pct(due.visited, due.total) },
+    ...(await homeExtra(env, pid, today, groups, names))
+  };
+}
+
+// 홈 대시보드 개편(2026-11-13): 인력·고객·계약 현황에 쓰는 추가 통계. 모두 GROUP BY 집계라 행을 많이 읽지 않는다
+async function homeExtra(env, pid, today, groups, names) {
+  const from30 = daysAgo(29), month = today.slice(0, 7);
+  const days30 = [];
+  for (let i = 29; i >= 0; i--) days30.push(daysAgo(i));
+  const byDay = (rows) => Object.fromEntries(rows.map((r) => [r.d, r.n]));
+  const [att, sv, gb, rt, rv, staffAgg, svAgg, gbMonth, rvAgg, rtRows, ext, ctMonthly] = await Promise.all([
+    all(env, `SELECT date AS d, COUNT(DISTINCT staff_id) AS n FROM attendance WHERE project_id = ? AND result = '성공' AND date >= ? GROUP BY date`, pid, from30),
+    all(env, `SELECT substr(submitted_at, 1, 10) AS d, COUNT(*) AS n FROM responses WHERE project_id = ? AND submitted_at >= ? GROUP BY d`, pid, from30 + ' 00:00:00'),
+    all(env, `SELECT visit_date AS d, SUM(1 + companions) AS n FROM guestbook WHERE project_id = ? AND visit_date >= ? GROUP BY visit_date`, pid, from30),
+    all(env, `SELECT substr(submitted_at, 1, 10) AS d, COUNT(*) AS n FROM realtor_responses WHERE project_id = ? AND submitted_at >= ? GROUP BY d`, pid, from30 + ' 00:00:00'),
+    all(env, `SELECT visit_date AS d, COUNT(*) AS n FROM reservations WHERE project_id = ? AND visit_date >= ? AND visit_date <= ? AND status <> '취소' GROUP BY visit_date`, pid, from30, today),
+    first(env, `SELECT COUNT(*) AS active, COALESCE(SUM(CASE WHEN telegram_id = '' THEN 1 ELSE 0 END), 0) AS noTg FROM staff WHERE project_id = ? AND status = '활동'`, pid),
+    first(env, `SELECT COUNT(*) AS total, COALESCE(SUM(consent_pi), 0) AS consent, COALESCE(SUM(CASE WHEN submitted_at >= ? THEN 1 ELSE 0 END), 0) AS today FROM responses WHERE project_id = ?`, today + ' 00:00:00', pid),
+    first(env, `SELECT COUNT(*) AS teams, COALESCE(SUM(1 + companions), 0) AS people FROM guestbook WHERE project_id = ? AND visit_date >= ?`, pid, month + '-01'),
+    first(env, `SELECT COALESCE(SUM(CASE WHEN visit_date > ? AND visit_date <= ? AND status = '예정' THEN 1 ELSE 0 END), 0) AS next7 FROM reservations WHERE project_id = ? AND visit_date > ?`, today, daysAgo(-7), pid, today),
+    all(env, `SELECT cust_hash, refer_count, mgm, submitted_at FROM realtor_responses WHERE project_id = ? ORDER BY submitted_at, rowid`, pid),
+    first(env, `SELECT COUNT(*) AS n FROM customers WHERE project_id = ? AND source_kind <> ''`, pid),
+    all(env, `SELECT substr(json_extract(json, '$.date'), 1, 7) AS m, COUNT(*) AS n, COALESCE(SUM(CASE WHEN status_g = '해약' THEN 1 ELSE 0 END), 0) AS cancel
+              FROM ct_records WHERE project_id = ? AND col = 'contracts' AND deleted = 0 GROUP BY m`, pid)
+  ]);
+  const mAtt = byDay(att), mSv = byDay(sv), mGb = byDay(gb), mRt = byDay(rt), mRv = byDay(rv);
+  const trend30 = days30.map((d) => ({ date: d, attendance: mAtt[d] || 0, surveys: mSv[d] || 0, guests: mGb[d] || 0, realtors: mRt[d] || 0, reservations: mRv[d] || 0 }));
+  // 이번 달 하루 평균 출근 (출근이 있었던 날 기준)
+  const monthAtt = att.filter((r) => r.d.startsWith(month));
+  const avgAtt = monthAtt.length ? Math.round(monthAtt.reduce((a, r) => a + r.n, 0) / monthAtt.length * 10) / 10 : 0;
+  // 직군별 등록 인원 (오늘 출근 포함)
+  const jobs = {};
+  groups.forEach((g) => { const j = (jobs[g.job] = jobs[g.job] || { name: g.job, total: 0, present: 0 }); j.total += g.total; j.present += g.present; });
+  // 부동산: 사람(연락처) 기준 최근 조사만
+  const latest = {};
+  rtRows.forEach((r) => { latest[r.cust_hash || r.submitted_at] = r; });
+  const people = Object.values(latest);
+  // 계약 월별 추이 (최근 12개월, 해약 제외 건수)
+  const months = [];
+  for (let i = 11; i >= 0; i--) { const d = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 - i, 1)); months.push(d.toISOString().slice(0, 7)); }
+  const ctBy = Object.fromEntries(ctMonthly.filter((r) => r.m).map((r) => [r.m, r]));
+  const before = ctMonthly.filter((r) => r.m && r.m < months[0]).reduce((a, r) => a + r.n - r.cancel, 0);
+  let cum = before;
+  const contractMonthly = months.map((m) => { const r = ctBy[m] || { n: 0, cancel: 0 }; cum += r.n - r.cancel; return { month: m, contracts: r.n - r.cancel, cancels: r.cancel, cumulative: cum }; });
+  return {
+    staffStats: {
+      active: staffAgg.active, noTelegram: staffAgg.noTg, avgAttendanceMonth: avgAtt,
+      byJob: Object.values(jobs).map((x) => ({ ...x, rate: pct(x.present, x.total) })).sort((a, b) => b.total - a.total),
+      heads: new Set(groups.filter((g) => g.head_id).map((g) => g.head_id)).size, teams: new Set(groups.filter((g) => g.team_id).map((g) => g.team_id)).size
+    },
+    trend30,
+    customerStats: {
+      surveys: svAgg.total, surveyConsent: svAgg.consent, surveysToday: svAgg.today,
+      guestTeamsMonth: gbMonth.teams, guestPeopleMonth: gbMonth.people,
+      reservationsNext7: rvAgg ? rvAgg.next7 : 0,
+      realtorPeople: people.length, realtorResponses: rtRows.length, realtorMgm: people.filter((r) => r.mgm === '참여').length,
+      realtorRefer: people.reduce((a, r) => a + (r.refer_count || 0), 0), external: ext.n
+    },
+    contractMonthly
   };
 }
 

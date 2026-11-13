@@ -587,6 +587,11 @@ try {
   check('본부·팀·직군별 출근율', d0.attendanceRate.byHead.some((x) => x.name === '1본부') && d0.attendanceRate.byTeam.some((x) => x.name === '1본부 1팀') && d0.attendanceRate.byJob.some((x) => x.name === '영업') && d0.attendanceRate.byJob.every((x) => x.rate >= 0 && x.rate <= 100));
   check('직원별 예약·방문 TOP 10 (방문 많은 순)', d0.topStaff.length >= 1 && d0.topStaff.length <= 10 && d0.topStaff.every((t, i) => i === 0 || d0.topStaff[i - 1].visited >= t.visited));
   check('예약 대비 방문율', d0.visitRate.reservations >= 1 && d0.visitRate.visited >= 1 && d0.visitRate.rate > 0 && d0.visitRate.rate <= 100, JSON.stringify(d0.visitRate));
+  const dx = dash.data;
+  check('홈 개편: 30일 추이·인력·고객·계약 통계', dx.trend30.length === 30 && dx.trend30[29].date === today && dx.trend30[29].attendance >= 1
+    && dx.staffStats.active >= 1 && dx.staffStats.byJob.length >= 1 && typeof dx.staffStats.noTelegram === 'number' && dx.staffStats.avgAttendanceMonth > 0
+    && typeof dx.customerStats.surveys === 'number' && typeof dx.customerStats.reservationsNext7 === 'number' && dx.contractMonthly.length === 12 && dx.contractMonthly[11].month === today.slice(0, 7),
+    JSON.stringify({ s: dx.staffStats, c: dx.customerStats, m: dx.contractMonthly[11] }));
   expectErr('월 형식 검사', await call('admin.dashboard', { month: '2026-13' }, admin), '월 형식');
   expectErr('대시보드는 관리자만', await call('admin.dashboard', {}, desk), '권한');
   const gs = await call('admin.guestStats', { from: today, to: today }, admin);
