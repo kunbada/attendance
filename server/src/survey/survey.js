@@ -11,7 +11,7 @@ const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v);
 // ---------- 문항 검증 ----------
 
 // 보기 목록 정리. 이미 코드가 있는 보기는 코드를 그대로 두고(응답 데이터와 이어져 있으므로), 새 보기만 다음 번호를 받는다
-function buildOptions(raw) {
+export function buildOptions(raw) {
   const list = (Array.isArray(raw) ? raw : []).map((o) => (typeof o === 'string' ? { label: o } : { code: s(o.code), label: s(o.label) }))
     .map((o) => ({ code: o.code || '', label: o.label.trim().slice(0, 60) })).filter((o) => o.label);
   const used = new Set(list.map((o) => o.code).filter(Boolean));

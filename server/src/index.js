@@ -22,6 +22,7 @@ import { deskLookup, deskSearchStaff, deskReservationList, deskRegisterVisit, de
 import { staffTelegramLink, handleTelegram } from './telegram/telegram.js';
 import { adminDashboard, adminGuestStats, adminGuestbook } from './report/stats.js';
 import { surveyBank, surveyList, surveyGet, surveySave, surveySetStatus, surveyDelete, surveyLinkList, surveyLinkSave, surveyLinkGenerate, surveyLinkToggle, surveyForm, surveySubmit, surveyResponses, surveyExport, surveyStats, surveyCompare, surveyPurgePii, surveyMyLinks, surveyRespondents } from './survey/survey.js';
+import { surveyQbankList, surveyQbankSave, surveyQbankDelete } from './survey/qbank.js';
 import { customerList, customerGradeSave, customerGet, customerSave, customerNoteAdd, customerNoteDelete, customerReveal, customerExport, customerGradeRules, customerGradeRulesSave } from './customer/customer.js';
 import { customerImport, customerImportList, customerImportDelete } from './customer/import.js';
 import { realtorFormGet, realtorFormSave, realtorPublicForm, realtorOcr, realtorSubmit, realtorList, realtorGet, realtorSave, realtorDelete, realtorReveal, realtorExport, realtorCard } from './realtor/realtor.js';
@@ -155,6 +156,10 @@ const ACTIONS = {
   'survey.export': { roles: MGR, need: 'survey', fn: surveyExport },
   'survey.stats': { roles: MGR, need: 'survey', fn: surveyStats },
   'survey.compare': { roles: MGR, need: 'survey', scope: 'global', fn: surveyCompare },
+  // 문항 은행 (직접 만든 문항 저장·재사용, 회사 전체 공유)
+  'survey.qbankList': { roles: MGR, need: 'survey', scope: 'global', fn: surveyQbankList },
+  'survey.qbankSave': { roles: MGR, need: 'survey', scope: 'global', fn: surveyQbankSave },
+  'survey.qbankDelete': { roles: MGR, need: 'survey', scope: 'global', fn: surveyQbankDelete },
   'survey.purgePii': { roles: ['admin'], scope: 'global', fn: surveyPurgePii },
   'survey.respondents': { roles: MGR, fn: surveyRespondents },
   'customer.list': { roles: MGR, fn: customerList },

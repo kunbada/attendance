@@ -1557,6 +1557,25 @@ try {
   check('사무실 전화만 있어도 고객 DB 에 합쳐지고 번호로 찾음', rt_tel.matched === 1 && rt_tel.customers[0].name === '전화만부동산' && rt_tel.customers[0].channels.includes('부동산'), JSON.stringify(rt_tel.customers[0]));
   check('사무실 전화 고객의 연락처 보기는 사무실 번호', (await rt('customer.reveal', { id: rt_tel.customers[0].id })).data.phone === '020007799');
 
+  // ===== 문항 은행: 직접 만든 문항 저장·재사용 (회사 전체 공유) =====
+  expectErr('문항 은행: 제목 필수', await call('survey.qbankSave', { type: 'radio', title: ' ', options: [{ label: '가' }] }, admin), '제목');
+  expectErr('문항 은행: 선택형은 보기 필수', await call('survey.qbankSave', { type: 'radio', title: '보기없음', options: [] }, admin), '보기');
+  const qb1 = await call('survey.qbankSave', { type: 'checkbox', title: '선호 커뮤니티 시설', required: true, options: [{ label: '피트니스' }, { label: '독서실' }] }, admin);
+  check('문항 은행 저장: 키 발급(Q…)·보기 코드', qb1.ok && /^Q[A-Z0-9]{4,10}$/.test(qb1.data.key) && qb1.data.options.map((o) => o.code).join() === '1,2', JSON.stringify(qb1.data));
+  const qb2 = await call('survey.qbankSave', { key: 'QKEEP1234', type: 'text', title: '설문에서 쓰던 문항' }, admin);
+  check('설문에서 쓰던 문항을 저장하면 그 키를 그대로', qb2.ok && qb2.data.key === 'QKEEP1234');
+  expectErr('같은 키는 두 번 저장 불가', await call('survey.qbankSave', { key: 'QKEEP1234', type: 'text', title: 'x' }, admin), '이미');
+  expectOk('문항 은행 고치기 (보기 추가, 기존 코드 유지)', await call('survey.qbankSave', { id: qb1.data.id, type: 'checkbox', title: '선호 커뮤니티 시설', options: [{ code: '1', label: '피트니스' }, { code: '2', label: '독서실' }, { label: '골프연습장' }] }, admin));
+  const qbl = (await call('survey.qbankList', {}, admin, '', null)).data.questions;
+  check('문항 은행 목록', qbl.length === 2 && qbl.find((x) => x.id === qb1.data.id).options.length === 3);
+  const qb_sv = await call('survey.save', { title: '은행 문항 설문', status: '작성', questions: [{ key: 'STD_INTENT' }, { key: 'STD_TYPE' }, { key: qb1.data.key, type: 'checkbox', title: '선호 커뮤니티 시설', options: qbl.find((x) => x.id === qb1.data.id).options }] }, admin);
+  const qb_q = qb_sv.ok && (await call('survey.get', { surveyId: qb_sv.data.id }, admin)).data.survey.questions.find((q) => q.title === '선호 커뮤니티 시설');
+  check('은행 문항을 넣은 설문은 은행의 키를 그대로 씀 (설문끼리 같은 문항으로 집계)', qb_q && qb_q.key === qb1.data.key, JSON.stringify(qb_q));
+  expectOk('은행 문항 시험 설문 지우기', await call('survey.delete', { surveyId: qb_sv.data.id }, admin));
+  expectErr('설문 관리 허용 없는 보조관리자는 문항 은행 불가', await call('survey.qbankList', {}, spA, '', null), '권한');
+  expectOk('문항 은행에서 지우기', await call('survey.qbankDelete', { id: qb2.data.id }, admin));
+  check('지운 뒤 1개', (await call('survey.qbankList', {}, admin, '', null)).data.questions.length === 1);
+
   // ===== 프로젝트 주택형·세대수: 설문은 타입군, 상담 앱은 세부 주택형, 고객 DB 는 타입군으로 묶음 =====
   expectErr('주택형 코드 검사', await call('project.typesSave', { types: [{ code: '!!', units: 1 }] }, admin), '주택형');
   expectErr('주택형 중복 검사', await call('project.typesSave', { types: [{ code: '84A' }, { code: '84a' }] }, admin), '두 번');

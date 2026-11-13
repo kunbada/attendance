@@ -26,7 +26,9 @@
     root.innerHTML = '';
     var add = h('button', { type: 'button', class: 'btn small primary' }, '+ 새 설문');
     add.addEventListener('click', function () { runBusy(add, newSurvey); });
-    root.appendChild(h('div', { class: 'toolbar' }, h('strong', null, '설문 (' + res.surveys.length + ')'), add,
+    var qb = h('button', { type: 'button', class: 'btn small' }, '문항 은행');
+    qb.addEventListener('click', function () { runBusy(qb, async function () { await loadBank(); await reloadSaved(); openQbank(); }); });
+    root.appendChild(h('div', { class: 'toolbar' }, h('strong', null, '설문 (' + res.surveys.length + ')'), add, qb,
       h('span', { class: 'muted' }, '고객이 휴대폰으로 응답하는 설문입니다. 설문마다 팀·직원별 배포 링크(QR)를 만들어 응답을 집계합니다.')));
     var rows = res.surveys.map(function (s) {
       var b = function (label, fn, cls) { var x = h('button', { type: 'button', class: 'btn small ' + (cls || '') }, label); x.addEventListener('click', function () { runBusy(x, fn); }); return [x, ' ']; };
@@ -45,7 +47,13 @@
     root.appendChild(simpleTable(['설문', '상태', '문항', '응답', '링크', '수정일', ''], rows));
   }
 
-  async function loadBank() { if (!bank) bank = await Api.call('survey.bank'); return bank; }
+  async function loadBank() {
+    if (!bank) bank = await Api.call('survey.bank');
+    if (!bank.saved) bank.saved = (await Api.call('survey.qbankList')).questions;
+    return bank;
+  }
+  async function reloadSaved() { bank.saved = (await Api.call('survey.qbankList')).questions; }
+  function savedByKey(key) { return (bank && bank.saved || []).filter(function (x) { return x.key === key; })[0]; }
 
   async function newSurvey() {
     var b = await loadBank();
@@ -101,13 +109,22 @@
     var pick = h('select');
     function fillPick() {
       pick.innerHTML = '';
-      pick.appendChild(option('', '공통 문항 은행에서 추가…'));
-      bank.bank.filter(function (b) { return used().indexOf(b.key) < 0; }).forEach(function (b) { pick.appendChild(option(b.key, b.title + (b.required ? ' (필수 권장)' : '') + (b.pii ? ' · 개인정보' : ''))); });
+      pick.appendChild(option('', '문항 은행에서 추가…'));
+      var g1 = h('optgroup', { label: '공통 문항 (모든 현장 같은 기준)' });
+      bank.bank.filter(function (b) { return used().indexOf(b.key) < 0; }).forEach(function (b) { g1.appendChild(option(b.key, b.title + (b.required ? ' (필수 권장)' : '') + (b.pii ? ' · 개인정보' : ''))); });
+      var g2 = h('optgroup', { label: '내가 저장한 문항' });
+      (bank.saved || []).filter(function (b) { return used().indexOf(b.key) < 0; }).forEach(function (b) { g2.appendChild(option('saved:' + b.key, b.title + ' (' + TYPE_LABEL[b.type] + ')')); });
+      if (!g2.children.length) g2.appendChild(option('', '(아직 없음 — 직접 만든 문항에서 [문항 은행에 저장])'));
+      pick.appendChild(g1); pick.appendChild(g2);
     }
     fillPick();
+    renderEditorPick = fillPick;
     pick.addEventListener('change', function () {
       if (!pick.value) return;
-      editing.questions.push(stdQuestion(bank, pick.value));
+      if (pick.value.indexOf('saved:') === 0) {
+        var sq = savedByKey(pick.value.slice(6));
+        if (sq) editing.questions.push({ key: sq.key, std: false, type: sq.type, title: sq.title, required: sq.required, options: JSON.parse(JSON.stringify(sq.options || [])) });
+      } else editing.questions.push(stdQuestion(bank, pick.value));
       drawQuestions(); fillPick();
     });
     var customType = h('select', null, Object.keys(TYPE_LABEL).map(function (t) { return option(t, TYPE_LABEL[t]); }));
@@ -169,6 +186,61 @@
     modal('미리보기 — 고객 휴대폰 화면 (실제 응답 화면은 한 문항씩 넘어갑니다)', h('div', { class: 'sv-preview-wrap' }, phone), []);
   }
 
+  // 문항 은행 관리: 저장한 문항 보기·고치기·지우기·새로 만들기 (회사 전체 공유)
+  function openQbank() {
+    var body = h('div');
+    var m = modal('문항 은행 — 직접 만든 문항 모음', body, [], { wide: true });
+    function draw() {
+      body.innerHTML = '';
+      var add = h('button', { type: 'button', class: 'btn small primary' }, '+ 새 문항');
+      add.addEventListener('click', function () { editQ(null); });
+      body.appendChild(h('div', { class: 'toolbar' }, add, h('span', { class: 'muted' }, '여기에 저장한 문항은 모든 현장의 설문 편집에서 [문항 은행에서 추가 → 내가 저장한 문항]으로 고를 수 있습니다. 같은 문항은 설문이 달라도 같은 기준으로 묶입니다.')));
+      if (!bank.saved.length) { body.appendChild(h('p', { class: 'muted' }, '저장한 문항이 없습니다.')); return; }
+      body.appendChild(simpleTable(['문항', '종류', '보기', '필수', '저장한 사람', ''], bank.saved.map(function (x) {
+        var ed = h('button', { type: 'button', class: 'btn small' }, '고치기');
+        ed.addEventListener('click', function () { editQ(x); });
+        var del = h('button', { type: 'button', class: 'btn small danger' }, '지우기');
+        del.addEventListener('click', function () {
+          if (!confirm('"' + x.title + '" 을(를) 문항 은행에서 지울까요? 이미 이 문항을 넣은 설문과 응답은 그대로 남습니다.')) return;
+          runBusy(del, async function () { await Api.call('survey.qbankDelete', { id: x.id }); await reloadSaved(); draw(); toast('지웠습니다.'); });
+        });
+        return h('tr', null, h('td', null, h('strong', null, x.title)), h('td', null, TYPE_LABEL[x.type]), h('td', { class: 'muted' }, x.options.map(function (o) { return o.label; }).join(' / ') || '-'),
+          h('td', null, x.required ? '필수' : '-'), h('td', { class: 'muted' }, x.createdBy), h('td', null, ed, ' ', del));
+      })));
+    }
+    function editQ(x) {
+      var q = x ? { id: x.id, type: x.type, title: x.title, required: x.required, options: JSON.parse(JSON.stringify(x.options)) } : { id: '', type: 'radio', title: '', required: false, options: [{ code: '', label: '' }, { code: '', label: '' }] };
+      var title = h('input', { type: 'text', value: q.title, maxLength: 150, placeholder: '문항 제목' });
+      var type = h('select', null, Object.keys(TYPE_LABEL).map(function (t2) { return option(t2, TYPE_LABEL[t2], q.type === t2); }));
+      var req = h('input', { type: 'checkbox', checked: q.required });
+      var obox = h('div');
+      function drawOpts() {
+        obox.innerHTML = '';
+        if (CHOICE.indexOf(type.value) < 0) { obox.appendChild(h('p', { class: 'muted' }, '보기가 없는 문항입니다.')); return; }
+        q.options.forEach(function (o, k) {
+          var inp = h('input', { type: 'text', value: o.label, maxLength: 60, placeholder: '보기 ' + (k + 1) });
+          inp.addEventListener('input', function () { o.label = inp.value; });
+          var xb = h('button', { type: 'button', class: 'btn small' }, '✕');
+          xb.addEventListener('click', function () { q.options.splice(k, 1); drawOpts(); });
+          obox.appendChild(h('div', { class: 'toolbar' }, inp, xb));
+        });
+        var ab = h('button', { type: 'button', class: 'btn small' }, '+ 보기 추가');
+        ab.addEventListener('click', function () { q.options.push({ code: '', label: '' }); drawOpts(); });
+        obox.appendChild(ab);
+      }
+      type.addEventListener('change', drawOpts); drawOpts();
+      modal(x ? '문항 고치기' : '새 문항', h('div', null, field('제목', title), field('종류', type), h('label', { class: 'check' }, req, ' 필수 응답'), h('div', { class: 'field' }, h('span', { class: 'field-label' }, '보기'), obox),
+        x ? h('p', { class: 'muted' }, '고쳐도 이미 이 문항을 넣은 설문은 바뀌지 않습니다. 새로 넣는 설문부터 적용됩니다.') : null), [{
+        label: '저장', primary: true, onClick: async function (close) {
+          await Api.call('survey.qbankSave', { id: q.id, type: type.value, title: title.value, required: req.checked, options: CHOICE.indexOf(type.value) >= 0 ? q.options : [] });
+          close(); await reloadSaved(); draw(); toast('저장했습니다.');
+        }
+      }]);
+    }
+    draw();
+    return m;
+  }
+
   function questionCard(q, i, redraw) {
     var title = h('input', { type: 'text', value: q.title, maxLength: 150, placeholder: '문항 제목' });
     title.addEventListener('input', function () { q.title = title.value; });
@@ -181,9 +253,24 @@
     };
     var del = h('button', { type: 'button', class: 'btn small danger', disabled: !!q.forceRequired, title: q.forceRequired ? '필수 문항은 지울 수 없습니다' : '' }, q.forceRequired ? '필수' : '삭제');
     del.addEventListener('click', function () { editing.questions.splice(i, 1); redraw(); renderEditorPick(); });
+    var saveBank = null, inBank = !q.std && q.key && savedByKey(q.key);
+    if (!q.std) {
+      saveBank = h('button', { type: 'button', class: 'btn small' }, inBank ? '은행 문항도 갱신' : '문항 은행에 저장');
+      saveBank.title = inBank ? '지금 고친 제목·보기를 문항 은행에도 반영합니다 (이미 이 문항을 넣은 다른 설문은 그대로)' : '이 문항을 저장해 두고 다른 설문에서도 씁니다';
+      saveBank.addEventListener('click', function () {
+        runBusy(saveBank, async function () {
+          if (!q.title.trim()) throw new Error('문항 제목을 먼저 입력해 주세요.');
+          var r = await Api.call('survey.qbankSave', { id: inBank ? inBank.id : '', key: q.key, type: q.type, title: q.title, required: q.required, options: q.options });
+          q.key = r.key; q.options = r.options;
+          await reloadSaved(); redraw(); renderEditorPick();
+          toast(inBank ? '문항 은행의 문항도 고쳤습니다.' : '문항 은행에 저장했습니다. 다른 설문의 [문항 은행에서 추가]에서 고를 수 있습니다.');
+        });
+      });
+    }
     var head = h('div', { class: 'toolbar' }, h('strong', null, (i + 1) + '.'),
       q.std ? h('span', { class: 'badge ok' }, '공통 ' + q.key) : h('span', { class: 'badge' }, TYPE_LABEL[q.type]),
-      q.pii ? h('span', { class: 'badge warn' }, '개인정보 동의 시에만') : null, mv('↑', -1), mv('↓', 1), del);
+      inBank ? h('span', { class: 'badge info' }, '은행 문항') : null,
+      q.pii ? h('span', { class: 'badge warn' }, '개인정보 동의 시에만') : null, mv('↑', -1), mv('↓', 1), saveBank, del);
     var body = [head, field('제목', title), h('label', { class: 'check' }, req, ' 필수 응답')];
     // 보기: 직접 만든 선택형 문항, 그리고 구간을 조정할 수 있는 공통 문항(관심 타입·예상 자금)
     if (q.fromProject) {
@@ -213,7 +300,7 @@
     }
     return h('div', { class: 'card', style: 'background:#fafbfd' }, body);
   }
-  function renderEditorPick() { /* 공통 문항 목록은 다음 그리기 때 다시 채워진다 */ }
+  var renderEditorPick = function () { /* 편집 화면이 열리면 문항 추가 목록 다시 채우기로 바뀐다 */ };
 
   // ====================================================================
   // 설문 상세: 링크·QR / 응답 원장 / 통계
