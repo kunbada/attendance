@@ -161,13 +161,14 @@ async function geminiRead(env, b64, mime) {
     contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: b64 } }, { text: OCR_PROMPT }] }],
     generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: OCR_SCHEMA }
   });
-  let limited = false;
+  let limited = false, badKey = false;
   for (const m of models) {
     let res;
     try {
+      // 키는 x-goog-api-key 헤더 하나로만 보낸다 (새 형식 AQ. 키와 예전 AIza 키 모두 이 방식으로 동작)
       res = await fetch(`${base}/v1beta/models/${encodeURIComponent(m)}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY }, body });
     } catch (e) { continue; }
-    if (!res.ok) { if (res.status === 429) limited = true; continue; }
+    if (!res.ok) { if (res.status === 429) limited = true; if (res.status === 401 || res.status === 403) badKey = true; continue; }
     const j = await res.json().catch(() => null);
     const text = j && j.candidates && j.candidates[0] && j.candidates[0].content && (j.candidates[0].content.parts || []).map((p) => p.text || '').join('');
     if (!text) continue;
@@ -175,7 +176,8 @@ async function geminiRead(env, b64, mime) {
     try { o = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch (e) { continue; }
     return { fields: o, model: m };
   }
-  throw new AppError(limited ? '오늘 명함 인식 무료 한도가 찼습니다. 직접 입력해 주세요.' : '명함을 읽지 못했습니다. 다시 찍거나 직접 입력해 주세요.', limited ? 'OCR_LIMIT' : 'OCR_FAIL');
+  if (badKey && !limited) throw new AppError('명함 인식 키가 올바르지 않습니다. 관리자에게 알려 주세요. 그동안은 직접 입력해 주세요.', 'OCR_KEY');
+  throw new AppError(limited ?'오늘 명함 인식 무료 한도가 찼습니다. 직접 입력해 주세요.' : '명함을 읽지 못했습니다. 다시 찍거나 직접 입력해 주세요.', limited ? 'OCR_LIMIT' : 'OCR_FAIL');
 }
 
 export async function realtorOcr(env, data) {
