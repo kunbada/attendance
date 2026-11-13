@@ -265,7 +265,7 @@ const responseView = (r) => ({
 });
 
 async function loadOffices(env, pid) {
-  const rows = await all(env, 'SELECT * FROM realtor_responses WHERE project_id = ? ORDER BY submitted_at DESC, id DESC', pid);
+  const rows = await all(env, 'SELECT * FROM realtor_responses WHERE project_id = ? ORDER BY submitted_at DESC, rowid DESC', pid);
   return { rows, groups: groupOffices(rows) };
 }
 
