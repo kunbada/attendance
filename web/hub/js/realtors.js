@@ -11,8 +11,8 @@
   function avgLabel(scale, k, v) { return v === null ? '-' : v.toFixed(1) + ' (' + scale[k][Math.round(v)] + ')'; }
 
   async function render(root) {
-    var fg = await Api.call('realtor.formGet');
-    var res = await Api.call('realtor.list', filter);
+    var both = await Promise.all([Api.call('realtor.formGet'), Api.call('realtor.list', filter)]);
+    var fg = both[0], res = both[1];
     var sm = res.summary, scale = res.scale;
     var again = function () { return render(root); };
     var go = function (patch) { filter = Object.assign({}, filter, { page: 1 }, patch); return runBusy(null, again); };

@@ -3,6 +3,11 @@ main = "src/index.js"
 compatibility_date = "2025-09-01"
 
 # database_id 는 배포가이드 순서대로 DB 를 만든 뒤 채워진다 (비밀 값이 아님)
+# 서버 코드를 DB(아시아)와 가까운 곳에서 실행한다. 이게 없으면 한국 요청이 미국 서부(시애틀)에서 처리되어
+# DB 질의마다 태평양을 왕복해 화면이 느려진다 (2026-11-13 측정)
+[placement]
+mode = "smart"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "attendance"

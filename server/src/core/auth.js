@@ -1,5 +1,5 @@
 // 로그인, 세션, 기기키 확인. 모든 action 은 세션 → 역할 → (직원이면) deviceKey 순으로 확인한다.
-import { AppError, s, all, first, run, hashSecret, safeEqual, sha256Hex, writeLog } from './util.js';
+import { AppError, s, all, first, run, stmt, hashSecret, safeEqual, sha256Hex, writeLog } from './util.js';
 import { sendMail, mailConfigured } from './mail.js';
 
 export const MAX_FAILS = 5;
@@ -31,12 +31,6 @@ export async function createSession(env, kind, userId, lifetimeMs = LIFETIME_MS[
   return token;
 }
 
-async function getSession(env, token) {
-  token = s(token);
-  if (!/^[0-9a-f-]{36}$/.test(token)) return null;
-  return first(env, 'SELECT kind, user_id FROM sessions WHERE token = ? AND expires_at > ?', token, Date.now());
-}
-
 export function destroySession(env, token) {
   return run(env, 'DELETE FROM sessions WHERE token = ?', s(token));
 }
@@ -62,18 +56,26 @@ export async function authenticate(env, req, def) {
   const ctx = { role: 'public', token: s(req.token), deviceKey: s(req.deviceKey), projectId: '' };
   if (roles.includes('public')) return ctx;
 
-  const session = await getSession(env, ctx.token);
-  if (!session) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
+  // 세션과 사용자(직원 또는 계정)를 DB 왕복 한 번에 읽는다 (화면 속도)
+  const token = s(ctx.token);
+  if (!/^[0-9a-f-]{36}$/.test(token)) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
+  const now = Date.now();
+  const [st, ac] = await env.DB.batch([
+    stmt(env, `SELECT * FROM staff WHERE id = (SELECT user_id FROM sessions WHERE token = ? AND expires_at > ? AND kind = 'staff')`, token, now),
+    stmt(env, `SELECT * FROM accounts WHERE id = (SELECT user_id FROM sessions WHERE token = ? AND expires_at > ? AND kind = 'account')`, token, now)
+  ]);
+  const staffRow = st.results[0], accountRow = ac.results[0];
+  if (!staffRow && !accountRow) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
 
-  if (session.kind === 'staff') {
-    const staff = await first(env, 'SELECT * FROM staff WHERE id = ?', session.user_id);
-    if (!staff || staff.status !== '활동') throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
+  if (staffRow) {
+    const staff = staffRow;
+    if (staff.status !== '활동') throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
     if (!ctx.deviceKey || staff.device_key !== ctx.deviceKey) throw new AppError('등록된 휴대폰이 아닙니다.', 'DEVICE_MISMATCH');
     ctx.role = 'staff';
     ctx.staff = staff;
   } else {
-    const account = await first(env, 'SELECT * FROM accounts WHERE id = ?', session.user_id);
-    if (!account || !account.active) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
+    const account = accountRow;
+    if (!account.active) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
     ctx.role = ACCOUNT_ROLE[account.role] || 'none';
     ctx.account = account;
   }
@@ -102,8 +104,12 @@ async function resolveProject(env, req, ctx) {
   } else {
     if (!projectId) throw new AppError('현장을 선택해 주세요.', 'NO_PROJECT');
     if (ctx.role !== 'admin') {
-      const ok = await first(env, 'SELECT 1 FROM account_projects WHERE account_id = ? AND project_id = ?', ctx.account.id, projectId);
-      if (!ok) throw new AppError('이 현장에 접근할 수 없습니다.', 'FORBIDDEN');
+      // 현장 권한과 현장 정보를 한 번에 (권한이 없으면 현장 정보도 비어서 온다)
+      const project = await first(env, 'SELECT p.* FROM projects p JOIN account_projects ap ON ap.project_id = p.id WHERE ap.account_id = ? AND p.id = ?', ctx.account.id, projectId);
+      if (!project) throw new AppError('이 현장에 접근할 수 없습니다.', 'FORBIDDEN');
+      ctx.projectId = project.id;
+      ctx.project = project;
+      return;
     }
   }
   const project = await first(env, 'SELECT * FROM projects WHERE id = ?', projectId);

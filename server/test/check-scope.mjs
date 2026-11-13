@@ -14,7 +14,7 @@ const EXEMPT = [
   ['core/staff.js', "FROM staff WHERE phone = ?", '휴대폰 번호는 사람 한 명당 한 행이라 현장과 무관하게 찾는다 (로그인·가입·기기변경)'],
   ['core/staff.js', "UPDATE staff SET device_change_request", '이미 로그인 확인된 본인 행(id)만 바꾼다'],
   ['core/people.js', "FROM staff WHERE phone = ? AND id <> ?", '휴대폰 번호는 전체에서 유일해야 하므로 현장과 무관하게 중복을 확인한다'],
-  ['core/auth.js', "FROM staff WHERE id = ?", '세션의 직원 확인: 직원이 어느 현장 소속인지 알아내는 첫 단계'],
+  ['core/auth.js', "FROM staff WHERE id = (SELECT user_id FROM sessions", '세션의 직원 확인: 직원이 어느 현장 소속인지 알아내는 첫 단계'],
   ['telegram/telegram.js', "UPDATE staff SET telegram_link_code", '이미 로그인된 본인 행(id)만 바꾼다'],
   ['telegram/telegram.js', "FROM staff WHERE telegram_link_code", '텔레그램 웹훅: 일회용 연결 코드로 본인을 찾는다 (현장 미정)'],
   ['telegram/telegram.js', "FROM staff WHERE telegram_id", '텔레그램 계정 하나는 한 사람에게만 연결된다 (전체에서 유일)'],

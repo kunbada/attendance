@@ -8,8 +8,7 @@
   async function renderVisits(root) {
     visitFilter.from = visitFilter.from || todayLocal().slice(0, 8) + '01';
     visitFilter.to = visitFilter.to || todayLocal();
-    if (!state.staff.length) await Hub.loadStaff();
-    if (!state.orgs.length) await Hub.loadOrgs();
+    await Promise.all([state.staff.length ? null : Hub.loadStaff(), state.orgs.length ? null : Hub.loadOrgs()]);
     root.innerHTML = '';
     var from = h('input', { type: 'date', value: visitFilter.from, style: DATE_STYLE });
     var to = h('input', { type: 'date', value: visitFilter.to, style: DATE_STYLE });

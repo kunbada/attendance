@@ -200,8 +200,7 @@
 
   // ----- 링크 -----
   async function renderLinks(box, sv) {
-    var res = await Api.call('survey.linkList', { surveyId: sv.id });
-    await Hub.loadOrgs(); await Hub.loadStaff();
+    var res = (await Promise.all([Api.call('survey.linkList', { surveyId: sv.id }), Hub.loadOrgs(), Hub.loadStaff()]))[0];
     var state = Hub.state;
     box.innerHTML = '';
     var again = function () { return renderLinks(box, sv); };
