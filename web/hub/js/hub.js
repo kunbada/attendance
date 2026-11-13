@@ -158,7 +158,7 @@ var Hub = (function () {
     clearViews();
     state.staff = []; state.orgs = []; state.settings = {};
     renderProjectSelect();
-    runBusy(null, refresh);
+    runBusy(null, refresh).then(prefetchMenus);
   });
 
   // ---------- 메뉴 ----------
@@ -167,28 +167,54 @@ var Hub = (function () {
   function section(key, def) { sections[key] = def; }
   function register(menu) { menus.push(menu); }
 
-  // 화면 다시 보기 빠르게: 한 번 그린 화면은 (현장·화면별로) 기억해 두었다가, 다시 열면 즉시 보여 주고
-  // 뒤에서 최신 내용으로 다시 그려 바꾼다. 다시 그리는 동안(보통 1초 안팎)은 흐리게 하고 누를 수 없게 한다.
-  var viewCache = {};
+  // 화면 빠르게 보이기 (서버 요청 한 번이 한국→미국 경로 때문에 약 1초 걸려서):
+  //  - 한 번 그린 화면은 (현장·화면별로) 기억해 두었다가 다시 열면 즉시 보여 준다.
+  //  - 그린 지 FRESH_MS 가 지났으면 보여 준 채로 뒤에서 최신 내용으로 다시 그려 바꾼다(그동안 흐리게, 누를 수 없게).
+  //  - 로그인·현장 선택 직후 다른 메뉴의 첫 화면을 뒤에서 미리 그려 둔다(prefetchMenus) → 처음 여는 메뉴도 즉시.
+  var FRESH_MS = 30000;
+  var viewCache = {}, pending = {};
   function cacheKey(key) { return (Api.getProject() || '') + '|' + key; }
-  function hasView(key) { return !!viewCache[cacheKey(key)]; }
-  function clearViews() { viewCache = {}; }
+  function hasView(key) { return !!viewCache[cacheKey(key)] || !!pending[cacheKey(key)]; }
+  function clearViews() { viewCache = {}; pending = {}; }
   var bgCount = 0;
   function bgLoading(on) { bgCount += on ? 1 : -1; document.body.classList.toggle('bg-loading', bgCount > 0); }
   async function showSection(holder, key) {
-    var ck = cacheKey(key), old = viewCache[ck], box = h('div');
-    if (old) {
-      holder.replaceChildren(old);
-      old.classList.add('refreshing');
+    var ck = cacheKey(key);
+    if (!viewCache[ck] && pending[ck]) { // 미리 그리는 중이면 그것을 기다린다 (같은 요청을 두 번 보내지 않게)
       bgLoading(true);
-      try { await sections[key].render(box); } catch (e) { old.classList.remove('refreshing'); throw e; } finally { bgLoading(false); }
-      old.classList.remove('refreshing');
-      if (holder.firstChild === old) holder.replaceChildren(box); // 그사이 다른 탭으로 옮겼으면 바꾸지 않는다
+      try { await pending[ck]; } catch (e) { /* 아래에서 다시 그린다 */ } finally { bgLoading(false); }
+    }
+    var old = viewCache[ck], box = h('div');
+    if (old && Date.now() - old.at < FRESH_MS) { holder.replaceChildren(old.box); return; }
+    if (old) {
+      holder.replaceChildren(old.box);
+      old.box.classList.add('refreshing');
+      bgLoading(true);
+      try { await sections[key].render(box); } catch (e) { old.box.classList.remove('refreshing'); throw e; } finally { bgLoading(false); }
+      old.box.classList.remove('refreshing');
+      if (holder.firstChild === old.box) holder.replaceChildren(box); // 그사이 다른 탭으로 옮겼으면 바꾸지 않는다
     } else {
       holder.replaceChildren(box);
       await sections[key].render(box);
     }
-    viewCache[ck] = box;
+    viewCache[ck] = { box: box, at: Date.now() };
+  }
+  // 다른 메뉴의 첫 화면을 뒤에서 미리 그린다. 한 번에 3개씩, 실패는 조용히 넘긴다(열 때 다시 그림)
+  function prefetchMenus() {
+    if (!Api.getProject()) return;
+    var pid = Api.getProject();
+    var keys = visibleMenus().filter(function (m) { return m.key !== active && m.first; }).map(function (m) { return m.first(); })
+      .filter(function (k) { return sections[k] && !hasView(k); });
+    var next = function () {
+      var key = keys.shift();
+      if (!key || Api.getProject() !== pid) return null;
+      var ck = cacheKey(key), box = h('div');
+      pending[ck] = sections[key].render(box).then(function () {
+        if (pending[ck] && Api.getProject() === pid) viewCache[ck] = { box: box, at: Date.now() };
+      }).catch(function () { /* 무시 */ }).then(function () { delete pending[ck]; return next(); });
+      return pending[ck];
+    };
+    setTimeout(function () { next(); next(); next(); }, 300);
   }
   // 기억해 둔 화면이 있으면 전체 로딩 표시 없이, 없으면 로딩 표시와 함께
   function go(cached, fn) {
@@ -202,6 +228,7 @@ var Hub = (function () {
     register({
       key: menu.key, label: menu.label, adminOnly: menu.adminOnly, needsProject: menu.needsProject,
       cached: function () { return hasView(chosen); },
+      first: function () { return chosen; },
       render: async function (root) {
         var pid = Api.getProject() || '';
         // 틀(하위 탭 + 화면 자리)은 처음과 현장이 바뀌었을 때만 만든다
@@ -281,6 +308,7 @@ var Hub = (function () {
     buildMenu();
     show('app');
     await open(APP || Api.getProject() || !isAdmin() ? visibleMenus()[0].key : 'projects');
+    prefetchMenus();
   }
 
   async function boot() {
