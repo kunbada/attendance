@@ -5,7 +5,8 @@ import { sendMail, mailConfigured } from './mail.js';
 export const MAX_FAILS = 5;
 // 직원은 매일 로그인하기 번거로우니 30일, 관리자·데스크는 공용 PC 가능성 때문에 12시간
 // 방명록 태블릿은 매번 로그인할 수 없으니 30일 (분실 시 관리자가 계정을 중지하면 즉시 무효)
-const LIFETIME_MS = { staff: 30 * 24 * 3600 * 1000, account: 12 * 3600 * 1000 };
+// counsel = 상담고객 앱(데스크탑). 휴대폰(기기) 대신 텔레그램 인증번호로 로그인하므로 짧게 둔다
+const LIFETIME_MS = { staff: 30 * 24 * 3600 * 1000, account: 12 * 3600 * 1000, counsel: 12 * 3600 * 1000 };
 const KIOSK_LIFETIME_MS = 30 * 24 * 3600 * 1000;
 
 export const projectBrief = (p) => ({ id: p.id, code: p.code, name: p.name, status: p.status });
@@ -60,14 +61,20 @@ export async function authenticate(env, req, def) {
   const token = s(ctx.token);
   if (!/^[0-9a-f-]{36}$/.test(token)) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
   const now = Date.now();
-  const [st, ac] = await env.DB.batch([
+  const [st, ac, cs] = await env.DB.batch([
     stmt(env, `SELECT * FROM staff WHERE id = (SELECT user_id FROM sessions WHERE token = ? AND expires_at > ? AND kind = 'staff')`, token, now),
-    stmt(env, `SELECT * FROM accounts WHERE id = (SELECT user_id FROM sessions WHERE token = ? AND expires_at > ? AND kind = 'account')`, token, now)
+    stmt(env, `SELECT * FROM accounts WHERE id = (SELECT user_id FROM sessions WHERE token = ? AND expires_at > ? AND kind = 'account')`, token, now),
+    stmt(env, `SELECT * FROM staff WHERE id = (SELECT user_id FROM sessions WHERE token = ? AND expires_at > ? AND kind = 'counsel')`, token, now)
   ]);
-  const staffRow = st.results[0], accountRow = ac.results[0];
-  if (!staffRow && !accountRow) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
+  const staffRow = st.results[0], accountRow = ac.results[0], counselRow = cs.results[0];
+  if (!staffRow && !accountRow && !counselRow) throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
 
-  if (staffRow) {
+  if (counselRow) {
+    // 상담고객 앱: 직원 본인이지만 기기 확인 대신 로그인 때 텔레그램 인증을 거쳤다. 역할을 따로 두어 출근 등 직원 앱 기능은 쓸 수 없다
+    if (counselRow.status !== '활동') throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
+    ctx.role = 'counsel';
+    ctx.staff = counselRow;
+  } else if (staffRow) {
     const staff = staffRow;
     if (staff.status !== '활동') throw new AppError('로그인이 필요합니다. 다시 로그인해 주세요.', 'AUTH');
     if (!ctx.deviceKey || staff.device_key !== ctx.deviceKey) throw new AppError('등록된 휴대폰이 아닙니다.', 'DEVICE_MISMATCH');
@@ -91,7 +98,7 @@ export async function authenticate(env, req, def) {
 async function resolveProject(env, req, ctx) {
   const asked = s(req.projectId);
   let projectId = asked;
-  if (ctx.role === 'staff') {
+  if (ctx.role === 'staff' || ctx.role === 'counsel') {
     // 영업사원은 가입한 현장 하나뿐. 다른 현장을 가리키는 요청은 거부한다
     projectId = ctx.staff.project_id;
     if (asked && asked !== projectId) throw new AppError('이 현장에 접근할 수 없습니다.', 'FORBIDDEN');

@@ -9,7 +9,7 @@ import { STD } from '../survey/std.js';
 
 export const STATUSES = ['신규', '연락중', '부재', '방문예정', '방문완료', '계약', '보류', '거부'];
 export const NOTE_KINDS = ['TM', '상담', '메모'];
-const CHANNELS = ['설문', '방문', '외부', '부동산', '계약'];
+const CHANNELS = ['설문', '방문', '외부', '부동산', '상담', '계약'];
 const PAGE = 50;
 
 const maskPhone = (d) => (d && d.length >= 7 ? d.slice(0, 3) + '-****-' + d.slice(-4) : '');
@@ -51,12 +51,12 @@ async function contractIndex(env, pid) {
 }
 
 // 이 현장의 고객 전체를 묶어 만든다 (목록·집계·내보내기 공용)
-async function loadCustomers(env, pid) {
+export async function loadCustomers(env, pid) {
   await backfillGuestHash(env, pid);
   const map = {};
   const cust = (h) => (map[h] = map[h] || {
     hash: h, name: '', phone: '', tail: '', phoneEnc: '', surveys: 0, lastSurveyAt: '', intent: '', subscr: '', visits: 0, lastVisit: '', people: 0,
-    ext: null, realtor: null, contract: null, notes: 0, lastNote: '', consent: '', status: '', ownerId: '', memo: '', dnc: false, source: '', region: '', interest: '', createdAt: ''
+    ext: null, realtor: null, contract: null, rank: '', special: '', counselAt: '', counselors: new Set(), counselNotes: 0, lastCounsel: '', notes: 0, lastNote: '', consent: '', status: '', ownerId: '', memo: '', dnc: false, source: '', region: '', interest: '', createdAt: ''
   });
 
   (await all(env,
@@ -94,15 +94,22 @@ async function loadCustomers(env, pid) {
     // 설문·방명록에 없는 고객은 외부 자료(source_kind 있음)일 때만 고객으로 센다. 덧붙인 행만 남은 경우는 건너뛴다
     if (!map[r.phone_hash] && !r.source_kind) return;
     const c = cust(r.phone_hash);
-    if (r.source_kind) c.ext = { source: r.source, kind: r.source_kind };
+    // 상담고객 앱에서 만든 고객(source_kind '상담')은 "외부 자료"가 아니라 "상담" 경로로 센다
+    if (r.source_kind && r.source_kind !== '상담') c.ext = { source: r.source, kind: r.source_kind };
+    c.rank = r.subscr_rank || ''; c.special = r.special_kind || ''; c.counselAt = r.counsel_at || '';
     if (!c.name && r.name) c.name = r.name;
     if (r.phone_enc && !c.phoneEnc) c.phoneEnc = r.phone_enc;
     c.tail = r.phone_tail;
     if (c.consent !== '동의') c.consent = r.consent || '미확인';
     c.status = r.status; c.ownerId = r.owner_id; c.memo = r.memo; c.dnc = !!r.dnc; c.source = r.source; c.region = r.region; c.interest = r.interest; c.createdAt = r.created_at;
   });
-  (await all(env, 'SELECT phone_hash, COUNT(*) AS n, MAX(at) AS last FROM customer_notes WHERE project_id = ? GROUP BY phone_hash', pid)).forEach((n) => {
-    if (map[n.phone_hash]) { map[n.phone_hash].notes = n.n; map[n.phone_hash].lastNote = n.last; }
+  (await all(env, 'SELECT phone_hash, staff_id, COUNT(*) AS n, MAX(at) AS last FROM customer_notes WHERE project_id = ? GROUP BY phone_hash, staff_id', pid)).forEach((n) => {
+    const c = map[n.phone_hash];
+    if (!c) return;
+    c.notes += n.n;
+    if (s(n.last) > s(c.lastNote)) c.lastNote = n.last;
+    // 상담고객 앱에서 남긴 기록: 누가 상담했는지 (중복 상담사 표시용)
+    if (n.staff_id) { c.counselors.add(n.staff_id); c.counselNotes += n.n; if (s(n.last) > s(c.lastCounsel)) c.lastCounsel = n.last; }
   });
   const contracts = await contractIndex(env, pid);
   contracts.forEach((ct, h) => { if (map[h]) map[h].contract = { dongho: ct.dongho, date: ct.date }; });
@@ -121,7 +128,9 @@ async function loadCustomers(env, pid) {
     c.statusAuto = !c.status;
     if (!c.status) c.status = c.contract ? '계약' : c.visits ? '방문완료' : '신규';
     c.owner = staff[c.ownerId] || '';
-    c.channels = [c.surveys ? '설문' : '', c.visits ? '방문' : '', c.ext ? '외부' : '', c.realtor ? '부동산' : '', c.contract ? '계약' : ''].filter(Boolean);
+    // 상담 경로: 상담고객 앱에서 등록했거나, 상담사가 기록을 남긴 고객 (중개사만인 사람은 "부동산"으로 둔다)
+    c.isCounsel = !!(c.counselAt || (c.counselors.size && !(c.realtor && !c.surveys && !c.visits && !c.ext && !c.contract)));
+    c.channels = [c.surveys ? '설문' : '', c.visits ? '방문' : '', c.ext ? '외부' : '', c.realtor ? '부동산' : '', c.isCounsel ? '상담' : '', c.contract ? '계약' : ''].filter(Boolean);
     c.last = [c.lastSurveyAt.slice(0, 10), c.lastVisit, s(c.lastNote).slice(0, 10), c.contract ? c.contract.date : '', c.realtor ? c.realtor.last.slice(0, 10) : '', c.createdAt.slice(0, 10)].sort().pop() || '';
   });
   return { rows, staff };
@@ -133,7 +142,7 @@ const rowView = (c) => ({
   status: c.status, statusAuto: c.statusAuto, channels: c.channels, source: c.ext ? c.ext.source : '', sourceKind: c.ext ? c.ext.kind : '',
   surveys: c.surveys, lastSurveyAt: c.lastSurveyAt, intent: c.intent, visits: c.visits, lastVisit: c.lastVisit, people: c.people,
   stage: c.surveys && c.visits ? '설문+방문' : c.surveys ? '설문만' : c.visits ? '방문만' : '외부',
-  contract: c.contract, realtor: c.realtor, notes: c.notes, lastNote: c.lastNote, consent: c.consent, dnc: c.dnc, owner: c.owner, ownerId: c.ownerId, memo: c.memo, region: c.region, interest: c.interest, last: c.last
+  contract: c.contract, realtor: c.realtor, rank: c.rank, special: c.special, counselNotes: c.counselNotes, notes: c.notes, lastNote: c.lastNote, consent: c.consent, dnc: c.dnc, owner: c.owner, ownerId: c.ownerId, memo: c.memo, region: c.region, interest: c.interest, last: c.last
 });
 
 // 조건에 맞는 고객만 남긴다 (목록·내보내기 공용)
@@ -184,7 +193,7 @@ export async function customerList(env, data, ctx) {
   const high = allRows.filter((c) => Number(c.intent) >= 4);
   const summary = {
     total: allRows.length,
-    channels: { 설문: count((c) => c.surveys), 방문: count((c) => c.visits), 외부: count((c) => c.ext), 부동산: count((c) => c.realtor), 계약: count((c) => c.contract) },
+    channels: { 설문: count((c) => c.surveys), 방문: count((c) => c.visits), 외부: count((c) => c.ext), 부동산: count((c) => c.realtor), 상담: count((c) => c.isCounsel), 계약: count((c) => c.contract) },
     grades: Object.fromEntries(GRADES.map((g) => [g, count((c) => c.grade === g)])), noGrade: count((c) => !c.grade),
     statuses: Object.fromEntries(STATUSES.map((x) => [x, count((c) => c.status === x)])),
     // 퍼널: 설문 → 방문 → 계약
@@ -209,7 +218,7 @@ export async function customerList(env, data, ctx) {
 }
 
 // 목록의 id(해시 앞 12자) → 전체 해시. 이 현장의 고객(설문·방명록·외부 자료)일 때만 찾는다
-async function resolveHash(env, pid, id) {
+export async function resolveHash(env, pid, id) {
   id = s(id).trim();
   if (!/^[0-9a-f]{12}$/.test(id)) throw new AppError('고객 정보가 올바르지 않습니다.');
   const hi = id + 'g'; // 16진수 문자보다 큰 글자 → 앞 12자가 같은 범위
@@ -217,7 +226,8 @@ async function resolveHash(env, pid, id) {
     `SELECT phone_hash FROM customers WHERE project_id = ? AND phone_hash >= ? AND phone_hash < ? AND source_kind <> ''
      UNION SELECT phone_hash FROM responses WHERE project_id = ? AND phone_hash >= ? AND phone_hash < ?
      UNION SELECT phone_hash FROM guestbook WHERE project_id = ? AND phone_hash >= ? AND phone_hash < ?
-     UNION SELECT cust_hash FROM realtor_responses WHERE project_id = ? AND cust_hash >= ? AND cust_hash < ? LIMIT 1`, pid, id, hi, pid, id, hi, pid, id, hi, pid, id, hi);
+     UNION SELECT cust_hash FROM realtor_responses WHERE project_id = ? AND cust_hash >= ? AND cust_hash < ?
+     UNION SELECT phone_hash FROM customers WHERE project_id = ? AND phone_hash >= ? AND phone_hash < ? AND counsel_at <> '' LIMIT 1`, pid, id, hi, pid, id, hi, pid, id, hi, pid, id, hi, pid, id, hi);
   if (!hit) throw new AppError('이 현장에서 고객을 찾을 수 없습니다.');
   return hit.phone_hash;
 }
@@ -303,7 +313,7 @@ export async function customerNoteDelete(env, data, ctx) {
   return {};
 }
 
-async function fullPhone(env, pid, hash) {
+export async function fullPhone(env, pid, hash) {
   const g = await first(env, `SELECT phone FROM guestbook WHERE project_id = ? AND phone_hash = ? AND phone <> '' LIMIT 1`, pid, hash);
   if (g) return g.phone;
   const c = await first(env, `SELECT phone_enc FROM customers WHERE project_id = ? AND phone_hash = ? AND phone_enc <> ''`, pid, hash);

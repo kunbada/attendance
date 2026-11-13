@@ -73,7 +73,7 @@
   var filter = Object.assign({}, EMPTY);
   var INTENT = { '1': '1점', '2': '2점', '3': '3점', '4': '4점', '5': '5점' };
   var STATUS_BADGE = { '신규': 'info', '연락중': 'warn', '부재': '', '방문예정': 'warn', '방문완료': 'ok', '계약': 'ok', '보류': '', '거부': 'danger' };
-  var CHANNEL_BADGE = { '설문': 'info', '방문': 'ok', '외부': 'warn', '부동산': 'line', '계약': 'danger' };
+  var CHANNEL_BADGE = { '설문': 'info', '방문': 'ok', '외부': 'warn', '부동산': 'line', '상담': 'info', '계약': 'danger' };
   var TYPE_BADGE = { '설문': 'info', '방문': 'ok', 'TM': 'warn', '상담': 'warn', '메모': '', '계약': 'danger', '등록': 'line', '부동산': 'line' };
   var QUICK = ['통화', '부재', '재통화', '방문약속', '관심없음', '결번'];
 
@@ -100,6 +100,7 @@
       kpi('방문 고객', sm.channels.방문, '설문 → 방문 ' + sm.surveyToVisit + '명 (' + rate(sm.surveyToVisit, sm.channels.설문) + ')', '방문'),
       kpi('외부 자료 고객', sm.channels.외부, '동의 미확인 ' + sm.unconfirmed + '명', '외부'),
       kpi('부동산 고객', sm.channels.부동산 || 0, 'MGM 참여 ' + (sm.realtorMgm || 0) + '곳 · 소개 가능 ' + (sm.realtorRefer || 0) + '명', '부동산'),
+      kpi('상담 고객', sm.channels.상담 || 0, '상담고객 앱', '상담'),
       kpi('계약 고객', sm.channels.계약, '방문 → 계약 ' + sm.visitToContract + '명 (' + rate(sm.visitToContract, sm.channels.방문) + ')', '계약')));
 
     // 2) 등급·관리 필요 바로가기
@@ -151,8 +152,9 @@
         h('td', null, c.surveys ? '설문 ' + c.surveys + '회' + (c.intent ? ' · 의향 ' + (INTENT[c.intent] || c.intent) : '') : '',
           c.visits ? h('div', null, '방문 ' + c.visits + '회' + (c.people > c.visits ? ' (동반 포함 ' + c.people + '명)' : '')) : null,
           c.contract ? h('div', null, '계약 ' + c.contract.dongho) : null,
+          c.rank ? h('div', null, '청약 ' + c.rank + (c.special ? ' (' + c.special + ')' : '')) : null,
           c.realtor ? h('div', null, '중개업소 ' + c.realtor.office + (c.realtor.mgm ? ' · MGM ' + c.realtor.mgm : '') + ' · 소개 ' + c.realtor.referCount + '명') : null,
-          !c.surveys && !c.visits && !c.contract && !c.realtor ? h('span', { class: 'muted' }, c.interest || c.region || '-') : null),
+          !c.surveys && !c.visits && !c.contract && !c.realtor && !c.rank ? h('span', { class: 'muted' }, c.interest || c.region || '-') : null),
         h('td', null, c.notes ? c.notes + '건' : h('span', { class: 'muted' }, '-'), c.lastNote ? h('div', { class: 'cust-sub' }, String(c.lastNote).slice(5, 10)) : null),
         h('td', null, c.owner || h('span', { class: 'muted' }, '-')),
         h('td', null, c.last || '-'));
@@ -290,5 +292,6 @@
     return m;
   }
 
+  Hub.openCustomer = openDetail; // 상담고객 탭 등에서 고객 상세를 연다
   Hub.section('customers', { render: render });
 })();

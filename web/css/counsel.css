@@ -1,0 +1,76 @@
+/* 상담고객 앱 (데스크탑 기준). 공통 style.css 위에 덮어쓴다 */
+body.cs { background: #f3f5f9; min-height: 100vh; }
+.cs-login { max-width: 420px; margin: 8vh auto; padding: 0 16px; }
+.cs-login .card { padding: 28px; }
+.cs-login h2 { margin-top: 0; }
+.cs-top { display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 24px; background: #fff; border-bottom: 1px solid #e3e7ee; position: sticky; top: 0; z-index: 20; }
+.cs-top strong { font-size: 17px; }
+.cs-top .cs-who { margin-left: auto; color: #6b7686; font-size: 14px; }
+.cs-top .btn.small { width: auto; }
+.cs-body { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: calc(100vh - 56px); }
+.cs-nav { background: #fff; border-right: 1px solid #e3e7ee; padding: 16px 10px; display: flex; flex-direction: column; gap: 4px; }
+.cs-nav button { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; text-align: left; font: inherit; font-size: 15px; font-weight: 600; color: #3b4556; padding: 12px 14px; border-radius: 10px; cursor: pointer; }
+.cs-nav button span { font-size: 18px; }
+.cs-nav button:hover { background: #f1f4f9; }
+.cs-nav button.active { background: #eef3ff; color: #2457d6; }
+.cs-main { padding: 22px 28px 60px; max-width: 1400px; margin: 0; width: 100%; box-sizing: border-box; }
+.cs-main h1 { font-size: 21px; margin: 0 0 14px; display: flex; align-items: center; gap: 10px; }
+.cs-main .card { border-radius: 14px; }
+.cs-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 1100px) { .cs-cols { grid-template-columns: 1fr; } .cs-body { grid-template-columns: 1fr; } .cs-nav { flex-direction: row; overflow-x: auto; } }
+.cs-sec { margin-bottom: 18px; }
+.cs-sec > .lbl { font-size: 13.5px; font-weight: 700; color: #3b4556; margin: 0 0 8px; display: flex; gap: 8px; align-items: center; }
+.cs-sec > .lbl small { font-weight: 500; color: #8a94a3; }
+/* 버튼형 선택 */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips button { min-width: 64px; padding: 9px 14px; border: 1.5px solid #dfe4ec; background: #fff; border-radius: 10px; font: inherit; font-size: 14.5px; font-weight: 600; color: #3b4556; cursor: pointer; transition: .1s; }
+.chips button:hover { border-color: #b9c6dc; }
+.chips button.on { background: #2457d6; border-color: #2457d6; color: #fff; }
+.chips.grade button { min-width: 56px; font-size: 16px; }
+.chips.grade button.on[data-v=A] { background: #dc2626; border-color: #dc2626; }
+.chips.grade button.on[data-v=B] { background: #ea580c; border-color: #ea580c; }
+.chips.grade button.on[data-v=C] { background: #16a34a; border-color: #16a34a; }
+.chips.grade button.on[data-v=D] { background: #64748b; border-color: #64748b; }
+.chips.sub button.on { background: #7c3aed; border-color: #7c3aed; }
+.cs-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cs-main input[type=text], .cs-main input[type=tel], .cs-main input[type=search], .cs-main select, .cs-main textarea { width: 100%; font: inherit; font-size: 15px; padding: 10px 12px; border: 1.5px solid #dfe4ec; border-radius: 10px; background: #fff; }
+.cs-main textarea { min-height: 180px; resize: vertical; line-height: 1.6; }
+.cs-main input:focus, .cs-main textarea:focus, .cs-main select:focus { outline: none; border-color: #2457d6; box-shadow: 0 0 0 3px #eef3ff; }
+.notice { border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-top: 8px; }
+.notice.info { background: #eef3ff; color: #1e3a8a; }
+.notice.warn { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
+.notice.ok { background: #ecfdf3; color: #166534; }
+.cs-actions { display: flex; gap: 10px; margin-top: 14px; }
+.cs-actions .btn { width: auto; min-width: 140px; }
+/* 목록 */
+.cs-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.cs-bar input[type=search] { max-width: 260px; }
+.cs-bar select { width: auto; }
+.cs-bar .tabchip { border: 1.5px solid #dfe4ec; background: #fff; border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; color: #3b4556; }
+.cs-bar .tabchip.on { background: #18212f; border-color: #18212f; color: #fff; }
+.cs-bar .tabchip i { font-style: normal; opacity: .7; margin-left: 4px; }
+table.cs-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e3e7ee; }
+.cs-table th { background: #f7f9fc; font-size: 12.5px; color: #6b7686; text-align: left; padding: 10px 12px; font-weight: 600; border-bottom: 1px solid #e3e7ee; }
+.cs-table td { padding: 11px 12px; border-bottom: 1px solid #eef1f5; font-size: 14px; vertical-align: middle; }
+.cs-table tr.click { cursor: pointer; }
+.cs-table tr.click:hover td { background: #f7faff; }
+.cs-table .sub { font-size: 12px; color: #8a94a3; }
+.tag { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 7px; border-radius: 6px; background: #eef1f6; color: #3b4556; margin: 1px 2px 1px 0; }
+.tag.dup { background: #fff1e6; color: #c2410c; }
+.tag.me { background: #e8f0ff; color: #2457d6; }
+.tag.g-A { background: #fee2e2; color: #b91c1c; } .tag.g-B { background: #ffedd5; color: #c2410c; } .tag.g-C { background: #dcfce7; color: #15803d; } .tag.g-D { background: #e2e8f0; color: #475569; }
+.empty { padding: 40px; text-align: center; color: #8a94a3; background: #fff; border: 1px dashed #d6dce5; border-radius: 12px; }
+/* 상세 창 */
+.modal.wide { max-width: 1100px; }
+.cs-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 900px) { .cs-detail { grid-template-columns: 1fr; } }
+.cs-detail .phone { font-size: 18px; font-weight: 800; }
+.tl { max-height: 460px; overflow: auto; border-top: 1px solid #eef1f5; margin-top: 10px; }
+.tl-item { padding: 10px 2px; border-bottom: 1px solid #eef1f5; }
+.tl-item .tl-head { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #6b7686; }
+.tl-item .tl-text { margin-top: 4px; white-space: pre-wrap; font-size: 14px; }
+.tl-item .x { margin-left: auto; border: 0; background: none; color: #b91c1c; cursor: pointer; font-size: 12.5px; }
+/* 상세 창 안의 입력칸도 같은 모양 */
+body.cs .modal input[type=text], body.cs .modal select, body.cs .modal textarea { width: 100%; font: inherit; font-size: 15px; padding: 10px 12px; border: 1.5px solid #dfe4ec; border-radius: 10px; background: #fff; }
+body.cs .modal textarea { min-height: 140px; resize: vertical; line-height: 1.6; }
+body.cs .modal .cs-actions .btn { width: auto; min-width: 140px; }

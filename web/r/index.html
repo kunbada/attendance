@@ -73,7 +73,7 @@
 <div class="app" id="app"><div class="done"><p>불러오는 중입니다…</p></div></div>
 <div class="bar hide" id="bar"><div class="in"><p class="msg" id="msg"></p><button class="pri" id="submit" type="button">제출하기</button></div></div>
 
-<script src="../js/config.js?v=20261113i"></script>
+<script src="../js/config.js?v=20261113j"></script>
 <script>
 // 중개업소 조사 화면 (로그인 없음). 주소: /r/?c=링크코드  — 현장마다 링크 1개
 // 순서: ① 명함(사진 → AI 가 칸을 채움) ② 조사 내용 ③ 개인정보 제공 동의(기록만 하고, 명함 정보는 동의와 무관하게 저장).
@@ -159,6 +159,16 @@ function draw(){
   window.scrollTo(0,0);
 }
 
+// 같은 브라우저에 로그인해 둔 상담고객 앱(PC) 또는 출근 앱(휴대폰)이 있으면 조사한 직원으로 기록된다 (서버가 확인)
+function whoAmI(){
+  try {
+    const c = localStorage.getItem('wn_token_counsel'), s = localStorage.getItem('wn_token_staff');
+    if (c) return { token: c };
+    if (s) return { token: s, deviceKey: localStorage.getItem('wn_deviceKey') || '' };
+  } catch (e) { /* 저장소를 못 쓰면 기록 없이 */ }
+  return null;
+}
+
 function consentVal(){ const c = document.querySelector('input[name=consent]:checked'); return c ? c.value === 'Y' : null; }
 
 function fmtTel(el){
@@ -221,7 +231,7 @@ async function submit(){
   const mgmEl = document.querySelector('input[name=mgm]:checked');
   const consent = consentVal();
   const d = {
-    code: CODE, nonce: NONCE, ocr: USED_OCR, consent: consent, card: CARD,
+    code: CODE, nonce: NONCE, ocr: USED_OCR, consent: consent, card: CARD, auth: whoAmI(),
     officeName: $('officeName').value.trim(), name: $('name').value.trim(), position: $('position').value.trim(), mobile: $('mobile').value.trim(),
     officeTel: $('officeTel').value.trim(), address: $('address').value.trim(),
     market: pick('market'), intent: pick('intent'), refer: pick('refer'), referCount: $('referCount').value.trim(), mgm: mgmEl ? mgmEl.value : '', opinion: $('opinion').value.trim()

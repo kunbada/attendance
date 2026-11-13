@@ -221,3 +221,4 @@ body.hub .mini-name { overflow: hidden; text-overflow: ellipsis; white-space: no
 body.hub .mini-bar { height: 8px; background: #eef1f6; border-radius: 6px; overflow: hidden; }
 body.hub .mini-bar i { display: block; height: 100%; background: var(--primary, #2457d6); border-radius: 6px; }
 body.hub .mini-val { color: var(--muted, #6b7686); font-size: 12px; white-space: nowrap; }
+body.hub a.btn { text-decoration: none; display: inline-flex; align-items: center; }

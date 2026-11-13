@@ -548,8 +548,12 @@ CREATE TABLE IF NOT EXISTS customers (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT '',
   updated_by TEXT NOT NULL DEFAULT '',
+  subscr_rank TEXT NOT NULL DEFAULT '',       -- 청약 순위: 특별공급 / 1순위 / 2순위 / 무순위 / 미정 (017)
+  special_kind TEXT NOT NULL DEFAULT '',      -- 특별공급 종류 (쉼표)
+  counsel_at TEXT NOT NULL DEFAULT '',        -- 상담고객 앱에서 처음 등록한 때
   PRIMARY KEY (project_id, phone_hash)
 );
+CREATE INDEX IF NOT EXISTS ix_customers_owner ON customers(project_id, owner_id);
 CREATE INDEX IF NOT EXISTS ix_customers_import ON customers(project_id, import_id);
 
 -- 상담·TM·메모 기록 (고객별 이력)
@@ -563,8 +567,10 @@ CREATE TABLE IF NOT EXISTS customer_notes (
   content TEXT NOT NULL DEFAULT '',
   import_id TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  staff_id TEXT NOT NULL DEFAULT ''           -- 상담고객 앱에서 기록한 상담사 (017)
 );
+CREATE INDEX IF NOT EXISTS ix_customer_notes_staff ON customer_notes(project_id, staff_id);
 CREATE INDEX IF NOT EXISTS ix_customer_notes_cust ON customer_notes(project_id, phone_hash, at);
 CREATE INDEX IF NOT EXISTS ix_customer_notes_import ON customer_notes(project_id, import_id);
 
@@ -621,6 +627,7 @@ CREATE TABLE IF NOT EXISTS realtor_responses (
   mgm TEXT NOT NULL DEFAULT '',                -- 부동산 MGM 참여 여부: 참여 / 불참 / 고려중
   cust_hash TEXT NOT NULL DEFAULT '',          -- 고객 DB 연결 키 (휴대폰, 없으면 사무실 전화의 해시)
   card_key TEXT NOT NULL DEFAULT '',           -- 명함 사진 파일 이름 (R2 버킷 realtor-cards). 없으면 ''
+  staff_id TEXT NOT NULL DEFAULT '',           -- 조사한 직원 (직원 앱·상담 앱에 로그인한 상태로 제출한 경우)
   memo TEXT NOT NULL DEFAULT '',               -- 관리자 메모
   nonce TEXT NOT NULL DEFAULT '',
   submitted_at TEXT NOT NULL,
@@ -629,6 +636,7 @@ CREATE TABLE IF NOT EXISTS realtor_responses (
 );
 CREATE INDEX IF NOT EXISTS ix_realtor_resp ON realtor_responses(project_id, submitted_at);
 CREATE INDEX IF NOT EXISTS ix_realtor_cust ON realtor_responses(project_id, cust_hash);
+CREATE INDEX IF NOT EXISTS ix_realtor_staff ON realtor_responses(project_id, staff_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_realtor_nonce ON realtor_responses(project_id, nonce) WHERE nonce <> '';
 
 -- 명함 인식 사용량 (현장·날짜별). 무료 한도를 넘지 않게 서버가 센다
@@ -637,4 +645,14 @@ CREATE TABLE IF NOT EXISTS ocr_usage (
   day TEXT NOT NULL,
   n INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (project_id, day)
+);
+
+-- 상담고객 앱 로그인 2단계 인증번호 (017)
+CREATE TABLE IF NOT EXISTS staff_otp (
+  staff_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  tries INTEGER NOT NULL DEFAULT 0,
+  sent_at INTEGER NOT NULL
 );

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>상담고객 앱</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="css/style.css?v=20261113j">
+  <link rel="stylesheet" href="css/counsel.css?v=20261113j">
+</head>
+<body class="cs">
+  <!-- 로그인: 휴대폰 + PIN(출근 앱과 같음) → 텔레그램으로 받은 인증번호 -->
+  <section id="screen-login" class="cs-login hidden">
+    <form id="form-login" class="card" autocomplete="off">
+      <h2>상담고객 앱</h2>
+      <p class="muted">출근 앱과 같은 휴대폰 번호·PIN 으로 로그인합니다. 확인되면 <b>텔레그램</b>으로 인증번호(6자리)를 보냅니다.</p>
+      <label class="field"><span class="field-label">휴대폰 번호</span><input id="lg-phone" type="tel" inputmode="numeric" placeholder="010-0000-0000" required></label>
+      <label class="field"><span class="field-label">PIN (숫자 4~6자리)</span><input id="lg-pin" type="password" inputmode="numeric" maxlength="6" required></label>
+      <button type="submit" class="btn primary" id="btn-otp">텔레그램으로 인증번호 받기</button>
+      <div id="otp-box" class="hidden">
+        <label class="field"><span class="field-label">인증번호 6자리 (텔레그램에서 확인)</span><input id="lg-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>
+        <button type="button" class="btn primary" id="btn-login">로그인</button>
+        <button type="button" class="linkbtn" id="btn-resend">인증번호를 못 받았어요 (1분 뒤 다시 받기)</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- 앱 -->
+  <div id="screen-app" class="hidden">
+    <header class="cs-top">
+      <strong id="cs-site">상담고객</strong>
+      <span class="cs-who" id="cs-who"></span>
+      <button type="button" class="btn small" id="btn-logout">로그아웃</button>
+    </header>
+    <div class="cs-body">
+      <nav class="cs-nav" id="cs-nav">
+        <button type="button" data-view="new" class="active"><span>✍️</span>신규 상담</button>
+        <button type="button" data-view="mine"><span>👥</span>나의 고객</button>
+        <button type="button" data-view="realtor"><span>🏢</span>나의 부동산업소</button>
+      </nav>
+      <main class="cs-main" id="cs-main"></main>
+    </div>
+  </div>
+
+  <script src="js/config.js?v=20261113j"></script>
+  <script src="js/api.js?v=20261113j"></script>
+  <script src="js/common.js?v=20261113j"></script>
+  <script src="js/counsel.js?v=20261113j"></script>
+</body>
+</html>

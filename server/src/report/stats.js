@@ -108,7 +108,7 @@ async function homeExtra(env, pid, today, groups, names) {
   const days30 = [];
   for (let i = 29; i >= 0; i--) days30.push(daysAgo(i));
   const byDay = (rows) => Object.fromEntries(rows.map((r) => [r.d, r.n]));
-  const [att, sv, gb, rt, rv, staffAgg, svAgg, gbMonth, rvAgg, rtRows, ext, ctMonthly] = await Promise.all([
+  const [att, sv, gb, rt, rv, staffAgg, svAgg, gbMonth, rvAgg, rtRows, ext, ctMonthly, csAgg, csNotes] = await Promise.all([
     all(env, `SELECT date AS d, COUNT(DISTINCT staff_id) AS n FROM attendance WHERE project_id = ? AND result = '성공' AND date >= ? GROUP BY date`, pid, from30),
     all(env, `SELECT substr(submitted_at, 1, 10) AS d, COUNT(*) AS n FROM responses WHERE project_id = ? AND submitted_at >= ? GROUP BY d`, pid, from30 + ' 00:00:00'),
     all(env, `SELECT visit_date AS d, SUM(1 + companions) AS n FROM guestbook WHERE project_id = ? AND visit_date >= ? GROUP BY visit_date`, pid, from30),
@@ -119,9 +119,11 @@ async function homeExtra(env, pid, today, groups, names) {
     first(env, `SELECT COUNT(*) AS teams, COALESCE(SUM(1 + companions), 0) AS people FROM guestbook WHERE project_id = ? AND visit_date >= ?`, pid, month + '-01'),
     first(env, `SELECT COALESCE(SUM(CASE WHEN visit_date > ? AND visit_date <= ? AND status = '예정' THEN 1 ELSE 0 END), 0) AS next7 FROM reservations WHERE project_id = ? AND visit_date > ?`, today, daysAgo(-7), pid, today),
     all(env, `SELECT cust_hash, refer_count, mgm, submitted_at FROM realtor_responses WHERE project_id = ? ORDER BY submitted_at, rowid`, pid),
-    first(env, `SELECT COUNT(*) AS n FROM customers WHERE project_id = ? AND source_kind <> ''`, pid),
+    first(env, `SELECT COUNT(*) AS n FROM customers WHERE project_id = ? AND source_kind NOT IN ('', '상담')`, pid),
     all(env, `SELECT substr(json_extract(json, '$.date'), 1, 7) AS m, COUNT(*) AS n, COALESCE(SUM(CASE WHEN status_g = '해약' THEN 1 ELSE 0 END), 0) AS cancel
-              FROM ct_records WHERE project_id = ? AND col = 'contracts' AND deleted = 0 GROUP BY m`, pid)
+              FROM ct_records WHERE project_id = ? AND col = 'contracts' AND deleted = 0 GROUP BY m`, pid),
+    first(env, `SELECT COUNT(*) AS n FROM customers WHERE project_id = ? AND counsel_at <> ''`, pid),
+    first(env, `SELECT COUNT(*) AS n FROM customer_notes WHERE project_id = ? AND staff_id <> '' AND at >= ?`, pid, month + '-01')
   ]);
   const mAtt = byDay(att), mSv = byDay(sv), mGb = byDay(gb), mRt = byDay(rt), mRv = byDay(rv);
   const trend30 = days30.map((d) => ({ date: d, attendance: mAtt[d] || 0, surveys: mSv[d] || 0, guests: mGb[d] || 0, realtors: mRt[d] || 0, reservations: mRv[d] || 0 }));
@@ -154,7 +156,8 @@ async function homeExtra(env, pid, today, groups, names) {
       guestTeamsMonth: gbMonth.teams, guestPeopleMonth: gbMonth.people,
       reservationsNext7: rvAgg ? rvAgg.next7 : 0,
       realtorPeople: people.length, realtorResponses: rtRows.length, realtorMgm: people.filter((r) => r.mgm === '참여').length,
-      realtorRefer: people.reduce((a, r) => a + (r.refer_count || 0), 0), external: ext.n
+      realtorRefer: people.reduce((a, r) => a + (r.refer_count || 0), 0), external: ext.n,
+      counselCustomers: csAgg.n, counselNotesMonth: csNotes.n
     },
     contractMonthly
   };

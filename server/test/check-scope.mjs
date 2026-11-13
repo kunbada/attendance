@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
 const src = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
-const SCOPED = ['staff', 'orgs', 'qr_issues', 'attendance', 'reservations', 'visits', 'guestbook', 'attendance_adjust', 'staff_pay', 'job_pay', 'suppliers', 'pay_runs', 'pay_items', 'surveys', 'survey_links', 'responses', 'response_answers', 'response_pii', 'customer_grades', 'ct_records', 'ct_rev', 'fee_rules', 'fee_ledger', 'customers', 'customer_notes', 'customer_imports', 'realtor_forms', 'realtor_responses', 'ocr_usage'];
+const SCOPED = ['staff', 'orgs', 'qr_issues', 'attendance', 'reservations', 'visits', 'guestbook', 'attendance_adjust', 'staff_pay', 'job_pay', 'suppliers', 'pay_runs', 'pay_items', 'surveys', 'survey_links', 'responses', 'response_answers', 'response_pii', 'customer_grades', 'ct_records', 'ct_rev', 'fee_rules', 'fee_ledger', 'customers', 'customer_notes', 'customer_imports', 'realtor_forms', 'realtor_responses', 'ocr_usage', 'staff_otp'];
 
 // [파일 조각, SQL 조각, 이유]
 const EXEMPT = [
@@ -25,6 +25,7 @@ const EXEMPT = [
   ['visit/visit.js', "SELECT id, name FROM staff WHERE id IN", '다른 현장으로 이동한 직원의 이름만 읽는다 (지난 예약·방문 기록의 담당자 표시용, 전화번호 등은 읽지 않음)'],
   ['attendance/attendance.js', "SELECT id, name FROM staff WHERE id IN", '다른 현장으로 이동한 직원의 이름만 읽는다 (이 현장에서 일한 기록의 직원 표시용)'],
   ['survey/survey.js', "SELECT 1 FROM survey_links WHERE code = ?", '배포 링크 코드는 전체에서 유일해야 하므로 현장과 무관하게 중복을 확인한다'],
+  ['counsel/counsel.js', "FROM staff WHERE phone = ?", '상담고객 앱 로그인: 휴대폰 번호는 사람 한 명당 한 행이라 현장과 무관하게 찾는다 (직원 앱 로그인과 같음)'],
   ['realtor/realtor.js', "SELECT 1 FROM realtor_forms WHERE code = ?", '조사 링크 코드는 전체에서 유일해야 하므로 현장과 무관하게 중복을 확인한다'],
   ['realtor/realtor.js', "FROM ocr_usage WHERE day = ?", '명함 인식 무료 한도는 모든 현장이 함께 쓰므로 하루 전체 합계를 본다 (건수만 읽음)'],
   ['survey/survey.js', "${base}", '조건 문자열 base 가 project_id 를 항상 포함해 만든다 (설문 통계 시험으로 확인)'],

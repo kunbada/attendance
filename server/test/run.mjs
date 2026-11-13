@@ -278,7 +278,7 @@ try {
   const sm_me0 = (await call('staff.me', {}, tokA3, A.dev)).data;
   check('직원 앱 메뉴: 기본은 모두 보임, 부동산 링크 없음', sm_me0.menu.reserve && sm_me0.menu.survey && sm_me0.menu.realtor && sm_me0.realtorCode === '', JSON.stringify(sm_me0.menu));
   const sm_g = (await call('admin.staffMenuGet', {}, admin)).data;
-  check('직군별 메뉴 설정 조회', sm_g.jobs.includes('상담사') && sm_g.menu['상담사'].reserve === true && sm_g.menus.length === 3, JSON.stringify(sm_g.jobs));
+  check('직군별 메뉴 설정 조회', sm_g.jobs.includes('상담사') && sm_g.menu['상담사'].reserve === true && sm_g.menus.length === 4 && sm_g.menu['상담사'].counsel === true && sm_g.menu['영업'].counsel === false, JSON.stringify(sm_g.jobs));
   expectErr('없는 직군은 저장 불가', await call('admin.staffMenuSave', { menu: { 없는직군: { reserve: false } } }, admin), '없는 직군');
   expectErr('직원은 메뉴 설정 불가', await call('admin.staffMenuSave', { menu: {} }, tokA3, A.dev), '', 'FORBIDDEN');
   expectOk('상담사: 방문예약·부동산설문 숨김', await call('admin.staffMenuSave', { menu: { 상담사: { reserve: false, survey: true, realtor: false } } }, admin));
@@ -1550,6 +1550,111 @@ try {
   const rt_tel = (await rt('customer.list', { q: '7799' })).data;
   check('사무실 전화만 있어도 고객 DB 에 합쳐지고 번호로 찾음', rt_tel.matched === 1 && rt_tel.customers[0].name === '전화만부동산' && rt_tel.customers[0].channels.includes('부동산'), JSON.stringify(rt_tel.customers[0]));
   check('사무실 전화 고객의 연락처 보기는 사무실 번호', (await rt('customer.reveal', { id: rt_tel.customers[0].id })).data.phone === '020007799');
+
+  // ===== 상담고객 앱: PIN + 텔레그램 인증, 나의 고객·중복·담당 넘기기, 나의 부동산업소, 고객 DB 통합 =====
+  const C1 = person(71), C2 = person(72);
+  for (const p of [C1, C2]) expectOk('상담사 가입 ' + p.name, await call('staff.signup', base(p), '', p.dev));
+  const cs_all = (await call('admin.staffList', {}, admin)).data.staff;
+  const c1id = cs_all.find((x) => x.phone === C1.phone).id, c2id = cs_all.find((x) => x.phone === C2.phone).id;
+  expectOk('상담사1 승인', await call('admin.approve', { staffId: c1id }, admin));
+  expectOk('상담사2 승인', await call('admin.approve', { staffId: c2id }, admin));
+  expectErr('텔레그램 미연결이면 상담 앱 로그인 불가', await call('counsel.loginStart', { phone: C1.phone, pin: C1.pin }), '텔레그램', 'NO_TELEGRAM');
+  await sql(`UPDATE staff SET telegram_id = CASE id WHEN '${c1id}' THEN '777001' ELSE '777002' END WHERE id IN ('${c1id}', '${c2id}')`);
+  expectErr('상담 앱: 틀린 PIN', await call('counsel.loginStart', { phone: C1.phone, pin: '9999' }), 'PIN');
+  const cs_otp = async (p, chat) => {
+    sent.length = 0;
+    const r = await call('counsel.loginStart', { phone: p.phone, pin: p.pin });
+    const m = sent.find((x) => x.method === 'sendMessage' && String(x.payload.chat_id) === chat);
+    return { r, code: m ? (m.payload.text.match(/(\d{6})/) || [])[1] : '' };
+  };
+  const cs_o1 = await cs_otp(C1, '777001');
+  check('PIN 이 맞으면 텔레그램으로 6자리 인증번호', cs_o1.r.ok && /^\d{6}$/.test(cs_o1.code), JSON.stringify(cs_o1.r));
+  expectErr('1분 안에는 다시 받을 수 없음', await call('counsel.loginStart', { phone: C1.phone, pin: C1.pin }), '1분');
+  expectErr('틀린 인증번호', await call('counsel.loginVerify', { phone: C1.phone, code: cs_o1.code === '000000' ? '111111' : '000000' }), '(1/5)');
+  const cs_lv1 = await call('counsel.loginVerify', { phone: C1.phone, code: cs_o1.code });
+  check('인증번호로 로그인', cs_lv1.ok && /^[0-9a-f-]{36}$/.test(cs_lv1.data.token));
+  expectErr('같은 인증번호는 다시 쓸 수 없음', await call('counsel.loginVerify', { phone: C1.phone, code: cs_o1.code }), '만료');
+  const t1 = cs_lv1.data.token;
+  const cs_o2 = await cs_otp(C2, '777002');
+  const t2 = (await call('counsel.loginVerify', { phone: C2.phone, code: cs_o2.code })).data.token;
+  const cs = (action, data, tok = t1) => call(action, data || {}, tok);
+  expectErr('상담 앱 로그인으로 직원 앱 기능(출근 등)은 불가', await call('staff.me', {}, t1, C1.dev), '권한', 'FORBIDDEN');
+  const cs_me = (await cs('counsel.me')).data;
+  check('상담 앱 내 정보·선택지', cs_me.staff.id === c1id && cs_me.options.ranks.includes('특별공급') && cs_me.options.specials.includes('신혼부부') && cs_me.options.types.length > 0);
+
+  const CP1 = '010-0000-8801';
+  expectErr('상담고객: 번호 검사', await cs('counsel.save', { phone: '123' }), '휴대폰');
+  expectErr('상담고객: 순위 검사', await cs('counsel.save', { phone: CP1, rank: '3순위' }), '순위');
+  const cs_s1 = await cs('counsel.save', { phone: CP1, name: '상담고객일', interest: ['84㎡', '74㎡'], grade: 'A', rank: '특별공급', special: ['신혼부부', '생애최초'], consent: '동의', method: '방문상담', content: '84 관심, 다음 주 재방문' });
+  check('상담고객 등록 + 첫 상담 기록', cs_s1.ok && !cs_s1.data.duplicate && cs_s1.data.noteAdded, JSON.stringify(cs_s1));
+  const cs_l1 = (await cs('counsel.customers')).data;
+  const cs_c = cs_l1.customers[0] || {};
+  check('나의 고객 목록 (등급·순위·특공·관심평형, 번호는 가림)', cs_l1.customers.length === 1 && cs_c.name === '상담고객일' && cs_c.grade === 'A' && cs_c.rank === '특별공급' && cs_c.special.join() === '신혼부부,생애최초'
+    && cs_c.interest.join() === '84㎡,74㎡' && cs_c.ownerIsMe && !cs_c.duplicate && cs_c.phone.includes('****'), JSON.stringify(cs_c));
+  const cs_lk = (await cs('counsel.lookup', { phone: CP1 }, t2)).data;
+  check('다른 상담사가 번호를 넣으면 담당 상담사가 보임', cs_lk.exists && cs_lk.customer.owner.startsWith(C1.name) && !cs_lk.customer.canEdit);
+  check('없는 번호 조회', (await cs('counsel.lookup', { phone: '010-0000-8899' })).data.exists === false);
+  const cs_s2 = await cs('counsel.save', { phone: CP1, name: '다른이름', grade: 'D', method: '전화상담', content: '두번째 상담사 상담' }, t2);
+  check('중복: 다른 상담사가 저장하면 상담 기록만 남고 정보는 그대로', cs_s2.ok && cs_s2.data.duplicate && cs_s2.data.noteAdded && cs_s2.data.owner === C1.name);
+  const cs_c1b = (await cs('counsel.customers')).data.customers[0];
+  check('원래 상담사 목록에 중복 상담사 표시', cs_c1b.name === '상담고객일' && cs_c1b.grade === 'A' && cs_c1b.duplicate && cs_c1b.others[0].startsWith(C2.name) && cs_c1b.notes === 2, JSON.stringify(cs_c1b));
+  const cs_l2 = (await cs('counsel.customers', {}, t2)).data;
+  check('두번째 상담사 목록에도 중복으로', cs_l2.customers.length === 1 && cs_l2.customers[0].duplicate && !cs_l2.customers[0].ownerIsMe && cs_l2.counts.duplicate === 1);
+  expectErr('담당이 아니면 고객 정보 수정 불가', await cs('counsel.update', { id: cs_c1b.id, name: 'x' }, t2), '담당', 'OWNED');
+  expectErr('다른 상담사가 담당 중이면 받기 불가', await cs('counsel.take', { id: cs_c1b.id }, t2), '포기', 'OWNED');
+  expectErr('남의 담당은 포기 불가', await cs('counsel.release', { id: cs_c1b.id }, t2), '내가 담당');
+  const cs_g1 = (await cs('counsel.get', { id: cs_c1b.id })).data;
+  check('상세: 전화번호 원문 + 두 상담사의 이력', cs_g1.customer.phone === '010-0000-8801' && cs_g1.timeline.filter((x) => x.type === '상담').length === 2 && cs_g1.timeline.some((x) => x.mine), JSON.stringify(cs_g1.customer));
+  expectOk('담당 포기', await cs('counsel.release', { id: cs_c1b.id }));
+  expectOk('다른 상담사가 담당 받기', await cs('counsel.take', { id: cs_c1b.id }, t2));
+  const cs_l2b = (await cs('counsel.customers', { filter: '담당' }, t2)).data.customers;
+  check('담당이 넘어감', cs_l2b.length === 1 && cs_l2b[0].ownerIsMe);
+  expectOk('새 담당이 정보 수정', await cs('counsel.update', { id: cs_c1b.id, name: '상담고객일', interest: ['84㎡'], grade: 'B', rank: '1순위' }, t2));
+  const cs_n = await cs('counsel.noteAdd', { id: cs_c1b.id, method: '전화상담', content: '2차 상담' }, t2);
+  expectErr('남이 남긴 기록은 지울 수 없음', await cs('counsel.noteDelete', { noteId: cs_n.data.id }), '내가 남긴');
+  expectOk('내 기록 삭제', await cs('counsel.noteDelete', { noteId: cs_n.data.id }, t2));
+
+  // 고객 DB · 상담고객 탭 통합
+  const cs_db = (await call('customer.list', { channel: '상담' }, admin)).data;
+  const cs_dbc = cs_db.customers[0] || {};
+  check('고객 DB 에 "상담" 경로로 합쳐짐 (등급·순위·담당)', cs_db.matched === 1 && cs_db.summary.channels.상담 === 1 && cs_dbc.grade === 'B' && cs_dbc.rank === '1순위' && cs_dbc.owner === C2.name && !cs_dbc.channels.includes('외부'), JSON.stringify(cs_dbc));
+  const cs_adm = (await call('counsel.adminList', {}, admin)).data;
+  check('상담고객 탭: 목록·중복·상담사별 현황', cs_adm.total === 1 && cs_adm.customers[0].duplicate && cs_adm.perStaff.some((p) => p.id === c2id && p.owned === 1) && cs_adm.perStaff.some((p) => p.id === c1id && p.notes >= 1), JSON.stringify(cs_adm.perStaff));
+  check('상담고객 탭 필터: 중복만·상담사별', (await call('counsel.adminList', { duplicate: true }, admin)).data.matched === 1 && (await call('counsel.adminList', { ownerId: c1id }, admin)).data.matched === 0);
+  expectErr('상담사 로그인으로 관리 목록은 불가', await cs('counsel.adminList'), '권한', 'FORBIDDEN');
+
+  // 부동산 조사: 로그인한 상담사 기록 → 나의 부동산업소
+  expectOk('조사 링크 다시 사용', await call('realtor.formSave', { active: true }, admin));
+  const cs_rc = (await call('realtor.formGet', {}, admin)).data.form.code;
+  const cs_rb = { code: cs_rc, consent: true, officeName: '상담사부동산', name: '최중개', mobile: '010-0000-8811', officeTel: '', address: '양주', market: 3, intent: 4, refer: 4, referCount: '2', mgm: '참여', opinion: '없음' };
+  expectOk('상담 앱에 로그인한 상태로 조사 제출', await call('realtor.submit', { ...cs_rb, nonce: 'cs-rt-0001', auth: { token: t1 } }));
+  expectOk('로그인 없이 조사 제출', await call('realtor.submit', { ...cs_rb, officeName: '익명부동산', mobile: '010-0000-8812', nonce: 'cs-rt-0002' }));
+  expectOk('틀린 토큰은 무시하고 저장', await call('realtor.submit', { ...cs_rb, officeName: '가짜토큰부동산', mobile: '010-0000-8813', nonce: 'cs-rt-0003', auth: { token: '00000000-0000-0000-0000-000000000000' } }));
+  expectOk('직원 앱 토큰은 기기키가 맞아야 인정', await call('realtor.submit', { ...cs_rb, officeName: '기기다름부동산', mobile: '010-0000-8814', nonce: 'cs-rt-0005', auth: { token: tokA3, deviceKey: 'wrong-device' } }));
+  const cs_rq = await query(`SELECT office_name, staff_id FROM realtor_responses WHERE project_id = 'P01' AND nonce LIKE 'cs-rt-%' ORDER BY nonce`);
+  check('조사한 상담사가 기록됨 (토큰 없거나 틀리면 빈 값)', cs_rq[0].staff_id === c1id && cs_rq.slice(1).every((r) => r.staff_id === ''), JSON.stringify(cs_rq));
+  const cs_mr = (await cs('counsel.realtors')).data;
+  check('나의 부동산업소: 내가 조사한 곳 + 담당', cs_mr.offices.length === 1 && cs_mr.offices[0].officeName === '상담사부동산' && cs_mr.offices[0].ownerIsMe && cs_mr.offices[0].myCount === 1, JSON.stringify(cs_mr.offices));
+  expectOk('다른 상담사도 같은 업소를 조사', await call('realtor.submit', { ...cs_rb, nonce: 'cs-rt-0004', market: 2, auth: { token: t2 } }));
+  const cs_mr2 = (await cs('counsel.realtors', {}, t2)).data.offices[0];
+  check('중복 업소 표시 (담당은 처음 조사한 상담사)', cs_mr2 && cs_mr2.duplicate && !cs_mr2.ownerIsMe && cs_mr2.owner.startsWith(C1.name), JSON.stringify(cs_mr2));
+  expectErr('남의 업소는 받기 불가', await cs('counsel.realtorTake', { id: cs_mr2.id }, t2), '포기', 'OWNED');
+  const cs_rg = (await cs('counsel.realtorGet', { id: cs_mr.offices[0].id })).data;
+  check('업소 상세: 조사 2건(조사한 상담사 이름) + 휴대폰', cs_rg.responses.length === 2 && cs_rg.responses.some((r) => r.by.startsWith(C2.name)) && cs_rg.office.mobile === '010-0000-8811', JSON.stringify(cs_rg.office));
+  expectOk('업소 상담 기록', await cs('counsel.realtorNote', { id: cs_mr.offices[0].id, method: '전화상담', content: 'MGM 안내' }));
+  check('업소 상담 기록은 상담고객으로 세지 않음(부동산으로)', (await call('counsel.adminList', {}, admin)).data.total === 1);
+  expectOk('업소 담당 포기', await cs('counsel.realtorRelease', { id: cs_mr.offices[0].id }));
+  expectOk('다른 상담사가 업소 받기', await cs('counsel.realtorTake', { id: cs_mr2.id }, t2));
+  check('업소 담당이 넘어감', (await cs('counsel.realtors', { filter: '담당' }, t2)).data.offices.length === 1);
+
+  // 직군 메뉴에서 끄면 막힘
+  expectOk('상담사 직군의 상담 앱 끄기', await call('admin.staffMenuSave', { menu: { 상담사: { reserve: true, survey: true, realtor: true, counsel: false } } }, admin));
+  expectErr('끄면 로그인해 둔 세션도 막힘', await cs('counsel.customers'), '상담고객 앱', 'FORBIDDEN');
+  expectErr('끄면 로그인도 불가', await call('counsel.loginStart', { phone: C2.phone, pin: C2.pin }), '상담고객 앱');
+  expectOk('상담 앱 다시 켜기', await call('admin.staffMenuSave', { menu: { 상담사: { reserve: true, survey: true, realtor: true, counsel: true } } }, admin));
+  const cs_hd = (await call('admin.dashboard', {}, admin)).data.customerStats;
+  check('홈 통계에 상담 고객·이번 달 상담', cs_hd.counselCustomers === 1 && cs_hd.counselNotesMonth >= 3, JSON.stringify(cs_hd));
+  expectOk('조사 링크 다시 중지', await call('realtor.formSave', { active: false }, admin));
 
   // --- 보유기간 지난 개인정보 파기 ---
   expectErr('관리자만 개인정보 파기 가능', await call('survey.purgePii', { months: 6 }, subA, '', null), '권한', 'FORBIDDEN');

@@ -38,3 +38,4 @@ DROP TABLE IF EXISTS customer_imports;
 DROP TABLE IF EXISTS realtor_forms;
 DROP TABLE IF EXISTS realtor_responses;
 DROP TABLE IF EXISTS ocr_usage;
+DROP TABLE IF EXISTS staff_otp;

@@ -215,15 +215,22 @@ export async function realtorSubmit(env, data) {
   const v = await cleanInput(env, data);
   const card = cardBytes(data.card);
   const id = newId('RT');
+  const by = await submitterStaff(env, data.auth, f.project_id);
   try {
     await run(env,
-      `INSERT INTO realtor_responses (id, project_id, office_name, office_tel, address, consent, name, position, phone_enc, phone_hash, phone_tail, cust_hash, market, intent, refer, refer_count, mgm, opinion, ocr, nonce, submitted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO realtor_responses (id, project_id, office_name, office_tel, address, consent, name, position, phone_enc, phone_hash, phone_tail, cust_hash, market, intent, refer, refer_count, mgm, opinion, ocr, nonce, submitted_at, staff_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id, f.project_id, v.officeName, v.officeTel, v.address, v.consent ? 1 : 0, v.name, v.position, v.phoneEnc, v.phoneHash, v.phoneTail, v.custHash,
-      v.market, v.intent, v.refer, v.referCount, v.mgm, v.opinion, data.ocr === true ? 1 : 0, nonce, nowStr());
+      v.market, v.intent, v.refer, v.referCount, v.mgm, v.opinion, data.ocr === true ? 1 : 0, nonce, nowStr(), by);
   } catch (e) {
     if (/UNIQUE/i.test(String(e.message))) return {}; // 같은 제출이 다시 들어온 것
     throw e;
+  }
+  // 조사한 직원이 이 중개업소(연락처)의 담당이 된다. 이미 다른 담당이 있으면 그대로 둔다 (상담 앱 "나의 부동산업소")
+  if (by) {
+    await run(env, `INSERT INTO customers (project_id, phone_hash, owner_id, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, phone_hash) DO UPDATE SET owner_id = CASE WHEN customers.owner_id = '' THEN excluded.owner_id ELSE customers.owner_id END`,
+      f.project_id, v.custHash, by, nowStr(), nowStr(), by);
   }
   // 명함 사진 백업: 조사 기록이 저장된 뒤에 올린다. 사진 저장이 실패해도 조사 기록은 남긴다
   if (card && env.CARDS) {
@@ -235,6 +242,19 @@ export async function realtorSubmit(env, data) {
     return { cardSaved: true };
   }
   return {};
+}
+
+// 조사 화면을 연 브라우저에 로그인해 둔 직원 앱(staff, 기기 확인)·상담 앱(counsel) 토큰으로 조사한 직원을 알아낸다. 없거나 틀리면 '' (조사는 그대로 저장)
+async function submitterStaff(env, auth, pid) {
+  if (!auth || typeof auth !== 'object') return '';
+  const token = s(auth.token);
+  if (!/^[0-9a-f-]{36}$/.test(token)) return '';
+  const r = await first(env,
+    `SELECT st.id, st.device_key, ss.kind FROM sessions ss JOIN staff st ON st.id = ss.user_id
+     WHERE ss.token = ? AND ss.expires_at > ? AND ss.kind IN ('staff', 'counsel') AND st.status = '활동' AND st.project_id = ?`, token, Date.now(), pid);
+  if (!r) return '';
+  if (r.kind === 'staff' && (!s(auth.deviceKey) || r.device_key !== s(auth.deviceKey))) return '';
+  return r.id;
 }
 
 // 명함 사진(JPEG, base64) 검사 → 바이트. 없으면 null. 화면에서 긴 변 1000px 안팎으로 줄여 보낸다 (보통 50~150KB)
@@ -275,7 +295,7 @@ export async function purgeRealtorCards(env, pid) {
 // ---------- 관리: 중개업소 목록·상세·수정 ----------
 
 // 같은 중개업소 묶기: 휴대폰 해시 또는 사무실 전화가 하나라도 같으면 한 곳. 둘 다 없으면 상호+주소
-function groupOffices(rows) {
+export function groupOffices(rows) {
   const parent = rows.map((_, i) => i);
   const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   const seen = {};
@@ -292,7 +312,7 @@ function groupOffices(rows) {
   return Object.values(groups);
 }
 
-function officeView(list) {
+export function officeView(list) {
   const r = list[0];
   const named = list.find((x) => x.name) || {};
   const withPhone = list.find((x) => x.phone_tail) || {};
@@ -305,13 +325,13 @@ function officeView(list) {
   };
 }
 
-const responseView = (r) => ({
+export const responseView = (r) => ({
   id: r.id, at: r.submitted_at, officeName: r.office_name, officeTel: fmtTel(r.office_tel), address: r.address, consent: !!r.consent, name: r.name, position: r.position,
   phone: r.phone_tail ? '***-****-' + r.phone_tail : '', hasPhone: !!r.phone_enc, market: r.market, intent: r.intent, refer: r.refer, referCount: r.refer_count, mgm: r.mgm, opinion: r.opinion,
-  ocr: !!r.ocr, hasCard: !!r.card_key, memo: r.memo, updatedAt: r.updated_at, updatedBy: r.updated_by
+  ocr: !!r.ocr, hasCard: !!r.card_key, staffId: r.staff_id || '', memo: r.memo, updatedAt: r.updated_at, updatedBy: r.updated_by
 });
 
-async function loadOffices(env, pid) {
+export async function loadOffices(env, pid) {
   const rows = await all(env, 'SELECT * FROM realtor_responses WHERE project_id = ? ORDER BY submitted_at DESC, rowid DESC', pid);
   return { rows, groups: groupOffices(rows) };
 }
@@ -363,7 +383,7 @@ export async function realtorList(env, data, ctx) {
   };
 }
 
-async function officeOf(env, pid, id) {
+export async function officeOf(env, pid, id) {
   const { groups } = await loadOffices(env, pid);
   const g = groups.find((list) => list.some((x) => x.id === s(id)));
   if (!g) throw new AppError('조사 기록을 찾을 수 없습니다.');

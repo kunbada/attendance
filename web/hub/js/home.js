@@ -76,7 +76,7 @@
         tile('오늘 방문예약', num(t.reservations) + '건', '앞으로 7일 ' + num(cs.reservationsNext7) + '건'),
         tile('예약 → 방문율', d.visitRate.rate + '%', Number(d.month.slice(5)) + '월 ' + d.visitRate.visited + ' / ' + d.visitRate.reservations + '건'),
         tile('부동산(중개업소)', num(cs.realtorPeople) + '명', 'MGM 참여 ' + cs.realtorMgm + ' · 소개 가능 ' + num(cs.realtorRefer) + '명'),
-        tile('외부 자료 고객', num(cs.external) + '명', '업로드한 명단'))],
+        tile('상담 고객', num(cs.counselCustomers) + '명', '이번 달 상담 ' + num(cs.counselNotesMonth) + '건 · 외부 자료 ' + num(cs.external) + '명'))],
       '최근 30일 고객 유입', function () {
         var ds = function (label, key, color) { return { label: label, data: d.trend30.map(function (x) { return x[key]; }), backgroundColor: color, borderRadius: 3, stack: 'in', maxBarThickness: 14, order: 1 }; };
         return {

@@ -3,8 +3,8 @@
 import { AppError, s, all, first, run, writeLog } from './util.js';
 import { collectWork } from '../pay/calc.js';
 
-export const MENU_KEYS = ['reserve', 'survey', 'realtor'];
-export const MENU_LABEL = { reserve: '방문예약', survey: '고객설문', realtor: '부동산설문' };
+export const MENU_KEYS = ['reserve', 'survey', 'realtor', 'counsel'];
+export const MENU_LABEL = { reserve: '방문예약', survey: '고객설문', realtor: '부동산설문', counsel: '상담고객 앱' };
 const KEY = '직원앱메뉴';
 
 // { 직군이름: { reserve: true, survey: true, realtor: false } } — 적히지 않은 직군·메뉴는 보인다(기본)
@@ -12,13 +12,15 @@ export async function loadStaffMenu(env, pid) {
   const r = await first(env, 'SELECT value FROM project_settings WHERE project_id = ? AND key = ?', pid, KEY);
   try { const o = r && r.value ? JSON.parse(r.value) : {}; return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; }
 }
+// 상담고객 앱은 기본으로 이름에 "상담"이 들어간 직군만 (다른 직군은 관리자가 켜야 한다). 나머지 메뉴는 기본으로 보인다
+const defaultOn = (k, job) => (k === 'counsel' ? /상담/.test(s(job)) : true);
 export function menuFor(conf, job) {
   const j = (conf && conf[job]) || {};
-  return Object.fromEntries(MENU_KEYS.map((k) => [k, j[k] !== false]));
+  return Object.fromEntries(MENU_KEYS.map((k) => [k, j[k] === undefined ? defaultOn(k, job) : j[k] !== false]));
 }
 // 직원이 숨겨진 메뉴의 기능을 부르면 서버에서도 막는다
 export async function requireStaffMenu(env, ctx, key) {
-  if (ctx.role !== 'staff') return;
+  if (ctx.role !== 'staff' && ctx.role !== 'counsel') return;
   if (!menuFor(await loadStaffMenu(env, ctx.projectId), ctx.staff.job)[key]) throw new AppError(MENU_LABEL[key] + '은(는) 이 직군에서 쓸 수 없습니다. 관리자에게 문의해 주세요.', 'FORBIDDEN');
 }
 
@@ -35,7 +37,7 @@ export async function staffMenuSave(env, data, ctx) {
   const out = {};
   for (const job of Object.keys(raw)) {
     if (!jobs.has(job)) throw new AppError('이 현장에 없는 직군입니다: ' + job);
-    out[job] = Object.fromEntries(MENU_KEYS.map((k) => [k, raw[job][k] !== false]));
+    out[job] = Object.fromEntries(MENU_KEYS.map((k) => [k, raw[job][k] === undefined ? defaultOn(k, job) : raw[job][k] !== false]));
   }
   await run(env, 'INSERT INTO project_settings (project_id, key, value) VALUES (?, ?, ?) ON CONFLICT(project_id, key) DO UPDATE SET value = excluded.value', pid, KEY, JSON.stringify(out));
   const hidden = Object.keys(out).map((j) => j + ':' + MENU_KEYS.filter((k) => !out[j][k]).map((k) => MENU_LABEL[k]).join('·')).filter((x) => !x.endsWith(':'));

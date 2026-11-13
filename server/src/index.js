@@ -29,6 +29,10 @@ import { contractSummary } from './contract/summary.js';
 import { feeRuleList, feeRuleSave, feeRuleDelete, feeRunCreate, payStatement } from './pay/fee.js';
 import { feeSettingsGet, feeSettingsSave, feeCancelList, feeCancelDecide } from './pay/feeledger.js';
 import { staffMenuGet, staffMenuSave, staffMyAttendance, requireStaffMenu } from './core/staffmenu.js';
+import {
+  counselLoginStart, counselLoginVerify, counselMe, counselCustomers, counselLookup, counselSave, counselUpdate, counselGet, counselNoteAdd, counselNoteDelete,
+  counselRelease, counselTake, counselRealtors, counselRealtorGet, counselRealtorNote, counselRealtorRelease, counselRealtorTake, counselAdminList
+} from './counsel/counsel.js';
 import { contractStaffList, contractMatchList, contractMatchSave } from './contract/match.js';
 import { guestSubmit, deskGuestList, deskGuestSave, deskGuestDelete, deskGuestCall, deskStaffByOrg, deskGuestSuggest } from './guestbook/guestbook.js';
 
@@ -49,6 +53,25 @@ const ACTIONS = {
   'staff.telegramLink': { roles: ['staff'], fn: staffTelegramLink },
   'staff.myPay': { roles: ['staff'], fn: staffMyPay },
   'staff.myAttendance': { roles: ['staff'], fn: staffMyAttendance },
+
+  // 상담고객 앱(상담사, 데스크탑): PIN + 텔레그램 인증번호로 로그인. 직군별 메뉴에서 "상담고객 앱"이 꺼진 직군은 쓸 수 없다
+  'counsel.loginStart': { roles: ['public'], fn: counselLoginStart },
+  'counsel.loginVerify': { roles: ['public'], fn: counselLoginVerify },
+  'counsel.me': { roles: ['counsel'], menu: 'counsel', fn: counselMe },
+  'counsel.customers': { roles: ['counsel'], menu: 'counsel', fn: counselCustomers },
+  'counsel.lookup': { roles: ['counsel'], menu: 'counsel', fn: counselLookup },
+  'counsel.save': { roles: ['counsel'], menu: 'counsel', fn: counselSave },
+  'counsel.update': { roles: ['counsel'], menu: 'counsel', fn: counselUpdate },
+  'counsel.get': { roles: ['counsel'], menu: 'counsel', fn: counselGet },
+  'counsel.noteAdd': { roles: ['counsel'], menu: 'counsel', fn: counselNoteAdd },
+  'counsel.noteDelete': { roles: ['counsel'], menu: 'counsel', fn: counselNoteDelete },
+  'counsel.release': { roles: ['counsel'], menu: 'counsel', fn: counselRelease },
+  'counsel.take': { roles: ['counsel'], menu: 'counsel', fn: counselTake },
+  'counsel.realtors': { roles: ['counsel'], menu: 'counsel', fn: counselRealtors },
+  'counsel.realtorGet': { roles: ['counsel'], menu: 'counsel', fn: counselRealtorGet },
+  'counsel.realtorNote': { roles: ['counsel'], menu: 'counsel', fn: counselRealtorNote },
+  'counsel.realtorRelease': { roles: ['counsel'], menu: 'counsel', fn: counselRealtorRelease },
+  'counsel.realtorTake': { roles: ['counsel'], menu: 'counsel', fn: counselRealtorTake },
   // menu: 직군별 직원 앱 메뉴 설정에서 숨긴 기능이면 직원은 부를 수 없다
   'survey.myLinks': { roles: ['staff'], menu: 'survey', fn: surveyMyLinks },
 
@@ -131,6 +154,7 @@ const ACTIONS = {
   'survey.purgePii': { roles: ['admin'], scope: 'global', fn: surveyPurgePii },
   'survey.respondents': { roles: MGR, fn: surveyRespondents },
   'customer.list': { roles: MGR, fn: customerList },
+  'counsel.adminList': { roles: MGR, fn: counselAdminList },
   'customer.gradeSave': { roles: MGR, fn: customerGradeSave },
   'customer.gradeRules': { roles: MGR, fn: customerGradeRules },
   'customer.gradeRulesSave': { roles: MGR, fn: customerGradeRulesSave },
